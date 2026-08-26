@@ -69,8 +69,8 @@ Routing follows the same shape as everything else. This repository owns the
 Envoy Gateway runtime, the `GatewayClass`, the shared `Gateway` and the routes
 for platform hostnames such as `fabric.<domain>` and `auth.<domain>`. Routes for
 client hostnames such as `acme.<domain>` are created by OpenTofu in the client's
-own namespace and attach to the same Gateway. There is deliberately only one
-routing authority in the cluster; see
+own namespace and attach to the same Gateway. See
+[Exposure planes](#exposure-planes) and
 [`applications/core/platform-gateway`](../applications/core/platform-gateway/).
 
 No resource may have competing ownership. If both an Argo CD Application and
@@ -86,10 +86,15 @@ moved before the resource is created — not resolved afterwards by convention.
 | Registry | `saas-fabric-hosting` |
 | Argo CD installation | `saas-fabric-hosting` |
 | Argo CD runtime configuration the platform depends on | `saas-fabric-platform` |
+| Operator-plane access to Argo CD | `saas-fabric-platform` |
 | Argo applications | `saas-fabric-platform` |
 | Envoy Gateway runtime, `GatewayClass`, `Gateway` | `saas-fabric-platform` |
+| Tailscale operator and operator-plane access | `saas-fabric-platform` |
+| Tailnet ACL policy, tag ownership, OAuth client | outside Kubernetes; tailnet administration |
 | Keycloak deployment | `saas-fabric-platform` |
 | OpenBao deployment | `saas-fabric-platform` |
+| Secret projection into workloads | `saas-fabric-platform` |
+| Secret *values* | OpenBao, never Git |
 | CNPG operator | `saas-fabric-platform` |
 | SaaS Fabric deployment | `saas-fabric-platform` |
 | Client definition | `saas-fabric-clients` |
@@ -130,12 +135,90 @@ applications/core/*/application.yaml        → Helm charts, Kustomize overlays
 applications/catalogue/*/application.yaml
 ```
 
+## Exposure planes
+
+The platform has **two** network planes with disjoint responsibilities. This is
+not one routing authority and a workaround; it is a deliberate split, and a
+hostname belongs to a plane for a stated reason.
+
+```text
+                        Cluster
+                            │
+             ┌──────────────┴──────────────┐
+             │                             │
+        Product plane                 Operator plane
+             │                             │
+       Envoy Gateway                    Tailscale
+             │                             │
+  client and platform HTTP        direct internal / admin
+             │                             │
+  fabric / applications           Argo CD / OpenBao UI /
+  client hostnames                Keycloak admin / Grafana
+```
+
+| | Product plane | Operator plane |
+|---|---|---|
+| Implemented by | Envoy Gateway | Tailscale operator |
+| Kubernetes resource | `HTTPRoute` on the platform `Gateway` | `Ingress`, `ingressClassName: tailscale` |
+| Reachable from | the internet, or wherever DNS points | the tailnet only |
+| Carries | product and client traffic | administration and operations |
+| Client traffic | **yes** | **never** |
+| Owned by | this repository (platform hosts), client OpenTofu (client hosts) | this repository only |
+
+There is no third routing authority. `scripts/check.py` fails the build on any
+`Ingress` that is not `tailscale`, and on any `IngressClass` other than the one
+the Tailscale operator owns.
+
+### Which plane a service belongs on
+
+| Service | Product | Operator |
+|---|---|---|
+| SaaS Fabric runtime endpoint | ✅ | — |
+| Keycloak OIDC endpoints (`/realms`, `/resources`, `/.well-known`) | ✅ | — |
+| Keycloak administration (`/admin`) | ❌ | ✅ |
+| OpenBao API used by workloads | cluster-local, neither plane | — |
+| OpenBao operator UI and API | ❌ | ✅ |
+| Grafana | ❌ | ✅ |
+| Argo CD | ❌ | ✅ |
+| Airflow UI, when adopted | ❌ | ✅ |
+| Client hostnames (`acme.<domain>`) | ✅, owned by the client layer | **never** |
+
+**Keycloak is the case worth understanding.** It is not an internal service:
+applications genuinely need its authentication endpoints on the product edge.
+It is the *administrative* surface that has no reason to be there. So its
+product-plane route matches only the OIDC paths, and the whole application —
+admin console included — is exposed on the operator plane where only the tailnet
+can reach it.
+
+A bare `/` PathPrefix on the product plane would quietly undo that, so
+`scripts/check.py` rejects it for any route whose backend carries an admin
+surface.
+
+### Services that need neither plane
+
+Most in-cluster traffic is neither. OpenBao is reached by workloads at
+`openbao.secrets.svc.cluster.local:8200` and the OpenTelemetry collector at
+`observability-collector.observability.svc.cluster.local:4317`. Cluster-local is
+the default; a plane is something a service has to earn.
+
+### Enabling the operator plane
+
+It is core, and it is enabled per environment:
+[`applications/core/tailscale`](../applications/core/tailscale/) and
+[`applications/core/operator-access`](../applications/core/operator-access/) are
+listed by each environment that runs one. LucentRoot does. Production does not
+yet — it has no tailnet — so its administrative surfaces are reachable by
+`kubectl port-forward` and nothing else.
+
 ## Argo CD runtime contract
 
-The platform depends on two things about Argo CD that are **not** defaults.
-Both are owned by this repository, in
-[`argocd/runtime`](../argocd/runtime/), applied at bootstrap and reconciled
-thereafter. Neither is left as an assumption.
+The platform depends on three things about Argo CD that are **not** defaults.
+All are owned by this repository, in [`argocd/runtime`](../argocd/runtime/),
+applied at bootstrap and reconciled thereafter. None is left as an assumption.
+
+The two ConfigMap settings share a property worth naming: when missing they fail
+*quietly*. Nothing errors — wave ordering simply stops working, and
+operator-plane access to Argo CD simply loops.
 
 ### Application health assessment
 
@@ -151,6 +234,21 @@ the next section into actual ordering.
 
 `scripts/check.py` fails the build if it is missing from either the bootstrap
 set or the reconciled environment, so it cannot quietly go away.
+
+### Server TLS termination
+
+[`argocd/runtime/server-insecure.yaml`](../argocd/runtime/server-insecure.yaml)
+sets `server.insecure: "true"` in `argocd-cmd-params-cm`.
+
+The operator plane terminates TLS at the Tailscale proxy and forwards plain
+HTTP. By default `argocd-server` serves HTTPS and redirects port 80 to it, so
+that arrangement is a redirect loop.
+
+This is the clearest case of why the split is *hosting installs, platform
+configures*: the requirement comes from how the platform routes to Argo CD, and
+hosting has no way to know that. It is also a different ConfigMap from the
+health assessment, and it needs an `argocd-server` restart to take effect —
+command-line parameters are read at startup, not watched.
 
 ### Argo CD version
 
@@ -183,9 +281,9 @@ Waves are kept few and meaningful:
 |---|---|---|
 | `-20` | Argo CD runtime configuration | must be active before any wave is ordered |
 | `-10` | environment ConfigMap, catalogue `AppProject` | must exist before anything references them |
-| `0` | Envoy Gateway, CloudNativePG operator | CRDs, control planes |
-| `10` | platform `Gateway`, OpenTelemetry collector, OpenBao, Keycloak database | routing, data, secrets and telemetry foundations |
-| `20` | Keycloak | needs its database Healthy and the Gateway to attach a route to |
+| `0` | Envoy Gateway, Tailscale operator, CloudNativePG operator | CRDs, control planes, ingress classes |
+| `10` | platform `Gateway`, operator access, OpenTelemetry collector, OpenBao, External Secrets, Keycloak database | routing, data, secrets and telemetry foundations |
+| `20` | Keycloak, the OpenBao secret store | Keycloak needs its database Healthy and a Gateway to attach to; the store needs both halves it joins |
 | `30` | SaaS Fabric | needs routing, identity, secrets and telemetry |
 | `40` | catalogue applications | optional, last |
 
@@ -254,9 +352,10 @@ rather than by disabling pruning across the platform.
 | `argocd` | Argo CD, projects, Applications, environment ConfigMap |
 | `platform-system` | Envoy Gateway, the platform `Gateway`, SaaS Fabric |
 | `identity` | Keycloak and its database |
-| `secrets` | OpenBao |
+| `secrets` | OpenBao and External Secrets — the secrets authority and its delivery path |
 | `data-system` | CloudNativePG operator |
 | `observability` | OpenTelemetry collector |
+| `tailscale` | Tailscale operator and the `ts-*` proxies it creates |
 | `catalogue` | optional catalogue workloads |
 
 Client namespaces (`client-acme`, `client-example`) are created by the client
@@ -287,6 +386,85 @@ about the workload behind it. SaaS Fabric becoming operational is a separate
 milestone that starts when the application repository publishes a tag — see
 [`applications/core/saas-fabric`](../applications/core/saas-fabric/).
 
+## The bootstrap secret boundary
+
+OpenBao is intended to become the platform's secrets authority. It cannot be the
+source of the credentials the platform needs in order to start OpenBao, and
+pretending otherwise produces a cycle:
+
+```text
+platform needs a secret
+        ↓
+delivered from OpenBao
+        ↓
+OpenBao must already be running
+```
+
+So there is a small, explicit boundary. A short list of credentials is injected
+externally at bootstrap; everything else is expected to come from OpenBao once
+it is up.
+
+```text
+hosting / environment bootstrap
+        ↓
+minimum bootstrap credentials      ← injected externally, never in Git
+platform comes alive
+        ↓
+OpenBao
+        ↓
+workload secret projection         ← everything else
+```
+
+### What is on the bootstrap side today
+
+| Secret | Namespace | Why it cannot come from OpenBao |
+|---|---|---|
+| `keycloak-admin` | `identity` | needed before an identity provider exists to hold it |
+| `operator-oauth` | `tailscale` | the operator plane is how you reach OpenBao when OpenBao is not reachable |
+| `platform-tls` (production) | `platform-system` | the product edge must terminate TLS before anything behind it is up |
+
+`operator-oauth` is the one worth stating plainly: sourcing it from OpenBao
+would make administrative access depend on the thing you most need
+administrative access to debug.
+
+### What is on the other side
+
+The mechanism for everything else.
+[External Secrets](../applications/core/external-secrets/) reads OpenBao and
+materialises Kubernetes Secrets, joined to it by a single, deliberately bounded
+[`ClusterSecretStore`](../applications/core/secret-store/). A workload declares
+an `ExternalSecret` and its values live in OpenBao, never here — adding a
+variable means writing it to OpenBao and changing nothing in Git.
+
+**The mechanism exists; platform credentials have not moved onto it yet.** Every
+secret in the table above is still created by hand, which is correct for the
+three that genuinely cannot come from OpenBao. `grafana-admin` is the exception
+and the first candidate to move — see
+[migrating-lucentroot.md](migrating-lucentroot.md#external-secrets).
+
+The boundary is visible on a fresh cluster: `secret-store` retries until OpenBao
+has been initialised, unsealed and given its Kubernetes auth method. The
+platform converges to exactly the point where a human must supply the first
+secret, and no further.
+
+### The store is bounded, and the label is load-bearing
+
+The platform store is usable only from namespaces labelled
+`fieldstate.nz/layer: platform`, and the OpenBao policy behind it reads
+`secret/platform/*` and nothing else. Client secret delivery is a separate
+mechanism — a `SecretStore` in the client's own namespace over
+`secret/clients/<client>/*`, created by client provisioning.
+
+That means the platform label is part of a security boundary, not just
+inventory. The rule that platform-owned labels are never applied to client-owned
+resources is what keeps a client namespace out of platform secrets.
+
+Longer term the bootstrap side is expected to shrink rather than grow. On AKS,
+`saas-fabric-hosting` can supply a key vault as the bootstrap trust root, with
+OpenBao remaining the authority for SaaS and client secrets. LucentRoot needs an
+equivalent minimal mechanism; today that mechanism is "an operator runs
+`kubectl create secret` once", which is honest but not a destination.
+
 ## Known gaps
 
 Recorded rather than hidden. None blocks a cluster from converging.
@@ -296,6 +474,7 @@ Recorded rather than hidden. None blocks a cluster from converging.
 | No certificate automation | The production Gateway listener references a TLS secret that must be injected by hand | a `cert-manager` core application; it has a genuine platform requirement once public hostnames are served |
 | No telemetry backend | All three OTLP pipelines terminate in the `debug` exporter | an exporter in `environments/<env>/config/observability.yaml` |
 | No OpenBao auto-unseal | A restarted OpenBao pod must be unsealed by an operator | a seal stanza in `environments/production/config/openbao.yaml`, against a key vault from `saas-fabric-hosting` |
+| No operator plane in production | Production administrative surfaces are reachable only by `kubectl port-forward` | a tailnet for production, then the same two lines LucentRoot uses |
 | No database backups | The Keycloak `Cluster` has no `barmanObjectStore` | `applications/core/keycloak-database`, against storage from `saas-fabric-hosting` |
 | SaaS Fabric has no image | The Deployment ships with `replicas: 0`, so the platform substrate converges but SaaS Fabric does not run — see [First milestone](#first-milestone) | a real tag in each environment overlay, once the application repository publishes one |
 | Airflow DAG ownership undecided | Airflow cannot be adopted into the catalogue | [`applications/catalogue/airflow`](../applications/catalogue/airflow/) |

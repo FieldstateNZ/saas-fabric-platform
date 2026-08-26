@@ -14,9 +14,10 @@ promoting a release to production.
 
 ## What this repository owns
 
-- the definition of the shared platform: the Envoy Gateway routing layer,
-  CloudNativePG, OpenBao, Keycloak, the observability boundary, and SaaS
-  Fabric's deployment;
+- the definition of the shared platform: the Envoy Gateway product routing
+  layer, the Tailscale operator plane, CloudNativePG, OpenBao and its secret
+  projection, Keycloak, the observability boundary, and SaaS Fabric's
+  deployment;
 - the Argo CD projects, root Application and child Applications that reconcile
   them, plus the Argo CD runtime behaviour the platform depends on;
 - environment configuration for LucentRoot and production;
@@ -50,6 +51,7 @@ saas-fabric-clients
 
 ```text
 Argo CD installs Envoy Gateway   OpenTofu creates a client's routes
+Argo CD installs Tailscale       operator access only, never client traffic
 Argo CD installs Keycloak        OpenTofu creates a client's Keycloak realm
 Argo CD installs CloudNativePG   OpenTofu creates a client's database
 Argo CD installs OpenBao         OpenTofu creates a client's OpenBao namespace
@@ -58,6 +60,27 @@ Argo CD installs SaaS Fabric     SaaS Fabric manages client definitions
 
 No resource has competing ownership between the two. The full matrix is in
 [docs/architecture.md](docs/architecture.md#ownership-contract).
+
+## Two network planes
+
+Not one routing layer with exceptions — two, with disjoint jobs.
+
+```text
+        Product plane                 Operator plane
+             │                             │
+       Envoy Gateway                    Tailscale
+             │                             │
+  client and platform HTTP        direct internal / admin
+             │                             │
+  fabric / applications           Argo CD / OpenBao UI /
+  client hostnames                Keycloak admin / Grafana
+```
+
+Envoy carries product and client traffic. Tailscale carries private operational
+access and **never** client traffic. A hostname is on a plane for a stated
+reason, and some services are on both: Keycloak's OIDC endpoints are product,
+its admin console is operator-only. Full contract in
+[docs/architecture.md](docs/architecture.md#exposure-planes).
 
 ## Environments
 
@@ -69,6 +92,7 @@ No resource has competing ownership between the two. The full matrix is in
 | Domain | `lucentroot.internal` | `platform.fieldstate.nz` |
 | Storage | `local-path` | `managed-csi` |
 | Catalogue | enabled | not enabled |
+| Operator plane | enabled | not enabled — no tailnet yet |
 
 LucentRoot is where platform changes are exercised. It runs the same application
 topology as production with lower availability — one replica instead of three,
@@ -118,8 +142,9 @@ If yes, it may be core. If no, it belongs in the catalogue.
 | Core | Catalogue |
 |---|---|
 | [Envoy Gateway](applications/core/envoy-gateway/) + [the platform Gateway](applications/core/platform-gateway/) | [Grafana](applications/catalogue/grafana/) |
+| [Tailscale](applications/core/tailscale/) + [operator access](applications/core/operator-access/) | |
 | [CloudNativePG](applications/core/cloudnative-pg/) | |
-| [OpenBao](applications/core/openbao/) | |
+| [OpenBao](applications/core/openbao/) + [External Secrets](applications/core/external-secrets/) + [secret store](applications/core/secret-store/) | |
 | [Keycloak](applications/core/keycloak/) + [its database](applications/core/keycloak-database/) | |
 | [OpenTelemetry collector](applications/core/observability/) | |
 | [SaaS Fabric](applications/core/saas-fabric/) | |
@@ -143,11 +168,16 @@ It then checks the invariants a schema cannot express:
   them;
 - no duplicate Kubernetes resource within an environment, because two
   Applications writing the same object is competing ownership;
-- exactly one routing authority — Gateway API, never an `Ingress` — with every
-  route attached to a listener that exists, from a namespace the Gateway admits;
+- the two exposure planes kept separate — product traffic on Gateway API routes
+  attached to a listener that exists from a namespace the Gateway admits,
+  operator traffic on Tailscale `Ingress` resources, and no third routing
+  authority;
+- no administrative surface reachable from the product plane;
 - the non-default Argo CD behaviour the platform depends on present in both the
-  bootstrap set and the reconciled environment, so wave ordering cannot quietly
-  stop working;
+  bootstrap set and the reconciled environment, so neither wave ordering nor
+  operator-plane access can quietly stop working;
+- the platform secret store bounded to platform namespaces, so a client
+  namespace cannot reach platform secrets through it;
 - every chart repository and destination namespace allowed by the Application's
   own `AppProject`;
 - every chart version pinned exactly, never a range;
@@ -169,7 +199,8 @@ request that renders invalid manifests cannot merge.
 | [architecture.md](docs/architecture.md) | layers, ownership, the Argo CD runtime contract, dependency ordering, privilege boundaries, the first milestone, known gaps |
 | [bootstrap.md](docs/bootstrap.md) | k3s / LucentRoot and AKS / production, step by step |
 | [releases.md](docs/releases.md) | cutting a release, promoting production by moving a Git ref, rolling back |
-| [adding-an-application.md](docs/adding-an-application.md) | core versus catalogue, and how to add either |
+| [adding-an-application.md](docs/adding-an-application.md) | core versus catalogue, which exposure plane, and how to add either |
+| [migrating-lucentroot.md](docs/migrating-lucentroot.md) | rebuilding LucentRoot onto this repository, and what that costs |
 
 ## Licence
 

@@ -1,0 +1,35 @@
+# Tailscale operator values shared by every environment that runs an operator
+# plane. Environment differences live in environments/<env>/config/tailscale.yaml.
+#
+# This is the operator plane: private access for the people who run the
+# platform. It never carries product or client traffic. See
+# docs/architecture.md#exposure-planes.
+
+# Deliberately empty. With no credentials here the chart renders no Secret and
+# expects a precreated operator-oauth, which is injected externally at bootstrap.
+# The credentials never enter Git or Helm values.
+oauth: {}
+
+installCRDs: true
+
+operatorConfig:
+  # ACL tag applied to the operator's own tailnet device. It must be listed in
+  # tagOwners in the tailnet ACL policy, or the operator cannot register.
+  defaultTags:
+    - "tag:k8s-operator"
+
+ingressClass:
+  # Operator-plane Ingresses name this class. Product traffic never does: it
+  # goes through the Envoy Gateway HTTPRoutes instead.
+  name: tailscale
+  enabled: true
+
+proxyConfig:
+  # Tag applied to each proxy device the operator creates, one per exposed
+  # Ingress. tag:k8s-operator must be a tagOwner of tag:k8s in the tailnet ACL.
+  defaultTags: "tag:k8s"
+
+apiServerProxyConfig:
+  # Lets tailnet users holding the tailscale.com/cap/kubernetes ACL grant reach
+  # the Kubernetes API without a static kubeconfig on disk.
+  mode: "true"

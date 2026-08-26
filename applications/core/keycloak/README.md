@@ -26,7 +26,7 @@ elsewhere.
 
 | Resource | Owner |
 |---|---|
-| Deployment, service, route, probes, persistence | this repository |
+| Deployment, service, routes on both planes, probes, persistence | this repository |
 | Database connection interface | this repository |
 | Admin bootstrap credential *reference* | this repository (the value is external) |
 | Realm for a client | client OpenTofu |
@@ -70,6 +70,26 @@ issue platform credentials, at which point this reference is replaced rather
 than the value being moved. Creating it is a documented bootstrap step — see
 [docs/bootstrap.md](../../../docs/bootstrap.md).
 
+## Exposure: both planes, deliberately
+
+Keycloak is the clearest case in the platform of a service that belongs on both
+planes, and the split is not "Keycloak is internal".
+
+| Plane | Carries | Paths |
+|---|---|---|
+| Product (Envoy) | what applications call | `/realms`, `/resources`, `/.well-known` |
+| Operator (Tailscale) | administration | everything, including `/admin` |
+
+Applications genuinely need the authentication endpoints on the product edge.
+The admin console and admin API do not belong there, so the product-plane route
+lists its path matches explicitly rather than taking the chart's default of a
+single `/` prefix — which would put `/admin` back on the public edge.
+
+`scripts/check.py` rejects a `/` or `/admin` match on the product plane for this
+service. Production currently has no operator plane, so its admin console is
+reachable by `kubectl port-forward` and nothing else. See
+[docs/architecture.md](../../../docs/architecture.md#exposure-planes).
+
 ## Dependencies
 
 | Dependency | Wave | Why |
@@ -82,7 +102,8 @@ than the value being moved. Creating it is a documented bootstrap step — see
 ## Configuration owned by this repository
 
 - deployment topology, replica count and resources per environment;
-- service and `HTTPRoute`, including the platform `auth.<domain>` hostname;
+- service and both routes: the product-plane `HTTPRoute` for OIDC, and the
+  operator-plane `Ingress` for administration;
 - health and readiness probing, and the `/health` and `/metrics` endpoints;
 - proxy mode and forwarded-header handling;
 - the database connection interface and the admin secret reference.

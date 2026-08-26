@@ -19,9 +19,11 @@ spec:
   sourceRepos:
     - https://github.com/FieldstateNZ/saas-fabric-platform.git
     - oci://docker.io/envoyproxy
+    - https://pkgs.tailscale.com/helmcharts
     - https://cloudnative-pg.github.io/charts
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://openbao.github.io/openbao-helm
+    - https://charts.external-secrets.io
     - https://codecentric.github.io/helm-charts
 
   # Same-cluster only. Client namespaces (client-*) are deliberately excluded:
@@ -39,6 +41,8 @@ spec:
       namespace: data-system
     - server: https://kubernetes.default.svc
       namespace: observability
+    - server: https://kubernetes.default.svc
+      namespace: tailscale
 
   # Cluster-scoped resources are enumerated rather than wildcarded so that a
   # new chart cannot silently claim cluster-wide privilege.
@@ -59,11 +63,14 @@ spec:
       kind: ValidatingAdmissionPolicy
     - group: admissionregistration.k8s.io
       kind: ValidatingAdmissionPolicyBinding
-    # The platform's routing authority. There is deliberately no IngressClass:
-    # a second routing authority would mean two places a hostname can be
-    # claimed. See applications/core/envoy-gateway/README.md.
+    # Product plane. See docs/architecture.md#exposure-planes.
     - group: gateway.networking.k8s.io
       kind: GatewayClass
+    # Operator plane. The Tailscale operator owns the `tailscale` IngressClass;
+    # no product-plane ingress controller is installed, so this grant cannot be
+    # used to stand up a competing product edge.
+    - group: networking.k8s.io
+      kind: IngressClass
 
   namespaceResourceWhitelist:
     - group: '*'

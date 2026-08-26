@@ -11,13 +11,16 @@ Checks, in order of how much damage they prevent:
   4. every chart version is pinned exactly, never a range;
   5. every Application's destination namespace is allowed by its AppProject;
   6. no client-scoped resource has crept into a platform environment;
-  7. exactly one routing authority: Gateway API, never an Ingress, and every
-     route attached to a listener that exists from a namespace allowed to;
-  8. the Argo CD runtime configuration the platform depends on is present;
-  9. every in-cluster service reference resolves to something this repository
+  7. the two exposure planes stay separate: product traffic on Gateway API
+     routes attached to a listener that exists from a namespace allowed to,
+     operator traffic on Tailscale Ingresses, and no third routing authority;
+  8. no administrative surface on the product plane;
+  9. the Argo CD runtime configuration the platform depends on is present;
+ 10. the platform secret store is bounded to platform namespaces;
+ 11. every in-cluster service reference resolves to something this repository
      actually deploys;
- 10. the telemetry pipelines only reference components that exist;
- 11. every application directory carries the required documentation.
+ 12. the telemetry pipelines only reference components that exist;
+ 13. every application directory carries the required documentation.
 """
 from __future__ import annotations
 
@@ -40,12 +43,34 @@ SECRET_KEYS = re.compile(
 SECRET_VALUE_IS_A_REFERENCE = re.compile(
     r"^(\"\"|''|\{\{.*\}\}|\$\{.*\}|null|~|\||>|\{\}|\[\])$"
 )
-PEM_BLOCK = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+# A PEM header alone is not evidence of a key: upstream CRDs document expected
+# credential formats in their OpenAPI descriptions, placeholder and all. Require
+# a run of real base64 body before the END marker.
+PEM_BLOCK = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
+    r"(?:(?!-----END)[\s\S]){0,64}?"
+    r"[A-Za-z0-9+/]{40}"
+)
 CLIENT_SCOPED = re.compile(r"^client-[a-z0-9-]+$")
 CLUSTER_DNS = re.compile(r"\b([a-z0-9][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)\.svc\.cluster\.local\b")
 # CloudNativePG creates <cluster>-rw, -ro and -r Services for each Cluster it
 # reconciles, so those names are legitimate without appearing in rendered output.
 CNPG_SERVICE = re.compile(r"^(?P<cluster>.+)-(rw|ro|r)$")
+# The operator plane's only ingress class. Anything else is a third routing
+# authority; see docs/architecture.md#exposure-planes.
+OPERATOR_INGRESS_CLASS = "tailscale"
+# Services whose product-plane route must not reach an administrative surface.
+ADMIN_BEARING_BACKENDS = {"keycloak-http"}
+# Argo CD behaviour this platform depends on and Argo CD does not default to.
+# Both must survive to the cluster or something silently stops working: wave
+# ordering in the first case, operator-plane access to Argo CD in the second.
+REQUIRED_ARGOCD_RUNTIME = (
+    ("argocd-cm", "resource.customizations.health.argoproj.io_Application"),
+    ("argocd-cmd-params-cm", "server.insecure"),
+)
+# The label that marks a namespace as platform-owned. It gates access to the
+# platform secret store, so it is a security boundary rather than inventory.
+PLATFORM_NAMESPACE_LABEL = "fieldstate.nz/layer"
 # An exact chart version. Ranges, wildcards and "latest" make a release
 # non-reproducible: the same tag would deploy different software over time.
 PINNED_VERSION = re.compile(r"^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")
@@ -72,7 +97,7 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
         relative = path.relative_to(root)
 
         if PEM_BLOCK.search(text):
-            fail(problems, f"{relative}: contains a private key block")
+            fail(problems, f"{relative}: contains private key material")
 
         for number, line in enumerate(text.splitlines(), start=1):
             match = SECRET_KEYS.match(line)
@@ -230,23 +255,70 @@ def check_service_references(render: Path, problems: list[str]) -> None:
                 )
 
 
-def check_single_routing_authority(render: Path, problems: list[str]) -> None:
-    """Envoy Gateway is the platform's only routing layer.
+def check_exposure_planes(render: Path, problems: list[str]) -> None:
+    """Two planes, and only two.
 
-    An Ingress rendered anywhere means a second controller is being introduced,
-    and with it a second place a hostname can be claimed. See
-    applications/core/envoy-gateway/README.md.
+    Product traffic goes through Gateway API routes on the platform Gateway.
+    Operator traffic goes through Tailscale Ingresses. An Ingress on any other
+    class is a third routing authority -- a second place a product hostname can
+    be claimed -- which is the situation the split exists to prevent.
+
+    See docs/architecture.md#exposure-planes.
     """
     for environment in ENVIRONMENTS:
         for path in sorted((render / environment).rglob("*.yaml")):
             for document in load_all(path, problems):
-                if document.get("kind") in ("Ingress", "IngressClass"):
+                kind = document.get("kind")
+                name = document.get("metadata", {}).get("name")
+                if kind == "IngressClass" and name != OPERATOR_INGRESS_CLASS:
                     fail(
                         problems,
-                        f"{environment}/{path.name}: renders"
-                        f" {document['kind']}/{document['metadata']['name']};"
-                        " routing goes through the platform Gateway",
+                        f"{environment}/{path.name}: IngressClass/{name} is a"
+                        " routing authority outside the two planes",
                     )
+                if kind != "Ingress":
+                    continue
+                ingress_class = document.get("spec", {}).get("ingressClassName")
+                if ingress_class != OPERATOR_INGRESS_CLASS:
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: Ingress/{name} uses class"
+                        f" '{ingress_class}'. Operator-plane exposure is"
+                        f" '{OPERATOR_INGRESS_CLASS}'; product traffic uses an"
+                        " HTTPRoute on the platform Gateway",
+                    )
+
+
+def check_admin_off_the_product_plane(render: Path, problems: list[str]) -> None:
+    """Keycloak is on both planes, and the split has to actually hold.
+
+    Applications need Keycloak's OIDC endpoints on the product edge. Its admin
+    console and admin API do not belong there, and a bare "/" PathPrefix on the
+    product plane silently puts them back. Administration is operator-plane.
+    """
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "HTTPRoute":
+                    continue
+                backends = {
+                    backend.get("name")
+                    for rule in document["spec"].get("rules", [])
+                    for backend in rule.get("backendRefs", [])
+                }
+                if not backends & ADMIN_BEARING_BACKENDS:
+                    continue
+                name = document["metadata"]["name"]
+                for rule in document["spec"].get("rules", []):
+                    for match in rule.get("matches", []):
+                        value = match.get("path", {}).get("value", "")
+                        if value == "/" or value.startswith("/admin"):
+                            fail(
+                                problems,
+                                f"{environment}/{path.name}: HTTPRoute/{name}"
+                                f" matches '{value}' on the product plane,"
+                                " which exposes the admin console",
+                            )
 
 
 def check_routes_attach(render: Path, problems: list[str]) -> None:
@@ -314,30 +386,72 @@ def check_routes_attach(render: Path, problems: list[str]) -> None:
 
 
 def check_argocd_runtime_configuration(render: Path, problems: list[str]) -> None:
-    """Sync waves only order an app-of-apps if Argo CD is told to.
+    """Argo CD behaviour the platform depends on and Argo CD does not default to.
 
-    Argo CD reports a child Application as Healthy the moment it exists unless a
-    custom health assessment says otherwise. Without it the platform's wave
-    ordering is decorative. See argocd/runtime/README.md.
+    Both settings are invisible when missing rather than loud: sync waves stop
+    ordering anything, and operator-plane access to Argo CD becomes a redirect
+    loop. Each must be present in the bootstrap set, so it is active before the
+    first wave-ordered sync, and in the environment, so it cannot drift.
+    See argocd/runtime/README.md.
     """
-    key = "resource.customizations.health.argoproj.io_Application"
     for environment in ENVIRONMENTS:
-        for name, described in (
-            ("bootstrap.yaml", "the bootstrap set"),
-            ("platform.yaml", "the reconciled environment"),
-        ):
-            found = any(
-                document.get("kind") == "ConfigMap"
-                and document["metadata"]["name"] == "argocd-cm"
-                and key in (document.get("data") or {})
-                for document in load_all(render / environment / name, problems)
-            )
-            if not found:
-                fail(
-                    problems,
-                    f"{environment}: {described} does not configure {key};"
-                    " sync waves would not order the platform",
+        for config_map, key in REQUIRED_ARGOCD_RUNTIME:
+            for name, described in (
+                ("bootstrap.yaml", "the bootstrap set"),
+                ("platform.yaml", "the reconciled environment"),
+            ):
+                found = any(
+                    document.get("kind") == "ConfigMap"
+                    and document["metadata"]["name"] == config_map
+                    and key in (document.get("data") or {})
+                    for document in load_all(render / environment / name, problems)
                 )
+                if not found:
+                    fail(
+                        problems,
+                        f"{environment}: {described} does not set"
+                        f" {key} in {config_map}",
+                    )
+
+
+def check_secret_store_is_bounded(render: Path, problems: list[str]) -> None:
+    """A cluster-wide secret store with no conditions is a tenancy hole.
+
+    Without conditions, anything able to create an ExternalSecret in any
+    namespace -- including a future client namespace -- can ask External Secrets
+    to fetch whatever the store's credentials can read. The platform store is
+    restricted to namespaces this repository owns; client secret delivery is a
+    separate mechanism. See applications/core/secret-store/README.md.
+    """
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "ClusterSecretStore":
+                    continue
+                name = document["metadata"]["name"]
+                conditions = document["spec"].get("conditions")
+                if not conditions:
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: ClusterSecretStore/{name}"
+                        " has no conditions, so any namespace may use it",
+                    )
+                    continue
+                for condition in conditions:
+                    labels = (condition.get("namespaceSelector") or {}).get(
+                        "matchLabels", {}
+                    )
+                    named = condition.get("namespaces")
+                    if PLATFORM_NAMESPACE_LABEL in labels or named:
+                        break
+                else:
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: ClusterSecretStore/{name}"
+                        " is restricted, but not to platform namespaces:"
+                        f" no condition names them or matches"
+                        f" {PLATFORM_NAMESPACE_LABEL}",
+                    )
 
 
 def check_collector_pipelines(render: Path, problems: list[str]) -> None:
@@ -410,9 +524,11 @@ def main() -> int:
     check_applications_match_their_project(render, problems)
     check_no_client_resources(render, problems)
     check_service_references(render, problems)
-    check_single_routing_authority(render, problems)
+    check_exposure_planes(render, problems)
+    check_admin_off_the_product_plane(render, problems)
     check_routes_attach(render, problems)
     check_argocd_runtime_configuration(render, problems)
+    check_secret_store_is_bounded(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
 

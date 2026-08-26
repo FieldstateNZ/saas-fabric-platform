@@ -1,4 +1,14 @@
-# LucentRoot: one replica, internal hostname, plain HTTP at the Gateway.
+# LucentRoot: one replica.
+#
+# Keycloak is the clearest case of a service on both planes.
+#
+#   product plane   Envoy   /realms/ and /resources/ only — the OIDC endpoints
+#                           applications actually call
+#   operator plane  Tailscale  everything, including /admin
+#
+# The distinction is not "Keycloak is internal". Applications need its
+# authentication endpoints on the product edge. It is the administrative console
+# and admin API that have no reason to hang off it.
 replicas: 1
 
 httpRoute:
@@ -9,6 +19,33 @@ httpRoute:
       sectionName: http
   hostnames:
     - auth.lucentroot.internal
+  # Explicit rules rather than the chart default of a single "/" prefix, which
+  # would put /admin on the product edge.
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /realms
+        - path:
+            type: PathPrefix
+            value: /resources
+        - path:
+            type: PathPrefix
+            value: /.well-known
+
+# Operator plane. Reachable only from the tailnet, and the whole application is
+# exposed here on purpose: this is where administration happens.
+ingress:
+  enabled: true
+  ingressClassName: tailscale
+  rules:
+    - host: auth-lucentroot
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - auth-lucentroot
 
 resources:
   requests:

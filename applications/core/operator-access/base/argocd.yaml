@@ -1,0 +1,32 @@
+# Operator-plane access to Argo CD.
+#
+# Argo CD is installed by saas-fabric-hosting, but how it is reached is a
+# platform decision, and the platform's answer is: over the tailnet, never from
+# the product edge. The hostname is set per environment.
+#
+# The Tailscale proxy terminates TLS with a tailnet certificate and forwards
+# plain HTTP. That requires argocd-server to serve HTTP rather than redirecting
+# to HTTPS, which is why server.insecure is part of the platform's Argo CD
+# runtime contract -- see argocd/runtime/server-insecure.yaml. Without it this
+# Ingress produces a redirect loop.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  ingressClassName: tailscale
+  tls:
+    - hosts:
+        - argocd.invalid
+  rules:
+    - host: argocd.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80

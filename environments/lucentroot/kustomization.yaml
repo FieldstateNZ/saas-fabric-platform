@@ -10,6 +10,11 @@ resources:
   - config
   - ../../argocd/runtime
   - ../../applications/core
+  # Operator plane: private tailnet access for the people who run the platform.
+  # Enabled per environment; production has no tailnet yet. See
+  # docs/architecture.md#exposure-planes.
+  - ../../applications/core/tailscale
+  - ../../applications/core/operator-access
   - ../../applications/catalogue
 
 components:

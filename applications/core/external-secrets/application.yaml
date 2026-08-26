@@ -1,35 +1,38 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: grafana
+  name: external-secrets
   namespace: argocd
   labels:
     fieldstate.nz/source: helm
-    fieldstate.nz/class: catalogue
+    fieldstate.nz/class: core
   annotations:
-    argocd.argoproj.io/sync-wave: "40"
+    # Alongside OpenBao. The operator only needs OpenBao to be reachable when it
+    # reconciles an ExternalSecret, not when it starts, so they can come up
+    # together; the ClusterSecretStore that joins them is a wave later.
+    argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: saas-fabric-catalogue
+  project: saas-fabric-platform
 
   sources:
-    - repoURL: https://grafana.github.io/helm-charts
-      chart: grafana
-      targetRevision: 10.5.15
+    - repoURL: https://charts.external-secrets.io
+      chart: external-secrets
+      targetRevision: 2.9.0
       helm:
-        releaseName: grafana
+        releaseName: external-secrets
         ignoreMissingValueFiles: true
         valueFiles:
-          - $platform/applications/catalogue/grafana/values.yaml
-          - $platform/environments/PLACEHOLDER/config/grafana.yaml
+          - $platform/applications/core/external-secrets/values.yaml
+          - $platform/environments/PLACEHOLDER/config/external-secrets.yaml
     - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
       targetRevision: PLACEHOLDER
       ref: platform
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: catalogue
+    namespace: secrets
 
   syncPolicy:
     automated:
@@ -37,6 +40,7 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
     managedNamespaceMetadata:
       labels:
         fieldstate.nz/system: saas-fabric

@@ -33,13 +33,40 @@ Three questions, in order:
 3. **Does it need cluster-scoped resources?** Core applications may, within the
    kinds enumerated in `bootstrap/project.yaml`. Catalogue applications may not,
    at all.
-4. **Does it want to route traffic?** Use Gateway API — an `HTTPRoute` attached
-   to the platform `Gateway`. Do not introduce an `Ingress` or a second
-   controller; the platform has one routing authority, and `scripts/check.py`
-   fails the build if an `Ingress` is rendered. See
-   [`applications/core/platform-gateway`](../applications/core/platform-gateway/).
+4. **Which plane does it belong on?** See below. Getting this wrong is how an
+   administrative console ends up on the public edge.
 
 ---
+
+## Which exposure plane
+
+Every service that is reachable at all is reachable on one of two planes, and
+the answer needs a reason.
+
+| | Product plane | Operator plane |
+|---|---|---|
+| Ask | do applications or clients call it? | do only the people running the platform reach it? |
+| Resource | `HTTPRoute` on the platform `Gateway` | `Ingress`, `ingressClassName: tailscale` |
+| Where you configure it | the service's `httpRoute`/route values | the service's `ingress` values |
+
+Three rules:
+
+1. **Cluster-local is the default.** Most services need neither plane — OpenBao
+   and the OpenTelemetry collector are reached by service DNS. A plane is
+   something a service earns, not a default.
+2. **A service can be on both, and then the split must be exact.** Keycloak's
+   OIDC endpoints are product; its admin console is operator-only. A bare `/`
+   PathPrefix on the product plane silently undoes that.
+3. **Client traffic is product-plane only.** Never route a client through
+   Tailscale.
+
+If a chart cannot render its own operator-plane `Ingress`, it goes in
+[`applications/core/operator-access`](../applications/core/operator-access/) —
+the exception, not a central registry.
+
+`scripts/check.py` fails the build on any `Ingress` that is not `tailscale`, on
+any other `IngressClass`, and on an admin path reachable from the product plane.
+Full contract in [architecture.md](architecture.md#exposure-planes).
 
 ## Adding a core application
 
@@ -90,8 +117,8 @@ in wave order.
 
 | Wave | For |
 |---|---|
-| `0` | operators, CRDs, control planes |
-| `10` | routing, data, secrets and telemetry foundations |
+| `0` | operators, CRDs, control planes, ingress classes |
+| `10` | routing, operator access, data, secrets and telemetry foundations |
 | `20` | identity |
 | `30` | SaaS Fabric services |
 | `40` | catalogue |
@@ -161,6 +188,11 @@ Per environment. An environment that includes `../../applications/catalogue` in
 its kustomization gets every catalogue application; one that omits it gets none
 and is still a complete platform. LucentRoot enables the catalogue; production
 does not.
+
+The operator plane works the same way, and is the reason two core applications
+are listed by environments rather than by `applications/core/kustomization.yaml`:
+`applications/core/tailscale` and `applications/core/operator-access` are core,
+but an environment without a tailnet cannot run them.
 
 ### If it bundles a database
 

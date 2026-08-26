@@ -98,10 +98,16 @@ lives. See
 ref above. Core and [`argocd/runtime`](../argocd/runtime/) are always included.
 The catalogue is one line, and omitting it yields a complete platform:
 
-| Environment | `../../applications/core` | `../../applications/catalogue` |
-|---|---|---|
-| LucentRoot | yes | yes |
-| Production | yes | no |
+| Environment | `applications/core` | operator plane | `applications/catalogue` |
+|---|---|---|---|
+| LucentRoot | yes | yes | yes |
+| Production | yes | no — no tailnet yet | no |
+
+The operator plane is `applications/core/tailscale` and
+`applications/core/operator-access`. Both are core, but an environment without a
+tailnet cannot run them, so they are listed by each environment rather than by
+`applications/core/kustomization.yaml`. See
+[docs/architecture.md](../docs/architecture.md#exposure-planes).
 
 ## Adding an environment
 

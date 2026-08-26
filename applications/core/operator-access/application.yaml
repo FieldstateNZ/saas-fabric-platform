@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: operator-access
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: kustomize
+    fieldstate.nz/class: core
+    fieldstate.nz/plane: operator
+  annotations:
+    # After the Tailscale operator at wave 0, which supplies the IngressClass.
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  source:
+    repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+    targetRevision: PLACEHOLDER
+    path: applications/core/operator-access/overlays/PLACEHOLDER
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

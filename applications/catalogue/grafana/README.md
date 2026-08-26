@@ -11,6 +11,7 @@
 | Namespace | `catalogue` |
 | Class | **catalogue** |
 | Sync wave | `40` |
+| Plane | **operator** |
 
 ## Why it is catalogue, not core
 
@@ -41,6 +42,15 @@ secretRef:
 The chart's default behaviour of generating and storing an admin password is
 disabled in favour of an externally injected secret.
 
+## Exposure
+
+Operator plane only. Grafana reads platform telemetry and is an operations
+surface, not a product one, so it has no `HTTPRoute` and never appears on the
+product edge — see
+[docs/architecture.md](../../../docs/architecture.md#exposure-planes). That also
+means it is reachable only in an environment that runs an operator plane;
+LucentRoot does, production does not yet.
+
 ## Dependencies
 
 None hard. In practice it is only useful once
@@ -51,7 +61,7 @@ which is why its data sources are configured per environment rather than here.
 
 - deployment, persistence, service and RBAC scope;
 - admin credential reference;
-- per-environment route hostname, storage class and data sources.
+- per-environment tailnet hostname, storage class and data sources.
 
 ## Configuration expected from outside this repository
 

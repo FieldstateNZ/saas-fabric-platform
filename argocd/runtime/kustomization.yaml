@@ -6,3 +6,4 @@ kind: Kustomization
 # cannot drift.
 resources:
   - application-health.yaml
+  - server-insecure.yaml
