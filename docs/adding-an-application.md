@@ -35,6 +35,11 @@ Three questions, in order:
    at all.
 4. **Which plane does it belong on?** See below. Getting this wrong is how an
    administrative console ends up on the public edge.
+5. **Which scope are its secrets?** Its own operational credentials are platform
+   secrets at `secret/platform/<name>/...`. Anything it needs only because a
+   particular client exists is a client secret, and does not come through the
+   platform store. See
+   [`applications/core/external-secrets`](../applications/core/external-secrets/#the-split-is-about-purpose-not-about-which-namespace-asks).
 
 ---
 

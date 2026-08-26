@@ -92,6 +92,38 @@ All three are created by client provisioning, alongside the client's realm,
 database and routes. `secret/clients/` is reserved for exactly that and is
 unreadable from the platform store.
 
+### The split is about purpose, not about which namespace asks
+
+This is the part that is easy to get wrong, because the namespace bound above
+makes it look like a location rule. It is not. **One workload can legitimately
+need secrets from both scopes**, and running in a platform namespace does not
+make everything it reads a platform secret.
+
+Superset is the clearest example, if it is ever adopted:
+
+| Secret | Scope | Path |
+|---|---|---|
+| Superset's admin credential | platform | `secret/platform/superset/...` |
+| Its metadata database connection | platform | `secret/platform/superset/...` |
+| Its signing / secret key | platform | `secret/platform/superset/...` |
+| Its OAuth client secret | platform | `secret/platform/superset/...` |
+| Credentials for Superset to read **Acme's** data | **client** | `secret/clients/acme/...` |
+
+Everything Superset needs *to be Superset* is platform. Everything it needs *to
+reach one client's resources* is that client's, and comes through that client's
+store — not this one, and not by widening this one.
+
+Ask which one a secret is:
+
+```text
+does the platform need this to run the component?      → secret/platform/...
+does it only exist because a particular client does?   → secret/clients/<client>/...
+```
+
+The runtime bound already enforces the answer — the platform token cannot read
+`secret/clients/*` — but the design decision has to be made before that, when
+someone chooses where to write the value.
+
 ## Authentication
 
 The operator authenticates to OpenBao with the Kubernetes auth method, minting

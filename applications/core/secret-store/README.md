@@ -50,6 +50,14 @@ client provisioning alongside its realm, database and routes. Widening this
 store to serve clients would collapse the tenancy boundary the rest of the
 platform is built around.
 
+The namespace bound makes this look like a location rule. It is not: **the split
+is about what a secret is for, not about which namespace asks for it.** A
+platform workload can legitimately need both — its own operational credentials
+from `secret/platform/...`, and a particular client's credentials from that
+client's store. Running in a platform namespace does not make everything it
+reads a platform secret. See
+[`../external-secrets`](../external-secrets/#the-split-is-about-purpose-not-about-which-namespace-asks).
+
 ## Dependencies
 
 | Dependency | Wave | Why |

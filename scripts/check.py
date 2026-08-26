@@ -16,7 +16,8 @@ Checks, in order of how much damage they prevent:
      operator traffic on Tailscale Ingresses, and no third routing authority;
   8. no administrative surface on the product plane;
   9. the Argo CD runtime configuration the platform depends on is present;
- 10. the platform secret store is bounded to platform namespaces;
+ 10. the platform secret store is bounded to platform namespaces, and nothing
+     reads a client secret path through it;
  11. every in-cluster service reference resolves to something this repository
      actually deploys;
  12. the telemetry pipelines only reference components that exist;
@@ -71,6 +72,11 @@ REQUIRED_ARGOCD_RUNTIME = (
 # The label that marks a namespace as platform-owned. It gates access to the
 # platform secret store, so it is a security boundary rather than inventory.
 PLATFORM_NAMESPACE_LABEL = "fieldstate.nz/layer"
+# The platform secret store, and the OpenBao path prefix reserved for clients.
+# A platform ExternalSecret reaching into the client space is a tenancy
+# violation even though the OpenBao policy would also refuse it at runtime.
+PLATFORM_SECRET_STORE = "openbao"
+CLIENT_SECRET_PREFIX = "clients/"
 # An exact chart version. Ranges, wildcards and "latest" make a release
 # non-reproducible: the same tag would deploy different software over time.
 PINNED_VERSION = re.compile(r"^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")
@@ -454,6 +460,48 @@ def check_secret_store_is_bounded(render: Path, problems: list[str]) -> None:
                     )
 
 
+def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> None:
+    """The platform store serves platform secrets, not client ones.
+
+    The namespace bound on the store looks like a location rule, but the split
+    is about purpose: one workload can legitimately need both scopes. A
+    catalogue application's own admin credential is a platform secret; the
+    credentials it uses to reach one client's data are that client's, and come
+    through that client's own store.
+
+    OpenBao's policy refuses secret/clients/* to the platform token anyway, so
+    this is defence in depth -- but it fails at build time with a clear reason
+    rather than at runtime with a permission denial.
+    """
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") not in ("ExternalSecret", "ClusterExternalSecret"):
+                    continue
+                spec = document["spec"]
+                store = spec.get("secretStoreRef", {}).get("name")
+                if store != PLATFORM_SECRET_STORE:
+                    continue
+
+                keys = [
+                    entry.get("extract", {}).get("key")
+                    for entry in spec.get("dataFrom", [])
+                ] + [
+                    entry.get("remoteRef", {}).get("key")
+                    for entry in spec.get("data", [])
+                ]
+                name = document["metadata"]["name"]
+                for key in filter(None, keys):
+                    if key.lstrip("/").startswith(CLIENT_SECRET_PREFIX):
+                        fail(
+                            problems,
+                            f"{environment}/{path.name}:"
+                            f" {document['kind']}/{name} reads '{key}' through"
+                            f" the platform store. Client secrets come from a"
+                            " client-scoped store, not this one",
+                        )
+
+
 def check_collector_pipelines(render: Path, problems: list[str]) -> None:
     """The collector config is opaque YAML inside a ConfigMap.
 
@@ -529,6 +577,7 @@ def main() -> int:
     check_routes_attach(render, problems)
     check_argocd_runtime_configuration(render, problems)
     check_secret_store_is_bounded(render, problems)
+    check_platform_secrets_stay_platform(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
 

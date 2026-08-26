@@ -459,6 +459,18 @@ That means the platform label is part of a security boundary, not just
 inventory. The rule that platform-owned labels are never applied to client-owned
 resources is what keeps a client namespace out of platform secrets.
 
+**The split is about purpose, not location.** The namespace bound makes it look
+like a location rule, and it is not: one workload can legitimately need both
+scopes. A catalogue application's own admin credential, database connection and
+signing key are platform secrets; the credentials it uses to reach one client's
+data are that client's, and come through that client's store. Running in a
+platform namespace does not make everything a workload reads a platform secret.
+
+```text
+does the platform need this to run the component?      → secret/platform/...
+does it only exist because a particular client does?   → secret/clients/<client>/...
+```
+
 Longer term the bootstrap side is expected to shrink rather than grow. On AKS,
 `saas-fabric-hosting` can supply a key vault as the bootstrap trust root, with
 OpenBao remaining the authority for SaaS and client secrets. LucentRoot needs an
