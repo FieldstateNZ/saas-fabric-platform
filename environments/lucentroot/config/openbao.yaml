@@ -1,0 +1,17 @@
+# LucentRoot: single-node Raft on local-path storage. Same storage engine as
+# production, lower availability.
+server:
+  ha:
+    replicas: 1
+  dataStorage:
+    size: 4Gi
+    storageClass: local-path
+  auditStorage:
+    size: 2Gi
+    storageClass: local-path
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi

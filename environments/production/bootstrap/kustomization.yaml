@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Bootstraps a cluster as production:
+#
+#   kubectl apply -k environments/production/bootstrap
+#
+# Applies the AppProject, the environment ConfigMap and the root Application,
+# with the root Application bound to this environment. Everything after this is
+# reconciled by Argo CD.
+namespace: argocd
+
+resources:
+  - ../../../bootstrap
+  - ../config
+
+components:
+  - ../../../bootstrap/components/environment-config

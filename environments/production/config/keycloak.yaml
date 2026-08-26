@@ -1,0 +1,23 @@
+# Production: two replicas, public hostname, TLS terminated at the ingress.
+replicas: 2
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  rules:
+    - host: auth.fieldstate.nz
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - auth.fieldstate.nz
+      # Injected externally; see applications/core/keycloak/README.md.
+      secretName: auth-tls
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 2Gi

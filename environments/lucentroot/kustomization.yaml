@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# LucentRoot: k3s development / dogfood environment, tracking refs/heads/main.
+# Catalogue applications are enabled here so they are exercised before any
+# production promotion is considered.
+namespace: argocd
+
+resources:
+  - config
+  - ../../applications/core
+  - ../../applications/catalogue
+
+components:
+  - ../components/environment-config
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/managed-by: argocd
+      fieldstate.nz/system: saas-fabric
+      fieldstate.nz/layer: platform

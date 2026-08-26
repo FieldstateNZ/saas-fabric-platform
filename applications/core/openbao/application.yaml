@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openbao
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: helm
+    fieldstate.nz/class: core
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  sources:
+    - repoURL: https://openbao.github.io/openbao-helm
+      chart: openbao
+      targetRevision: 0.29.2
+      helm:
+        releaseName: openbao
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $platform/applications/core/openbao/values.yaml
+          - $platform/environments/PLACEHOLDER/config/openbao.yaml
+    - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+      targetRevision: PLACEHOLDER
+      ref: platform
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: secrets
+
+  syncPolicy:
+    automated:
+      prune: true
+      # OpenBao's Raft volumes hold the platform's secret material. selfHeal is
+      # safe (it only reverts drift in the manifests); the StatefulSet's PVCs
+      # are retained by the persistentVolumeClaimRetentionPolicy in values.yaml.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

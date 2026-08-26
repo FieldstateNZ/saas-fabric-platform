@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Production: AKS, tracking an immutable release tag.
+#
+# The catalogue is deliberately absent. Catalogue applications are optional
+# platform capabilities, not prerequisites, and are enabled per environment by
+# adding ../../applications/catalogue below. See docs/adding-an-application.md.
+namespace: argocd
+
+resources:
+  - config
+  - ../../applications/core
+
+components:
+  - ../components/environment-config
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/managed-by: argocd
+      fieldstate.nz/system: saas-fabric
+      fieldstate.nz/layer: platform

@@ -1,0 +1,69 @@
+# Deployment contract for SaaS Fabric.
+#
+# This repository owns how SaaS Fabric is deployed, never what it does. No
+# application source code, and no client state, belongs here.
+#
+# replicas is 0 because ghcr.io/fieldstatenz/saas-fabric does not publish a tag
+# yet. Going live is two changes: pin a real tag in each environment overlay's
+# `images:` block, and set the replica count there. Until then this Application
+# reconciles cleanly and reports Healthy rather than crash-looping on an image
+# that cannot be pulled.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-fabric
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: saas-fabric
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: saas-fabric
+    spec:
+      serviceAccountName: saas-fabric
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: saas-fabric
+          image: ghcr.io/fieldstatenz/saas-fabric:placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: saas-fabric-config
+            # Injected externally; see README.md. Optional so that the platform
+            # still converges before the secret exists.
+            - secretRef:
+                name: saas-fabric-secrets
+                optional: true
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

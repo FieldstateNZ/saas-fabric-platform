@@ -1,0 +1,18 @@
+# LucentRoot: one replica, internal hostname, no TLS termination at the ingress.
+replicas: 1
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  rules:
+    - host: auth.lucentroot.internal
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

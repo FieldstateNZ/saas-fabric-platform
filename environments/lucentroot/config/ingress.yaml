@@ -1,0 +1,9 @@
+# LucentRoot: single controller replica behind k3s' built-in ServiceLB.
+controller:
+  replicaCount: 1
+  service:
+    type: LoadBalancer
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi

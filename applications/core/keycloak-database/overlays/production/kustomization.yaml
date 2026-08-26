@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: Cluster
+      name: keycloak-db
+    patch: |-
+      - op: add
+        path: /spec/storage/storageClass
+        value: managed-csi
+      - op: replace
+        path: /spec/instances
+        value: 3
+      - op: replace
+        path: /spec/storage/size
+        value: 32Gi

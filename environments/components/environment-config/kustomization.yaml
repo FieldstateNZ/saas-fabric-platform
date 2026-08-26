@@ -1,0 +1,51 @@
+# Binds every platform Application to one environment.
+#
+# Two facts vary between environments: which environment's config directory an
+# Application reads, and which revision of this repository it tracks. Both are
+# copied from the environment ConfigMap, so an environment never restates them.
+#
+# Applications are selected by fieldstate.nz/source, because Helm-sourced and
+# Kustomize-sourced Applications carry those fields at different paths.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-environment
+      fieldPath: data.environment
+    targets:
+      # $platform/environments/<environment>/config/<app>.yaml
+      - select:
+          kind: Application
+          labelSelector: fieldstate.nz/source=helm
+        fieldPaths:
+          - spec.sources.0.helm.valueFiles.1
+        options:
+          delimiter: /
+          index: 2
+      # applications/<class>/<app>/overlays/<environment>
+      - select:
+          kind: Application
+          labelSelector: fieldstate.nz/source=kustomize
+        fieldPaths:
+          - spec.source.path
+        options:
+          delimiter: /
+          index: 4
+
+  - source:
+      kind: ConfigMap
+      name: platform-environment
+      fieldPath: data.revision
+    targets:
+      - select:
+          kind: Application
+          labelSelector: fieldstate.nz/source=helm
+        fieldPaths:
+          - spec.sources.1.targetRevision
+      - select:
+          kind: Application
+          labelSelector: fieldstate.nz/source=kustomize
+        fieldPaths:
+          - spec.source.targetRevision

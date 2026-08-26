@@ -1,0 +1,11 @@
+# Production: no telemetry backend is wired yet, so the debug exporter from the
+# shared values still applies. Add an exporter here and name it in the pipelines
+# to route production telemetry; nothing else in the platform changes.
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

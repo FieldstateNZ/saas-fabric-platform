@@ -1,0 +1,44 @@
+# Grafana values shared by every environment that enables the catalogue.
+# Environment differences live in environments/<env>/config/grafana.yaml.
+
+fullnameOverride: grafana
+
+replicas: 1
+
+rbac:
+  create: true
+  # Namespace-scoped only. The catalogue project grants no cluster-scoped
+  # resources, and a catalogue workload should not need any.
+  namespaced: true
+
+serviceAccount:
+  create: true
+
+persistence:
+  enabled: true
+  size: 4Gi
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Admin credentials are injected externally; see README.md.
+admin:
+  existingSecret: grafana-admin
+  userKey: username
+  passwordKey: password
+
+# Grafana reads platform telemetry, it does not define it. Data sources point at
+# whatever backend the environment's OpenTelemetry pipeline exports to, so they
+# are configured per environment rather than here.
+datasources: {}
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+testFramework:
+  enabled: false

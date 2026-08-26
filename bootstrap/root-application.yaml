@@ -1,0 +1,45 @@
+# Root ("app of apps") Application for the SaaS Fabric platform.
+#
+# Applying this single resource hands the cluster to Argo CD. Everything else
+# in the platform is a child of it.
+#
+# The path and targetRevision below are the LucentRoot defaults. Both fields
+# are replaced from environments/<env>/config/platform.yaml when this file is
+# built through bootstrap/overlays/<env>, which is the supported way to apply
+# it. See bootstrap/README.md.
+#
+# Deliberately no resources-finalizer: deleting the root Application must not
+# cascade-delete the platform. See docs/architecture.md#deletion-semantics.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-root
+  namespace: argocd
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+spec:
+  project: saas-fabric-platform
+
+  source:
+    repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+    targetRevision: main
+    path: environments/lucentroot
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

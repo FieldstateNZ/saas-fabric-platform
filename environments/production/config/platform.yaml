@@ -1,0 +1,17 @@
+# Environment contract for production (AKS).
+#
+# revision MUST name an immutable release tag, never a branch. It is updated by
+# the release PR that promotes a version; see docs/releases.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-environment
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+data:
+  environment: production
+  domain: platform.fieldstate.nz
+  replicaProfile: production
+  storageClass: managed-csi
+  revision: v0.1.0

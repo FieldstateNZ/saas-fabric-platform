@@ -1,0 +1,62 @@
+# Grafana
+
+| | |
+|---|---|
+| Product | Grafana |
+| Upstream project | https://github.com/grafana/grafana |
+| Helm chart source | https://grafana.github.io/helm-charts |
+| Chart version (pinned) | `10.5.15` |
+| Application version | `12.3.1` |
+| Licence | AGPL-3.0 |
+| Namespace | `catalogue` |
+| Class | **catalogue** |
+| Sync wave | `40` |
+
+## Why it is catalogue, not core
+
+Apply the test: *does SaaS Fabric itself require this service in order to
+operate?* No. SaaS Fabric emits telemetry to the OpenTelemetry collector and is
+entirely unaware of what reads it. Grafana is a way to look at platform data, not
+a thing the platform depends on.
+
+This distinction is the reason the collector is core and Grafana is not — see
+[`../../core/observability`](../../core/observability/). If Grafana were core,
+"observability" in this platform would quietly come to mean "Grafana".
+
+## Enabling it
+
+Catalogue applications are enabled per environment by including
+`applications/catalogue` in that environment's kustomization. LucentRoot enables
+the catalogue; production does not yet. See
+[docs/adding-an-application.md](../../../docs/adding-an-application.md).
+
+## Required external secret
+
+```yaml
+secretRef:
+  name: grafana-admin   # namespace: catalogue
+  keys: [username, password]
+```
+
+The chart's default behaviour of generating and storing an admin password is
+disabled in favour of an externally injected secret.
+
+## Dependencies
+
+None hard. In practice it is only useful once
+[`observability`](../../core/observability/) exports to a queryable backend,
+which is why its data sources are configured per environment rather than here.
+
+## Configuration owned by this repository
+
+- deployment, persistence, service and RBAC scope;
+- admin credential reference;
+- per-environment ingress hostname, storage class and data sources.
+
+## Configuration expected from outside this repository
+
+- **`grafana-admin` secret**, injected externally.
+- **Data source endpoints and credentials** for the environment's telemetry
+  backend.
+- **Dashboards and per-client views.** Anything client-shaped — a dashboard
+  scoped to one client's namespace, for example — belongs to the client layer.

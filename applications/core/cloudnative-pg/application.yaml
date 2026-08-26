@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: helm
+    fieldstate.nz/class: core
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  sources:
+    - repoURL: https://cloudnative-pg.github.io/charts
+      chart: cloudnative-pg
+      targetRevision: 0.29.0
+      helm:
+        releaseName: cloudnative-pg
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $platform/applications/core/cloudnative-pg/values.yaml
+          - $platform/environments/PLACEHOLDER/config/cloudnative-pg.yaml
+    - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+      targetRevision: PLACEHOLDER
+      ref: platform
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The operator ships large CRDs that exceed the annotation size limit
+      # used by client-side apply.
+      - ServerSideApply=true
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

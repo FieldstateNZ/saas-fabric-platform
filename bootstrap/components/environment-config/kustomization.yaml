@@ -1,0 +1,34 @@
+# Binds the root Application to one environment.
+#
+# The environment ConfigMap (environments/<env>/config/platform.yaml) is the
+# single source of truth for which environment a cluster is and which Git
+# revision it tracks. This component copies those two values into the root
+# Application so they are never restated by hand.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-environment
+      fieldPath: data.environment
+    targets:
+      - select:
+          kind: Application
+          name: platform-root
+        fieldPaths:
+          - spec.source.path
+        options:
+          delimiter: /
+          index: 1
+
+  - source:
+      kind: ConfigMap
+      name: platform-environment
+      fieldPath: data.revision
+    targets:
+      - select:
+          kind: Application
+          name: platform-root
+        fieldPaths:
+          - spec.source.targetRevision

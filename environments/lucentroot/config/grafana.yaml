@@ -1,0 +1,9 @@
+# LucentRoot: internal hostname on local-path storage.
+persistence:
+  storageClassName: local-path
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  hosts:
+    - grafana.lucentroot.internal

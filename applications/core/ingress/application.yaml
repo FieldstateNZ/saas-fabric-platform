@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: helm
+    fieldstate.nz/class: core
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  sources:
+    - repoURL: https://kubernetes.github.io/ingress-nginx
+      chart: ingress-nginx
+      targetRevision: 4.15.1
+      helm:
+        releaseName: ingress
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $platform/applications/core/ingress/values.yaml
+          - $platform/environments/PLACEHOLDER/config/ingress.yaml
+    - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+      targetRevision: PLACEHOLDER
+      ref: platform
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
