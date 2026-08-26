@@ -151,15 +151,20 @@ platform edge rather than one per service. Automated issuance is a
 
 ### 5. Create the production branch
 
-Production follows `refs/heads/production`, which must exist and point at the
-release being deployed:
+Production follows `refs/heads/production`. That branch does not exist until the
+first release is cut, and creating it is a one-time step with its own
+prerequisites — a tagged release commit to point at, and branch protection
+configured before any cluster follows it.
 
 ```bash
-git push origin v0.1.0^{commit}:refs/heads/production
+git branch production v0.1.0
+git push origin production
 ```
 
-Protect the branch so it cannot be pushed to directly or force-pushed without
-review. It is the record of what production runs.
+Do not skip the protection step: the branch is the record of what production
+runs, and an unprotected one silently weakens every promise made about
+promotion. The full procedure is
+[Initialising production](releases.md#initialising-production).
 
 ### 6. Hand over the cluster
 

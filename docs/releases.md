@@ -36,11 +36,47 @@ cluster that follows Git without being poked.
 `kubectl` remains for three things: initial bootstrap, disaster recovery, and
 deliberate break-glass work. It is not part of a normal release.
 
-### Protecting the production branch
+The promotion guarantee is only as strong as the branch, so `production` must be
+protected before any cluster follows it — see
+[Initialising production](#initialising-production).
 
-The promotion guarantee is only as strong as the branch. `refs/heads/production`
-must be protected so it cannot be pushed to directly, cannot be force-pushed
-without review, and only moves through the process below.
+## Initialising production
+
+`refs/heads/production` does not exist yet, and is deliberately not created by
+the pull request that introduces this repository: there is no released platform
+commit to point it at. It is created once, when the first release is cut.
+
+Everything below assumes it exists. `git checkout production` fails until it
+does, so do this first.
+
+### 1. Cut the first release
+
+Follow [Cutting a release](#cutting-a-release) as far as tagging. That produces
+the commit the branch will start from.
+
+### 2. Create the branch at that commit
+
+```bash
+git branch production v0.1.0
+git push origin production
+```
+
+### 3. Protect it before bootstrapping production
+
+`refs/heads/production` is the record of what production runs, and the
+promotion guarantee is only as strong as the branch. Before any cluster is
+pointed at it, configure branch protection so that it:
+
+- cannot be pushed to directly — promotion goes through a pull request or an
+  explicitly authorised fast-forward;
+- cannot be force-pushed without review;
+- never receives commits of its own. Every commit on `production` must already
+  be on `main`.
+
+Only then bootstrap the production cluster, as described in
+[bootstrap.md](bootstrap.md#5-create-the-production-branch).
+
+From that point the branch only ever moves by the process below.
 
 ## The lifecycle
 
@@ -103,6 +139,9 @@ git merge --ff-only v0.3.0
 git push origin production
 ```
 
+If `git checkout production` fails, the branch has not been created yet — see
+[Initialising production](#initialising-production).
+
 `--ff-only` is the safety property, not a stylistic choice: it guarantees
 production only ever moves forward along `main`'s history, and fails loudly if
 someone has committed to `production` directly.
@@ -123,20 +162,41 @@ involved.
 
 ## Rolling back
 
-Move the branch back to the previous release's commit:
+Rollback is selecting a known composition, not reverting commits under a live
+cluster. There are two ways to select one, and the second is the direction this
+platform expects to settle on.
+
+### Moving the branch backwards
 
 ```bash
 git push --force-with-lease origin v0.2.0^{commit}:refs/heads/production
 ```
 
-This is the one place a force push is correct, because rollback is the one case
-where production must move backwards along its history. `--force-with-lease`
-refuses if someone else moved the branch since you last fetched.
+`--force-with-lease` refuses if someone else moved the branch since you last
+fetched. This is fast, and it is the only option if `main` itself is in a state
+you cannot release from.
 
-Rollback is selecting a known composition, not reverting commits under a live
-cluster.
+It is also an ugly operational primitive: it needs an exception to the branch
+protection above, and a force push is a poor thing to have in a runbook that
+gets used under pressure.
 
-Two caveats:
+### Rolling forward instead — preferred once operational
+
+Revert on `main`, tag the result, and promote it like any other release:
+
+```text
+revert the change on main  →  v0.3.1  →  fast-forward production
+```
+
+`v0.3.1` restores the known-good composition by moving forward, so branch
+protection stays intact, no force push is involved, and the history of what
+production ran stays append-only and readable.
+
+This costs one extra release cycle. Once the platform is carrying real traffic
+that is the better trade, and the backwards path becomes a genuine break-glass
+operation rather than the documented default.
+
+Two caveats apply to either route:
 
 - **Data does not roll back.** A database schema migrated by a newer Keycloak is
   not undone by pointing at an older one. Treat any release containing a
