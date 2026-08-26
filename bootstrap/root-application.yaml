@@ -3,10 +3,10 @@
 # Applying this single resource hands the cluster to Argo CD. Everything else
 # in the platform is a child of it.
 #
-# The path and targetRevision below are the LucentRoot defaults. Both fields
-# are replaced from environments/<env>/config/platform.yaml when this file is
-# built through bootstrap/overlays/<env>, which is the supported way to apply
-# it. See bootstrap/README.md.
+# The path and targetRevision below are the LucentRoot defaults. Both are
+# replaced when this file is built through environments/<env>/bootstrap, which
+# is the supported way to apply it: the path comes from that environment's
+# ConfigMap, the ref from its bootstrap kustomization. See bootstrap/README.md.
 #
 # Deliberately no resources-finalizer: deleting the root Application must not
 # cascade-delete the platform. See docs/architecture.md#deletion-semantics.
@@ -37,6 +37,9 @@ spec:
       selfHeal: true
     syncOptions:
       - ApplyOutOfSyncOnly=true
+      # Required for argocd-cm: this repository co-owns one key of a ConfigMap
+      # that saas-fabric-hosting created. See argocd/runtime/README.md.
+      - ServerSideApply=true
     retry:
       limit: 5
       backoff:

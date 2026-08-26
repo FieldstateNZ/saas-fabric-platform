@@ -1,8 +1,8 @@
 # Environment contract for LucentRoot (k3s, development / dogfood).
 #
-# This is the only place LucentRoot's environmental facts are declared. It is
-# applied at bootstrap and thereafter reconciled by Argo CD, so the cluster can
-# always be asked which environment it is and which revision it tracks.
+# Environmental facts only. Which Git ref Argo CD follows is part of this
+# environment's Argo binding, not runtime configuration, and lives in
+# ../kustomization.yaml and ../bootstrap/kustomization.yaml.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,5 +15,3 @@ data:
   domain: lucentroot.internal
   replicaProfile: development
   storageClass: local-path
-  # LucentRoot tracks the integration stream. Merges to main reconcile here.
-  revision: main

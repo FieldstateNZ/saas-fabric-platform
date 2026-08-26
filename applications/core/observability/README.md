@@ -26,7 +26,7 @@ platform telemetry, but the architecture must not be defined by it.
 
 `metrics`, `logs` and `traces` each have a pipeline configured in
 [`values.yaml`](values.yaml). All three currently terminate in the `debug`
-exporter. That is the honest state of the platform: the ingress path,
+exporter. That is the honest state of the platform: the intake path,
 attribution and pipeline shape are real; the storage backend is not chosen yet.
 
 Wiring a backend is a per-environment change in

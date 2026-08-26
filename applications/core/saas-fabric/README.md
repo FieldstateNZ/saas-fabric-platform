@@ -25,8 +25,14 @@ This directory contains no application source code and never will.
 
 `ghcr.io/fieldstatenz/saas-fabric` has no published tag. The Deployment ships
 with `replicas: 0` and a `placeholder` tag so that a clean cluster still
-converges and every Argo Application reports Healthy, instead of the platform's
-acceptance test failing on an image that cannot be pulled.
+converges, instead of the platform's first milestone failing on an image that
+cannot be pulled.
+
+**This Application reporting Healthy does not mean SaaS Fabric is running.** It
+means the cluster matches Git, and Git currently asks for zero replicas. The
+platform substrate — routing, identity, secrets, data and telemetry — is
+genuinely converged and reconciling; SaaS Fabric itself is not yet deployed.
+See [architecture.md](../../../docs/architecture.md#first-milestone).
 
 Going live is two edits in one environment overlay:
 
@@ -47,7 +53,8 @@ Promote to production only after LucentRoot has run the tag — see
 
 - Deployment, replica count and pod security context;
 - Service;
-- Ingress and the platform hostname (`fabric.<domain>`);
+- `HTTPRoute` and the platform hostname (`fabric.<domain>`), attached to the
+  shared platform `Gateway`;
 - ServiceAccount;
 - non-secret runtime configuration, and the *references* to secret
   configuration;
@@ -91,7 +98,8 @@ OpenBao-sourced one rather than the values being relocated.
 
 | Dependency | Wave | Why |
 |---|---|---|
-| [Ingress](../ingress/) | `0` | publishes `fabric.<domain>` |
+| [Envoy Gateway](../envoy-gateway/) | `0` | the routing layer |
+| [Platform gateway](../platform-gateway/) | `10` | the `Gateway` its route attaches to |
 | [Observability](../observability/) | `10` | OTLP endpoint |
 | [OpenBao](../openbao/) | `10` | secrets capability |
 | [Keycloak](../keycloak/) | `20` | identity provider |
@@ -107,6 +115,7 @@ belongs in this directory.
 
 ## TLS
 
-The production overlay's Ingress references `fabric-tls`, injected externally.
-Automated issuance is a known gap — see
-[docs/architecture.md](../../../docs/architecture.md#known-gaps).
+TLS terminates at the platform `Gateway`, not here. The production overlay's
+route selects the Gateway's `https` listener by `sectionName`; the certificate
+is a single `platform-tls` secret on that listener. See
+[`../platform-gateway`](../platform-gateway/).

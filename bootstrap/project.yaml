@@ -18,7 +18,7 @@ spec:
 
   sourceRepos:
     - https://github.com/FieldstateNZ/saas-fabric-platform.git
-    - https://kubernetes.github.io/ingress-nginx
+    - oci://docker.io/envoyproxy
     - https://cloudnative-pg.github.io/charts
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://openbao.github.io/openbao-helm
@@ -55,8 +55,15 @@ spec:
       kind: ValidatingWebhookConfiguration
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
-    - group: networking.k8s.io
-      kind: IngressClass
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicyBinding
+    # The platform's routing authority. There is deliberately no IngressClass:
+    # a second routing authority would mean two places a hostname can be
+    # claimed. See applications/core/envoy-gateway/README.md.
+    - group: gateway.networking.k8s.io
+      kind: GatewayClass
 
   namespaceResourceWhitelist:
     - group: '*'

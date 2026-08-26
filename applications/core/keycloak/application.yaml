@@ -41,6 +41,8 @@ spec:
       labels:
         fieldstate.nz/system: saas-fabric
         fieldstate.nz/layer: platform
+        # Permits this namespace to attach routes to the platform Gateway.
+        fieldstate.nz/gateway-access: "true"
     retry:
       limit: 5
       backoff:

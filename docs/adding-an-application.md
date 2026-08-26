@@ -33,6 +33,11 @@ Three questions, in order:
 3. **Does it need cluster-scoped resources?** Core applications may, within the
    kinds enumerated in `bootstrap/project.yaml`. Catalogue applications may not,
    at all.
+4. **Does it want to route traffic?** Use Gateway API — an `HTTPRoute` attached
+   to the platform `Gateway`. Do not introduce an `Ingress` or a second
+   controller; the platform has one routing authority, and `scripts/check.py`
+   fails the build if an `Ingress` is rendered. See
+   [`applications/core/platform-gateway`](../applications/core/platform-gateway/).
 
 ---
 
@@ -61,7 +66,7 @@ for platform-owned manifests. Then:
   Application without it will silently keep its placeholders;
 - set `fieldstate.nz/class: core`;
 - pin `targetRevision` on the chart to an exact version — never a range, never
-  `*`;
+  `*`. `scripts/check.py` fails the build otherwise;
 - leave the two `PLACEHOLDER` values alone. They are replaced per environment;
 - choose a sync wave (see below);
 - set `destination.namespace` to a namespace the platform project allows.
@@ -85,8 +90,8 @@ in wave order.
 
 | Wave | For |
 |---|---|
-| `0` | operators, CRDs, the cluster edge |
-| `10` | data, secrets and telemetry foundations |
+| `0` | operators, CRDs, control planes |
+| `10` | routing, data, secrets and telemetry foundations |
 | `20` | identity |
 | `30` | SaaS Fabric services |
 | `40` | catalogue |
@@ -94,6 +99,10 @@ in wave order.
 Use an existing wave. New waves are for genuinely new layers, not for nudging
 ordering — if two things in one wave race, they probably have a dependency that
 should be expressed by moving one to the next wave.
+
+Waves only order anything because of the custom Application health assessment in
+[`argocd/runtime`](../argocd/runtime/). That is not Argo CD's default; see
+[architecture.md](architecture.md#argo-cd-runtime-contract).
 
 ### 6. Add environment configuration, only where it differs
 

@@ -11,10 +11,13 @@ Checks, in order of how much damage they prevent:
   4. every chart version is pinned exactly, never a range;
   5. every Application's destination namespace is allowed by its AppProject;
   6. no client-scoped resource has crept into a platform environment;
-  7. every in-cluster service reference resolves to something this repository
+  7. exactly one routing authority: Gateway API, never an Ingress, and every
+     route attached to a listener that exists from a namespace allowed to;
+  8. the Argo CD runtime configuration the platform depends on is present;
+  9. every in-cluster service reference resolves to something this repository
      actually deploys;
-  8. the telemetry pipelines only reference components that exist;
-  9. every application directory carries the required documentation.
+ 10. the telemetry pipelines only reference components that exist;
+ 11. every application directory carries the required documentation.
 """
 from __future__ import annotations
 
@@ -86,12 +89,21 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
                     fail(problems, f"{relative}: Secret with inline data")
 
 
+# Rendered output is large -- the Gateway API CRDs alone are megabytes -- and
+# several checks walk all of it. Parse each file once.
+_DOCUMENTS: dict[Path, list[dict]] = {}
+
+
 def load_all(path: Path, problems: list[str]) -> list[dict]:
-    try:
-        return [d for d in yaml.safe_load_all(path.read_text()) if isinstance(d, dict)]
-    except yaml.YAMLError as error:
-        fail(problems, f"{path}: invalid YAML: {error}")
-        return []
+    if path not in _DOCUMENTS:
+        try:
+            _DOCUMENTS[path] = [
+                d for d in yaml.safe_load_all(path.read_text()) if isinstance(d, dict)
+            ]
+        except yaml.YAMLError as error:
+            fail(problems, f"{path}: invalid YAML: {error}")
+            _DOCUMENTS[path] = []
+    return _DOCUMENTS[path]
 
 
 def check_no_duplicate_resources(render: Path, problems: list[str]) -> None:
@@ -204,8 +216,8 @@ def check_service_references(render: Path, problems: list[str]) -> None:
                 elif document.get("kind") == "Cluster":
                     clusters.add((name, namespace))
 
-        for path, document in documents:
-            for name, namespace in CLUSTER_DNS.findall(yaml.safe_dump(document)):
+        for path in sorted({path for path, _ in documents}):
+            for name, namespace in set(CLUSTER_DNS.findall(path.read_text())):
                 if (name, namespace) in services:
                     continue
                 cnpg = CNPG_SERVICE.match(name)
@@ -215,6 +227,116 @@ def check_service_references(render: Path, problems: list[str]) -> None:
                     problems,
                     f"{environment}/{path.name}: references {name}.{namespace},"
                     " which no rendered Service or CloudNativePG Cluster provides",
+                )
+
+
+def check_single_routing_authority(render: Path, problems: list[str]) -> None:
+    """Envoy Gateway is the platform's only routing layer.
+
+    An Ingress rendered anywhere means a second controller is being introduced,
+    and with it a second place a hostname can be claimed. See
+    applications/core/envoy-gateway/README.md.
+    """
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") in ("Ingress", "IngressClass"):
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: renders"
+                        f" {document['kind']}/{document['metadata']['name']};"
+                        " routing goes through the platform Gateway",
+                    )
+
+
+def check_routes_attach(render: Path, problems: list[str]) -> None:
+    """A route that names a Gateway or listener that does not exist.
+
+    Gateway API fails softly: the HTTPRoute is accepted by the API server,
+    reports NotAllowedByListeners or NoMatchingParent in its status, and serves
+    nothing. Nothing before this catches it.
+
+    The same applies to the namespace label. The platform Gateway admits routes
+    from namespaces carrying fieldstate.nz/gateway-access, which Applications
+    set through managedNamespaceMetadata; a route in a namespace no Application
+    labels will never attach.
+    """
+    label = "fieldstate.nz/gateway-access"
+    for environment in ENVIRONMENTS:
+        listeners: dict[tuple[str, str], set[str]] = {}
+        routes = []
+        labelled: set[str] = set()
+
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                kind = document.get("kind")
+                metadata = document.get("metadata", {})
+                if kind == "Gateway":
+                    listeners[(metadata["name"], metadata["namespace"])] = {
+                        listener["name"] for listener in document["spec"]["listeners"]
+                    }
+                elif kind in ("HTTPRoute", "GRPCRoute", "TCPRoute", "TLSRoute"):
+                    routes.append((path, document))
+                elif kind == "Application":
+                    managed = (
+                        document["spec"]
+                        .get("syncPolicy", {})
+                        .get("managedNamespaceMetadata", {})
+                        .get("labels", {})
+                    )
+                    if managed.get(label) == "true":
+                        labelled.add(document["spec"]["destination"]["namespace"])
+
+        for path, route in routes:
+            metadata = route["metadata"]
+            namespace = metadata["namespace"]
+            where = f"{environment}/{path.name}: {route['kind']}/{metadata['name']}"
+
+            if namespace not in labelled:
+                fail(
+                    problems,
+                    f"{where} is in namespace {namespace}, which no Application"
+                    f" labels {label}; the route cannot attach",
+                )
+
+            for parent in route["spec"].get("parentRefs", []):
+                key = (parent["name"], parent.get("namespace", namespace))
+                if key not in listeners:
+                    fail(problems, f"{where} attaches to Gateway {key[0]}.{key[1]}, which does not exist")
+                    continue
+                section = parent.get("sectionName")
+                if section and section not in listeners[key]:
+                    fail(
+                        problems,
+                        f"{where} attaches to listener '{section}' of"
+                        f" {key[0]}.{key[1]}, which has no such listener",
+                    )
+
+
+def check_argocd_runtime_configuration(render: Path, problems: list[str]) -> None:
+    """Sync waves only order an app-of-apps if Argo CD is told to.
+
+    Argo CD reports a child Application as Healthy the moment it exists unless a
+    custom health assessment says otherwise. Without it the platform's wave
+    ordering is decorative. See argocd/runtime/README.md.
+    """
+    key = "resource.customizations.health.argoproj.io_Application"
+    for environment in ENVIRONMENTS:
+        for name, described in (
+            ("bootstrap.yaml", "the bootstrap set"),
+            ("platform.yaml", "the reconciled environment"),
+        ):
+            found = any(
+                document.get("kind") == "ConfigMap"
+                and document["metadata"]["name"] == "argocd-cm"
+                and key in (document.get("data") or {})
+                for document in load_all(render / environment / name, problems)
+            )
+            if not found:
+                fail(
+                    problems,
+                    f"{environment}: {described} does not configure {key};"
+                    " sync waves would not order the platform",
                 )
 
 
@@ -288,6 +410,9 @@ def main() -> int:
     check_applications_match_their_project(render, problems)
     check_no_client_resources(render, problems)
     check_service_references(render, problems)
+    check_single_routing_authority(render, problems)
+    check_routes_attach(render, problems)
+    check_argocd_runtime_configuration(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
 

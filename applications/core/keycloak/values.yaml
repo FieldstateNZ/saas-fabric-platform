@@ -12,7 +12,7 @@ command:
   - /opt/keycloak/bin/kc.sh
   - start
 
-# Terminated at the ingress controller; Keycloak trusts the forwarded headers.
+# TLS terminates at the platform Gateway; Keycloak trusts the forwarded headers.
 proxy:
   enabled: true
   mode: forwarded

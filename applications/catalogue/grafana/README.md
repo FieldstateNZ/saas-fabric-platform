@@ -51,7 +51,7 @@ which is why its data sources are configured per environment rather than here.
 
 - deployment, persistence, service and RBAC scope;
 - admin credential reference;
-- per-environment ingress hostname, storage class and data sources.
+- per-environment route hostname, storage class and data sources.
 
 ## Configuration expected from outside this repository
 

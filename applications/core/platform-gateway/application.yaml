@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: keycloak-database
+  name: platform-gateway
   namespace: argocd
   labels:
     fieldstate.nz/source: kustomize
@@ -16,15 +16,14 @@ spec:
   source:
     repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
     targetRevision: PLACEHOLDER
-    path: applications/core/keycloak-database/overlays/PLACEHOLDER
+    path: applications/core/platform-gateway/overlays/PLACEHOLDER
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: identity
+    namespace: platform-system
 
   syncPolicy:
     automated:
-      # The Cluster carries Prune=false and Delete=false; see base/cluster.yaml.
       prune: true
       selfHeal: true
     syncOptions:
@@ -33,7 +32,6 @@ spec:
       labels:
         fieldstate.nz/system: saas-fabric
         fieldstate.nz/layer: platform
-        # Permits this namespace to attach routes to the platform Gateway.
         fieldstate.nz/gateway-access: "true"
     retry:
       limit: 10

@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Production: AKS, tracking an immutable release tag.
+# Production: AKS.
 #
 # The catalogue is deliberately absent. Catalogue applications are optional
 # platform capabilities, not prerequisites, and are enabled per environment by
@@ -10,10 +10,31 @@ namespace: argocd
 
 resources:
   - config
+  - ../../argocd/runtime
   - ../../applications/core
 
 components:
   - ../components/environment-config
+
+# The Git ref this environment follows. Production tracks a branch that is only
+# ever fast-forwarded to a release tag's commit, so what runs is always an
+# explicitly promoted composition -- and promoting one is a Git operation, not a
+# change made against the cluster. See docs/releases.md.
+patches:
+  - target:
+      kind: Application
+      labelSelector: fieldstate.nz/source=helm
+    patch: |-
+      - op: replace
+        path: /spec/sources/1/targetRevision
+        value: production
+  - target:
+      kind: Application
+      labelSelector: fieldstate.nz/source=kustomize
+    patch: |-
+      - op: replace
+        path: /spec/source/targetRevision
+        value: production
 
 labels:
   - includeSelectors: false

@@ -62,9 +62,14 @@ def render_application(root: Path, app: dict, out_dir: Path) -> None:
 
     if "sources" in spec:
         chart = spec["sources"][0]
-        argv = [
-            "helm", "template", name, chart["chart"],
-            "--repo", chart["repoURL"],
+        repo = chart["repoURL"]
+        # OCI charts are addressed as a single reference; classic HTTP repos
+        # take the chart name plus --repo.
+        if repo.startswith("oci://"):
+            argv = ["helm", "template", name, f"{repo}/{chart['chart']}"]
+        else:
+            argv = ["helm", "template", name, chart["chart"], "--repo", repo]
+        argv += [
             "--version", chart["targetRevision"],
             "--namespace", namespace,
             "--kube-version", KUBE_VERSION,

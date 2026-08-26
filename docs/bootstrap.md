@@ -19,9 +19,10 @@ Step 4 is one command. Everything after it happens through Git.
 
 ### 1. Cluster
 
-k3s ships Traefik as its ingress controller. The platform runs ingress-nginx, so
-disable it — two controllers competing for the same `LoadBalancer` ports is not
-a state worth debugging.
+k3s ships Traefik as its ingress controller. The platform routes through Envoy
+Gateway and is deliberately the cluster's only routing authority, so disable
+Traefik — two controllers competing for the same `LoadBalancer` ports is not a
+state worth debugging.
 
 ```bash
 curl -sfL https://get.k3s.io | sh -s - --disable=traefik --write-kubeconfig-mode 644
@@ -37,6 +38,12 @@ kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl wait -n argocd --for=condition=available --timeout=300s deployment/argocd-repo-server
 ```
+
+**Argo CD 2.13 or later is required**, for `oci://` Helm source repositories.
+Envoy Gateway's chart is published only to an OCI registry. The platform also
+depends on a non-default Argo CD health assessment, which this repository owns
+and applies in step 5 — see
+[`argocd/runtime/README.md`](../argocd/runtime/README.md).
 
 ### 3. Repository access
 
@@ -74,20 +81,28 @@ values being moved somewhere else.
 ### 5. Hand over the cluster
 
 ```bash
-kubectl apply -k environments/lucentroot/bootstrap
+kubectl apply --server-side --field-manager=saas-fabric-platform \
+  -k environments/lucentroot/bootstrap
 ```
 
-This applies the `saas-fabric-platform` project, the environment ConfigMap and
-the root Application. Argo CD takes it from there.
+This applies the `saas-fabric-platform` project, the Argo CD runtime
+configuration the platform depends on, the environment ConfigMap and the root
+Application. Argo CD takes it from there.
+
+`--server-side` is required, not cosmetic. The bootstrap set includes a partial
+`argocd-cm` that adds one key to a ConfigMap Argo CD's installer owns.
+Server-side apply makes this repository the field manager for that one key and
+leaves the rest alone; a client-side apply would rewrite the object's
+`last-applied-configuration` and put the two managers in conflict.
 
 ### 6. Hostnames
 
-LucentRoot uses `*.lucentroot.internal`. Point them at the ingress controller's
-address:
+LucentRoot uses `*.lucentroot.internal`. Point them at the address Envoy Gateway
+allocated for the platform `Gateway`:
 
 ```bash
-kubectl -n platform-system get svc ingress-nginx-controller \
-  -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+kubectl -n platform-system get gateway platform \
+  -o jsonpath='{.status.addresses[0].value}'
 ```
 
 Add `auth.lucentroot.internal`, `fabric.lucentroot.internal` and
@@ -123,29 +138,40 @@ bootstrap set — a root Application that cannot read its source will sit
 The same `keycloak-admin` secret in `identity`. The catalogue is not enabled in
 production, so `grafana-admin` is not needed.
 
-Production additionally expects TLS secrets referenced by the platform
-Ingresses, which are not created here:
+Production additionally expects one TLS certificate, referenced by the platform
+Gateway's `https` listener and not created here:
 
 | Secret | Namespace | Referenced by |
 |---|---|---|
-| `auth-tls` | `identity` | Keycloak ingress |
-| `fabric-tls` | `platform-system` | SaaS Fabric ingress |
+| `platform-tls` | `platform-system` | the platform `Gateway` |
 
-Automated issuance is a [known gap](architecture.md#known-gaps).
+TLS terminates at the Gateway, so this is one certificate for the whole
+platform edge rather than one per service. Automated issuance is a
+[known gap](architecture.md#known-gaps).
 
-### 5. Hand over the cluster
+### 5. Create the production branch
 
-Production tracks an immutable tag, so bootstrap from that tag rather than from
-`main`:
+Production follows `refs/heads/production`, which must exist and point at the
+release being deployed:
 
 ```bash
-git checkout v0.1.0
-kubectl apply -k environments/production/bootstrap
+git push origin v0.1.0^{commit}:refs/heads/production
 ```
 
-The tag's own `environments/production/config/platform.yaml` names the revision,
-so the root Application ends up pointing at the tag it was applied from. See
-[releases.md](releases.md).
+Protect the branch so it cannot be pushed to directly or force-pushed without
+review. It is the record of what production runs.
+
+### 6. Hand over the cluster
+
+```bash
+git checkout production
+kubectl apply --server-side --field-manager=saas-fabric-platform \
+  -k environments/production/bootstrap
+```
+
+This is the only time `kubectl apply` is part of deploying production. From here
+promotion is a Git operation: advance `refs/heads/production` and Argo CD
+reconciles. See [releases.md](releases.md).
 
 ---
 
@@ -165,9 +191,21 @@ kubectl -n argocd get applications
 Every Application should reach `Synced` / `Healthy`. Expect it to take a few
 minutes: waves are sequential, and Keycloak waits for its database to be ready.
 
-SaaS Fabric reports Healthy with zero pods; the Deployment ships with
-`replicas: 0` until an image is published. See
+`saas-fabric` reports Healthy with zero pods. The Deployment ships with
+`replicas: 0` until an image is published, and Healthy here means "the cluster
+matches Git", not "SaaS Fabric is running". What a converged cluster proves at
+this stage is set out in
+[architecture.md](architecture.md#first-milestone); the Deployment itself is
+described in
 [`applications/core/saas-fabric/README.md`](../applications/core/saas-fabric/README.md).
+
+Check that routing came up, since everything reachable depends on it:
+
+```bash
+kubectl -n platform-system get gateway platform
+```
+
+The `PROGRAMMED` condition must be `True` and an address must be allocated.
 
 ### One remaining manual step
 
@@ -181,8 +219,13 @@ Store the unseal shares and root token in the organisation's break-glass
 location. They must never be committed. See
 [`applications/core/openbao/README.md`](../applications/core/openbao/README.md).
 
-### Changing which revision a cluster tracks
+### Changing which ref a cluster tracks
 
-The tracked revision lives in `environments/<environment>/config/platform.yaml`.
-LucentRoot tracks `main` and needs no intervention. Promoting production means
-re-applying its bootstrap set from the new tag — see [releases.md](releases.md).
+The ref an environment follows is part of its Argo binding, in
+`environments/<environment>/kustomization.yaml` and
+`environments/<environment>/bootstrap/kustomization.yaml`. It is not runtime
+configuration and does not appear in the environment ConfigMap.
+
+Neither environment needs it changed to deploy a release. LucentRoot follows
+`main`; production follows `production`, and promotion moves that branch rather
+than the platform's configuration. See [releases.md](releases.md).

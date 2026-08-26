@@ -21,9 +21,9 @@ generatorOptions:
 
 patches:
   - target:
-      kind: Ingress
+      kind: HTTPRoute
       name: saas-fabric
     patch: |-
       - op: replace
-        path: /spec/rules/0/host
+        path: /spec/hostnames/0
         value: fabric.lucentroot.internal

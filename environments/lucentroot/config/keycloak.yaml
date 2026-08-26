@@ -1,14 +1,14 @@
-# LucentRoot: one replica, internal hostname, no TLS termination at the ingress.
+# LucentRoot: one replica, internal hostname, plain HTTP at the Gateway.
 replicas: 1
 
-ingress:
+httpRoute:
   enabled: true
-  ingressClassName: nginx
-  rules:
-    - host: auth.lucentroot.internal
-      paths:
-        - path: /
-          pathType: Prefix
+  parentRefs:
+    - name: platform
+      namespace: platform-system
+      sectionName: http
+  hostnames:
+    - auth.lucentroot.internal
 
 resources:
   requests:

@@ -25,18 +25,37 @@ environment: lucentroot          production
 domain: lucentroot.internal      platform.fieldstate.nz
 replicaProfile: development      production
 storageClass: local-path         managed-csi
-revision: main                   v0.1.0
 ```
 
-It is a real ConfigMap, applied to the cluster, so a cluster can always be asked
-which environment it is and which revision it is meant to be running. It is also
-the source for the Kustomize replacements that bind every Application to this
-environment — see
-[`components/environment-config`](components/environment-config/kustomization.yaml).
+Environmental facts only. It is a real ConfigMap, applied to the cluster, so a
+cluster can always be asked what it is. It is also the source for the Kustomize
+replacement that points every Application at this environment's configuration —
+see [`components/environment-config`](components/environment-config/kustomization.yaml).
 
-`environment` and `revision` are consumed mechanically. `domain`,
-`replicaProfile` and `storageClass` are the declared contract that the
-per-application files below must agree with.
+`environment` is consumed mechanically. `domain`, `replicaProfile` and
+`storageClass` are the declared contract that the per-application files below
+must agree with.
+
+## The Git ref is not environment configuration
+
+Which ref Argo CD follows is deliberately **not** here. It is Argo binding —
+promotion state, not a fact about the environment — and putting it in a runtime
+ConfigMap would conflate "what this environment is" with "what it is currently
+running".
+
+It appears in exactly two files per environment:
+
+```text
+<environment>/kustomization.yaml            the ref child Applications follow
+<environment>/bootstrap/kustomization.yaml  the ref the root Application follows
+```
+
+| Environment | Follows |
+|---|---|
+| LucentRoot | `main` |
+| Production | `production`, a branch only ever fast-forwarded to a release tag |
+
+See [docs/releases.md](../docs/releases.md).
 
 ## Per-application overrides
 
@@ -75,8 +94,9 @@ lives. See
 
 ## Which applications an environment runs
 
-`kustomization.yaml` lists what this environment reconciles. Core is always
-included. The catalogue is one line, and omitting it yields a complete platform:
+`kustomization.yaml` lists what this environment reconciles, and sets the Git
+ref above. Core and [`argocd/runtime`](../argocd/runtime/) are always included.
+The catalogue is one line, and omitting it yields a complete platform:
 
 | Environment | `../../applications/core` | `../../applications/catalogue` |
 |---|---|---|

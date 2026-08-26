@@ -4,16 +4,12 @@ kind: Kustomization
 namespace: platform-system
 
 resources:
-  - serviceaccount.yaml
-  - configmap.yaml
-  - deployment.yaml
-  - service.yaml
-  - httproute.yaml
+  - gatewayclass.yaml
+  - gateway.yaml
 
 labels:
   - includeSelectors: false
     pairs:
-      app.kubernetes.io/name: saas-fabric
-      app.kubernetes.io/part-of: saas-fabric
+      app.kubernetes.io/name: platform-gateway
       fieldstate.nz/system: saas-fabric
       fieldstate.nz/layer: platform

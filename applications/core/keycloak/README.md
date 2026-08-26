@@ -26,12 +26,12 @@ elsewhere.
 
 | Resource | Owner |
 |---|---|
-| Deployment, service, ingress, probes, persistence | this repository |
+| Deployment, service, route, probes, persistence | this repository |
 | Database connection interface | this repository |
 | Admin bootstrap credential *reference* | this repository (the value is external) |
 | Realm for a client | client OpenTofu |
 | Clients, roles, groups, identity providers within a client realm | client OpenTofu |
-| Client hostname such as `acme.fieldstate.nz` | client OpenTofu |
+| Client hostname and `HTTPRoute` such as `acme.fieldstate.nz` | client OpenTofu |
 
 No realm is defined in this repository, including a "default" one. A realm here
 would compete with the client layer for ownership of the same object.
@@ -74,14 +74,15 @@ than the value being moved. Creating it is a documented bootstrap step — see
 
 | Dependency | Wave | Why |
 |---|---|---|
-| [Ingress](../ingress/) | `0` | publishes the `auth.<domain>` hostname |
+| [Envoy Gateway](../envoy-gateway/) | `0` | the routing layer, and the Gateway API CRDs its `HTTPRoute` needs |
 | [CloudNativePG](../cloudnative-pg/) | `0` | provides the `Cluster` CRD |
+| [Platform gateway](../platform-gateway/) | `10` | the `Gateway` its route attaches to |
 | [Keycloak database](../keycloak-database/) | `10` | Keycloak will not start without it |
 
 ## Configuration owned by this repository
 
 - deployment topology, replica count and resources per environment;
-- service and ingress, including the platform `auth.<domain>` hostname;
+- service and `HTTPRoute`, including the platform `auth.<domain>` hostname;
 - health and readiness probing, and the `/health` and `/metrics` endpoints;
 - proxy mode and forwarded-header handling;
 - the database connection interface and the admin secret reference.
@@ -89,6 +90,6 @@ than the value being moved. Creating it is a documented bootstrap step — see
 ## Configuration expected from outside this repository
 
 - **`keycloak-admin` secret**, injected at bootstrap.
-- **TLS certificate** for the ingress hostname.
+- **TLS**, terminated at the platform `Gateway` rather than here.
 - **DNS** for `auth.<domain>`, from `saas-fabric-hosting`.
 - **All realm content**, from the client layer.

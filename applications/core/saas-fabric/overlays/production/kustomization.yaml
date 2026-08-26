@@ -20,17 +20,15 @@ generatorOptions:
   disableNameSuffixHash: true
 
 patches:
+  # TLS terminates at the Gateway's https listener, so the route selects that
+  # listener rather than carrying a certificate of its own.
   - target:
-      kind: Ingress
+      kind: HTTPRoute
       name: saas-fabric
     patch: |-
       - op: replace
-        path: /spec/rules/0/host
+        path: /spec/hostnames/0
         value: fabric.fieldstate.nz
-      - op: add
-        path: /spec/tls
-        value:
-          - hosts:
-              - fabric.fieldstate.nz
-            # Injected externally; see ../../README.md.
-            secretName: fabric-tls
+      - op: replace
+        path: /spec/parentRefs/0/sectionName
+        value: https

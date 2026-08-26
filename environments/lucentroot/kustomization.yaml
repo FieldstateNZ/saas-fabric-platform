@@ -1,18 +1,37 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# LucentRoot: k3s development / dogfood environment, tracking refs/heads/main.
+# LucentRoot: k3s development / dogfood environment.
 # Catalogue applications are enabled here so they are exercised before any
 # production promotion is considered.
 namespace: argocd
 
 resources:
   - config
+  - ../../argocd/runtime
   - ../../applications/core
   - ../../applications/catalogue
 
 components:
   - ../components/environment-config
+
+# The Git ref this environment follows. LucentRoot tracks the integration
+# stream, so a merge to main reconciles here automatically.
+patches:
+  - target:
+      kind: Application
+      labelSelector: fieldstate.nz/source=helm
+    patch: |-
+      - op: replace
+        path: /spec/sources/1/targetRevision
+        value: main
+  - target:
+      kind: Application
+      labelSelector: fieldstate.nz/source=kustomize
+    patch: |-
+      - op: replace
+        path: /spec/source/targetRevision
+        value: main
 
 labels:
   - includeSelectors: false

@@ -1,7 +1,8 @@
 # Environment contract for production (AKS).
 #
-# revision MUST name an immutable release tag, never a branch. It is updated by
-# the release PR that promotes a version; see docs/releases.md.
+# Environmental facts only. Which Git ref Argo CD follows is part of this
+# environment's Argo binding, not runtime configuration, and lives in
+# ../kustomization.yaml and ../bootstrap/kustomization.yaml.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,4 +15,3 @@ data:
   domain: platform.fieldstate.nz
   replicaProfile: production
   storageClass: managed-csi
-  revision: v0.1.0

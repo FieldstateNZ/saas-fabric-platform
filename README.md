@@ -5,17 +5,20 @@ Fabric runs on. Argo CD treats this repository as the source of truth for
 platform workloads.
 
 ```bash
-kubectl apply -k environments/lucentroot/bootstrap
+kubectl apply --server-side --field-manager=saas-fabric-platform \
+  -k environments/lucentroot/bootstrap
 ```
 
-That is the whole bootstrap. Everything after it happens through Git.
+That is the whole bootstrap. Everything after it happens through Git, including
+promoting a release to production.
 
 ## What this repository owns
 
-- the definition of the shared platform: ingress, CloudNativePG, OpenBao,
-  Keycloak, the observability boundary, and SaaS Fabric's deployment;
+- the definition of the shared platform: the Envoy Gateway routing layer,
+  CloudNativePG, OpenBao, Keycloak, the observability boundary, and SaaS
+  Fabric's deployment;
 - the Argo CD projects, root Application and child Applications that reconcile
-  them;
+  them, plus the Argo CD runtime behaviour the platform depends on;
 - environment configuration for LucentRoot and production;
 - the optional catalogue of platform capabilities.
 
@@ -46,6 +49,7 @@ saas-fabric-clients
 > client-scoped resources.**
 
 ```text
+Argo CD installs Envoy Gateway   OpenTofu creates a client's routes
 Argo CD installs Keycloak        OpenTofu creates a client's Keycloak realm
 Argo CD installs CloudNativePG   OpenTofu creates a client's database
 Argo CD installs OpenBao         OpenTofu creates a client's OpenBao namespace
@@ -60,8 +64,8 @@ No resource has competing ownership between the two. The full matrix is in
 | | LucentRoot | Production |
 |---|---|---|
 | Runtime | k3s | Azure Kubernetes Service |
-| Revision | `refs/heads/main` | `refs/tags/vX.Y.Z` |
-| Moves when | a pull request merges | someone decides to promote |
+| Follows | `refs/heads/main` | `refs/heads/production` |
+| Moves when | a pull request merges | that branch is fast-forwarded to a release tag |
 | Domain | `lucentroot.internal` | `platform.fieldstate.nz` |
 | Storage | `local-path` | `managed-csi` |
 | Catalogue | enabled | not enabled |
@@ -70,24 +74,28 @@ LucentRoot is where platform changes are exercised. It runs the same application
 topology as production with lower availability — one replica instead of three,
 local storage, smaller resource limits.
 
-Production never follows a branch. It runs an immutable release tag, so what is
-running is always a composition someone chose.
+`refs/heads/production` is not a development stream. It only ever moves to a
+commit carrying a release tag, so what production runs is always a composition
+someone explicitly chose — and promoting one is a Git operation, never a change
+made against the cluster.
 
 ## How a change reaches production
 
 ```text
-feature branch → pull request → main → LucentRoot → validation → tag → production
+feature branch → pull request → main → LucentRoot → validation
+      → tag vX.Y.Z → fast-forward refs/heads/production → Argo CD reconciles
 ```
 
 A merge to `main` reconciles LucentRoot automatically. A release is a separate,
-explicit decision: not every commit becomes one. See
-[docs/releases.md](docs/releases.md).
+explicit decision: not every commit becomes one. `kubectl` is for initial
+bootstrap, disaster recovery and deliberate break-glass work — not for
+releases. See [docs/releases.md](docs/releases.md).
 
 ## Layout
 
 ```text
 bootstrap/        the project and root Application; three files, one command
-argocd/           Argo CD projects
+argocd/           Argo CD projects and the runtime behaviour the platform needs
 applications/
   core/           what SaaS Fabric requires in order to operate
   catalogue/      optional capabilities SaaS Fabric can offer
@@ -96,10 +104,10 @@ docs/             architecture, bootstrap, releases, contributing
 scripts/          render and validate everything, offline
 ```
 
-Application definitions are shared across environments. Exactly two facts vary
-per environment — which config directory to read, and which revision to track —
-and both come from one file:
-`environments/<environment>/config/platform.yaml`.
+Application definitions are shared across environments. Two things vary, kept
+deliberately apart: the environment's identity, which is an environmental fact
+declared in `environments/<environment>/config/platform.yaml`; and the Git ref it
+follows, which is Argo binding and lives in that environment's kustomizations.
 
 ## Core versus catalogue
 
@@ -109,7 +117,7 @@ If yes, it may be core. If no, it belongs in the catalogue.
 
 | Core | Catalogue |
 |---|---|
-| [ingress-nginx](applications/core/ingress/) | [Grafana](applications/catalogue/grafana/) |
+| [Envoy Gateway](applications/core/envoy-gateway/) + [the platform Gateway](applications/core/platform-gateway/) | [Grafana](applications/catalogue/grafana/) |
 | [CloudNativePG](applications/core/cloudnative-pg/) | |
 | [OpenBao](applications/core/openbao/) | |
 | [Keycloak](applications/core/keycloak/) + [its database](applications/core/keycloak-database/) | |
@@ -135,6 +143,11 @@ It then checks the invariants a schema cannot express:
   them;
 - no duplicate Kubernetes resource within an environment, because two
   Applications writing the same object is competing ownership;
+- exactly one routing authority — Gateway API, never an `Ingress` — with every
+  route attached to a listener that exists, from a namespace the Gateway admits;
+- the non-default Argo CD behaviour the platform depends on present in both the
+  bootstrap set and the reconciled environment, so wave ordering cannot quietly
+  stop working;
 - every chart repository and destination namespace allowed by the Application's
   own `AppProject`;
 - every chart version pinned exactly, never a range;
@@ -153,9 +166,9 @@ request that renders invalid manifests cannot merge.
 
 | | |
 |---|---|
-| [architecture.md](docs/architecture.md) | layers, ownership, dependency ordering, privilege boundaries, known gaps |
+| [architecture.md](docs/architecture.md) | layers, ownership, the Argo CD runtime contract, dependency ordering, privilege boundaries, the first milestone, known gaps |
 | [bootstrap.md](docs/bootstrap.md) | k3s / LucentRoot and AKS / production, step by step |
-| [releases.md](docs/releases.md) | cutting a release, promoting production, rolling back |
+| [releases.md](docs/releases.md) | cutting a release, promoting production by moving a Git ref, rolling back |
 | [adding-an-application.md](docs/adding-an-application.md) | core versus catalogue, and how to add either |
 
 ## Licence

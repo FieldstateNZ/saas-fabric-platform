@@ -12,12 +12,35 @@ way, worked together*. That is the thing production runs.
 
 ## What each environment follows
 
-| Environment | Revision | Moves when |
+| Environment | Follows | Moves when |
 |---|---|---|
 | LucentRoot | `refs/heads/main` | a pull request merges |
-| Production | `refs/tags/vX.Y.Z` | someone decides to promote |
+| Production | `refs/heads/production` | that branch is fast-forwarded to a release tag's commit |
 
-Production must never follow a branch. A moving target is not a release.
+Production follows a branch, but that branch is not a development stream. It
+only ever moves to a commit that carries a release tag, so what production runs
+is always an explicitly promoted, known composition — while promoting one stays
+a Git operation.
+
+### Why a branch rather than the tag itself
+
+Argo CD cannot follow a tag that changes. Pointing production at `v0.2.0` means
+promotion has to rewrite the Application in the cluster, which puts `kubectl` on
+the normal release path and makes the cluster, not Git, the record of what is
+deployed.
+
+Pointing production at a branch that is only ever fast-forwarded to a tagged
+commit keeps both properties: an explicit human promotion decision, and a
+cluster that follows Git without being poked.
+
+`kubectl` remains for three things: initial bootstrap, disaster recovery, and
+deliberate break-glass work. It is not part of a normal release.
+
+### Protecting the production branch
+
+The promotion guarantee is only as strong as the branch. `refs/heads/production`
+must be protected so it cannot be pushed to directly, cannot be force-pushed
+without review, and only moves through the process below.
 
 ## The lifecycle
 
@@ -32,9 +55,11 @@ LucentRoot reconciliation automatic, within minutes
       ↓
 validation / dogfooding   the part that takes real time
       ↓
-Git release tag           an explicit decision
+Git tag vX.Y.Z            an explicit decision
       ↓
-production promotion
+advance refs/heads/production to that commit
+      ↓
+production Argo CD sees the change and reconciles automatically
 ```
 
 Not every commit on `main` becomes a release. A release is a judgement that a
@@ -51,30 +76,16 @@ kubectl -n argocd get applications
 Every Application `Synced` and `Healthy`, on the commit being released. An
 application that has been Degraded and self-healed repeatedly is not validated.
 
-### 2. Open a release pull request
+Note that `saas-fabric` reports Healthy with zero replicas until an image is
+published. That is reconciliation working, not the application running.
 
-One file changes:
-
-```yaml
-# environments/production/config/platform.yaml
-data:
-  revision: v0.3.0
-```
-
-This is what makes a tag self-describing: the tag contains the revision it *is*,
-so a cluster bootstrapped from `v0.3.0` tracks `v0.3.0` with nothing to
-remember. `main` always shows the most recently released production revision.
-
-### 3. Merge and tag the merge commit
+### 2. Tag the commit
 
 ```bash
 git checkout main && git pull
 git tag -a v0.3.0 -m "Platform v0.3.0"
 git push origin v0.3.0
 ```
-
-Tag the commit that contains the `revision: v0.3.0` change. Tagging a different
-commit produces a release whose contents disagree with what it claims to be.
 
 Use semantic versioning against the platform as a whole:
 
@@ -84,37 +95,46 @@ Use semantic versioning against the platform as a whole:
 | minor | a new capability, or a component upgrade with new behaviour |
 | patch | fixes and configuration corrections with no interface change |
 
-### 4. Promote production
+### 3. Promote by advancing the production branch
 
 ```bash
-git checkout v0.3.0
-kubectl apply -k environments/production/bootstrap
+git checkout production && git pull
+git merge --ff-only v0.3.0
+git push origin production
 ```
 
-Argo CD cannot promote itself: the root Application tracks the old tag, so it
-will never see a commit telling it to track a new one. Promotion is therefore
-deliberately an explicit, human, out-of-band act. It is the only routine
-`kubectl` command run against production.
+`--ff-only` is the safety property, not a stylistic choice: it guarantees
+production only ever moves forward along `main`'s history, and fails loudly if
+someone has committed to `production` directly.
 
-### 5. Watch it land
+Where the branch is protected against direct pushes, do this as a pull request
+from the tagged commit into `production` and merge it. Same effect, with a
+review record.
+
+### 4. Watch it land
 
 ```bash
 kubectl -n argocd get applications -w
 ```
 
-Waves apply in order. Expect several minutes.
+Argo CD picks up the branch change on its next poll — a few minutes at most, or
+immediately with a webhook. Waves then apply in order. No `kubectl apply` is
+involved.
 
 ## Rolling back
 
-Re-apply the previous tag:
+Move the branch back to the previous release's commit:
 
 ```bash
-git checkout v0.2.0
-kubectl apply -k environments/production/bootstrap
+git push --force-with-lease origin v0.2.0^{commit}:refs/heads/production
 ```
 
-This is why production tracks tags. Rollback is selecting a known composition,
-not reverting commits under a live cluster.
+This is the one place a force push is correct, because rollback is the one case
+where production must move backwards along its history. `--force-with-lease`
+refuses if someone else moved the branch since you last fetched.
+
+Rollback is selecting a known composition, not reverting commits under a live
+cluster.
 
 Two caveats:
 
@@ -127,6 +147,20 @@ Two caveats:
 ## Hotfixes
 
 Same path, shortened, never skipped: fix on a branch, merge to `main`, confirm
-LucentRoot, tag a patch version, promote. Applying a change directly to
-production makes the cluster disagree with its tag, and `selfHeal: true` will
-revert it anyway.
+LucentRoot, tag a patch version, fast-forward `production`. Applying a change
+directly to production makes the cluster disagree with Git, and `selfHeal: true`
+will revert it anyway.
+
+## Changing the ref an environment follows
+
+The ref is part of an environment's Argo binding, not its runtime configuration.
+It appears in exactly two files per environment:
+
+```text
+environments/<environment>/kustomization.yaml            child Applications
+environments/<environment>/bootstrap/kustomization.yaml  the root Application
+```
+
+Changing it is a change to how a cluster is bootstrapped, so it takes effect for
+child Applications on the next reconciliation and for the root Application when
+the bootstrap set is re-applied. It is not something a normal release touches.

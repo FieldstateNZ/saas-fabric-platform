@@ -2,8 +2,12 @@
 persistence:
   storageClassName: local-path
 
-ingress:
-  enabled: true
-  ingressClassName: nginx
-  hosts:
-    - grafana.lucentroot.internal
+route:
+  main:
+    enabled: true
+    parentRefs:
+      - name: platform
+        namespace: platform-system
+        sectionName: http
+    hostnames:
+      - grafana.lucentroot.internal

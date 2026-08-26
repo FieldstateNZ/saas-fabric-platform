@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ingress
+  name: envoy-gateway
   namespace: argocd
   labels:
     fieldstate.nz/source: helm
@@ -14,15 +14,17 @@ spec:
   project: saas-fabric-platform
 
   sources:
-    - repoURL: https://kubernetes.github.io/ingress-nginx
-      chart: ingress-nginx
-      targetRevision: 4.15.1
+    # Envoy Gateway publishes only to OCI. This requires Argo CD 2.13 or later;
+    # see docs/architecture.md#argo-cd-runtime-contract.
+    - repoURL: oci://docker.io/envoyproxy
+      chart: gateway-helm
+      targetRevision: 1.9.0
       helm:
-        releaseName: ingress
+        releaseName: envoy-gateway
         ignoreMissingValueFiles: true
         valueFiles:
-          - $platform/applications/core/ingress/values.yaml
-          - $platform/environments/PLACEHOLDER/config/ingress.yaml
+          - $platform/applications/core/envoy-gateway/values.yaml
+          - $platform/environments/PLACEHOLDER/config/envoy-gateway.yaml
     - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
       targetRevision: PLACEHOLDER
       ref: platform
@@ -37,11 +39,15 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      # The chart ships the Gateway API CRDs, which exceed the annotation size
+      # limit used by client-side apply.
       - ServerSideApply=true
     managedNamespaceMetadata:
       labels:
         fieldstate.nz/system: saas-fabric
         fieldstate.nz/layer: platform
+        # Permits this namespace to attach routes to the platform Gateway.
+        fieldstate.nz/gateway-access: "true"
     retry:
       limit: 5
       backoff:
