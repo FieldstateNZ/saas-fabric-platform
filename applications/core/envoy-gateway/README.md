@@ -11,26 +11,35 @@
 | Namespace | `platform-system` |
 | Class | core |
 | Sync wave | `0` |
+| Plane | **product** |
 
 ## Why it exists in SaaS Fabric
 
-Envoy is the platform's routing layer. Every externally reachable platform
-service — Keycloak, SaaS Fabric itself — and, later, every client hostname is
-published through it, so the data plane must exist before anything that needs to
-be reached.
+Envoy is the platform's **product** routing layer. Every product-facing platform
+service — SaaS Fabric, Keycloak's OIDC endpoints — and, later, every client
+hostname is published through it, so the data plane must exist before anything
+that needs to be reached.
 
 This Application installs the **control plane and the Gateway API CRDs only**.
 The `GatewayClass` and the shared `Gateway` are platform-owned resources and
 live in [`../platform-gateway`](../platform-gateway/), one wave later.
 
-## One routing authority
+## One product routing authority
 
-There is deliberately no second ingress controller. Two routing authorities in
-one cluster means two places a hostname can be claimed and two answers to
-"where does this request go", and the ownership split between the platform and
-the client layer stops being enforceable.
+Envoy is the only thing that carries product or client traffic. There is no
+second product-facing ingress controller: two of them means two places a
+hostname can be claimed, and the ownership split between the platform and the
+client layer stops being enforceable.
 
-`scripts/check.py` fails the build if any `Ingress` resource is rendered.
+Administrative access is a separate plane entirely — the
+[Tailscale operator](../tailscale/), reachable only from the tailnet, carrying
+no client traffic ever. The two do not overlap, and a service is on a plane for
+a stated reason. See
+[docs/architecture.md](../../../docs/architecture.md#exposure-planes).
+
+`scripts/check.py` fails the build on any `Ingress` that is not
+`ingressClassName: tailscale`, and on any `IngressClass` the Tailscale operator
+does not own.
 
 ## Ownership boundary
 
@@ -38,9 +47,10 @@ the client layer stops being enforceable.
 |---|---|
 | Envoy Gateway control plane, Gateway API CRDs | this repository |
 | `GatewayClass`, shared `Gateway`, listeners | this repository |
-| `HTTPRoute` for `fabric.<domain>`, `auth.<domain>` | this repository |
+| `HTTPRoute` for `fabric.<domain>` and Keycloak's OIDC paths | this repository |
 | `HTTPRoute` for `acme.<domain>` and other client hosts | client OpenTofu |
 | Client namespace and its gateway-access label | client OpenTofu |
+| Administrative access to anything | not this plane — see [Tailscale](../tailscale/) |
 
 ## Dependencies
 
@@ -68,5 +78,6 @@ requirement is part of the platform's
 [Argo CD runtime contract](../../../docs/architecture.md#argo-cd-runtime-contract).
 
 k3s ships Traefik by default. LucentRoot clusters should be installed with
-`--disable=traefik`, for the same one-routing-authority reason above. See
+`--disable=traefik`: it is a product-facing ingress controller, and a second one
+is exactly what this plane must not have. See
 [docs/bootstrap.md](../../../docs/bootstrap.md).

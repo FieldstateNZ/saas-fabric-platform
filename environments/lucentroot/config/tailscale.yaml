@@ -1,0 +1,14 @@
+# LucentRoot: the operator plane runs here.
+#
+# Hostname of the operator's own tailnet device. Changing it re-registers the
+# device under a new name, which breaks any tailscale-based kubeconfig context
+# pointing at the old one.
+operatorConfig:
+  hostname: tailscale-operator-lucentroot
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi

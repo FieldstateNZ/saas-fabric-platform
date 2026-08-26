@@ -65,8 +65,11 @@ None hard. Wave `10`, alongside the other foundations.
 
 - **Unseal / auto-unseal material** — a key vault key and an identity permitted
   to use it, created by `saas-fabric-hosting`.
-- **A route and hostname**, if OpenBao is to be reachable outside the cluster.
-  Off by default; the UI is `ClusterIP` only.
+- **Tailnet access**, if operators need the UI. Workloads reach OpenBao
+  cluster-locally at `openbao.secrets.svc.cluster.local:8200` and need no
+  ingress at all; LucentRoot additionally exposes it on the operator plane. It
+  is never on the product edge. See
+  [docs/architecture.md](../../../docs/architecture.md#exposure-planes).
 - **Policies, auth backends and secret engines**, which are reconciled by the
   client layer per client.
 

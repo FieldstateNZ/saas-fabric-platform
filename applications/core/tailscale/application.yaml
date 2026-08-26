@@ -1,35 +1,39 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: grafana
+  name: tailscale
   namespace: argocd
   labels:
     fieldstate.nz/source: helm
-    fieldstate.nz/class: catalogue
+    fieldstate.nz/class: core
+    fieldstate.nz/plane: operator
   annotations:
-    argocd.argoproj.io/sync-wave: "40"
+    # Wave 0, with Envoy Gateway. The operator supplies the `tailscale`
+    # IngressClass that every operator-plane Ingress names, so it has to exist
+    # before any of them.
+    argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: saas-fabric-catalogue
+  project: saas-fabric-platform
 
   sources:
-    - repoURL: https://grafana.github.io/helm-charts
-      chart: grafana
-      targetRevision: 10.5.15
+    - repoURL: https://pkgs.tailscale.com/helmcharts
+      chart: tailscale-operator
+      targetRevision: 1.102.3
       helm:
-        releaseName: grafana
+        releaseName: tailscale
         ignoreMissingValueFiles: true
         valueFiles:
-          - $platform/applications/catalogue/grafana/values.yaml
-          - $platform/environments/PLACEHOLDER/config/grafana.yaml
+          - $platform/applications/core/tailscale/values.yaml
+          - $platform/environments/PLACEHOLDER/config/tailscale.yaml
     - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
       targetRevision: PLACEHOLDER
       ref: platform
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: catalogue
+    namespace: tailscale
 
   syncPolicy:
     automated:
@@ -37,6 +41,7 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
     managedNamespaceMetadata:
       labels:
         fieldstate.nz/system: saas-fabric

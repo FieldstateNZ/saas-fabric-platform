@@ -1,5 +1,10 @@
 # Production: two replicas, public hostname, TLS terminated at the Gateway's
 # https listener rather than by a certificate attached to this service.
+#
+# Product plane only. Production has no operator plane yet, so Keycloak's admin
+# console is reachable by port-forward and nothing else. When a tailnet exists,
+# an `ingress` block with ingressClassName: tailscale belongs here — see
+# environments/lucentroot/config/keycloak.yaml.
 replicas: 2
 
 httpRoute:
@@ -10,6 +15,19 @@ httpRoute:
       sectionName: https
   hostnames:
     - auth.fieldstate.nz
+  # /admin is deliberately absent: the admin console does not belong on the
+  # product edge. See docs/architecture.md#exposure-planes.
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /realms
+        - path:
+            type: PathPrefix
+            value: /resources
+        - path:
+            type: PathPrefix
+            value: /.well-known
 
 resources:
   requests:

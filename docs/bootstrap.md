@@ -65,7 +65,26 @@ kubectl create secret generic keycloak-admin -n identity \
   --from-literal=password=<admin-password>
 ```
 
-For LucentRoot only, if the catalogue is enabled:
+LucentRoot also runs the operator plane, which needs a Tailscale OAuth client
+with the `devices` scope, owning `tag:k8s-operator`:
+
+```bash
+kubectl create namespace tailscale
+kubectl create secret generic operator-oauth -n tailscale \
+  --from-literal=client_id=<oauth-client-id> \
+  --from-literal=client_secret=<oauth-client-secret>
+```
+
+This one is deliberately a bootstrap secret rather than something delivered from
+OpenBao: the operator plane is how you reach OpenBao when OpenBao is not
+reachable. See
+[architecture.md](architecture.md#the-bootstrap-secret-boundary).
+
+The tailnet ACL policy must list `tag:k8s-operator` as a `tagOwner` of `tag:k8s`,
+or the operator cannot create proxies. That is tailnet configuration and lives
+outside Kubernetes entirely.
+
+And, for the catalogue:
 
 ```bash
 kubectl create namespace catalogue
@@ -97,16 +116,30 @@ leaves the rest alone; a client-side apply would rewrite the object's
 
 ### 6. Hostnames
 
-LucentRoot uses `*.lucentroot.internal`. Point them at the address Envoy Gateway
-allocated for the platform `Gateway`:
+Two planes, two kinds of hostname.
+
+**Product plane.** LucentRoot uses `*.lucentroot.internal`. Point them at the
+address Envoy Gateway allocated for the platform `Gateway`:
 
 ```bash
 kubectl -n platform-system get gateway platform \
   -o jsonpath='{.status.addresses[0].value}'
 ```
 
-Add `auth.lucentroot.internal`, `fabric.lucentroot.internal` and
-`grafana.lucentroot.internal` to local DNS or `/etc/hosts`.
+Add `auth.lucentroot.internal` and `fabric.lucentroot.internal` to local DNS or
+`/etc/hosts`.
+
+**Operator plane.** Nothing to configure. The Tailscale operator registers one
+device per `Ingress` and each becomes `<hostname>.<tailnet>` automatically:
+
+```bash
+kubectl get ingress -A -o custom-columns=\
+NAME:.metadata.name,NS:.metadata.namespace,CLASS:.spec.ingressClassName,HOST:.spec.rules[0].host
+```
+
+On LucentRoot that is `argocd-lucentroot`, `auth-lucentroot`, `bao-lucentroot`
+and `grafana-lucentroot`. Who can reach them is decided by the tailnet ACL, not
+by this repository.
 
 ---
 
@@ -138,7 +171,10 @@ bootstrap set — a root Application that cannot read its source will sit
 The same `keycloak-admin` secret in `identity`. The catalogue is not enabled in
 production, so `grafana-admin` is not needed.
 
-Production additionally expects one TLS certificate, referenced by the platform
+Production runs no operator plane yet, so it needs no `operator-oauth`, and its
+administrative surfaces are reachable only by `kubectl port-forward`.
+
+It additionally expects one TLS certificate, referenced by the platform
 Gateway's `https` listener and not created here:
 
 | Secret | Namespace | Referenced by |
@@ -186,6 +222,19 @@ The two environments converge here. Every subsequent change is a Git change:
 open a pull request, merge to `main`, and LucentRoot reconciles. Do not
 `kubectl apply`, `kubectl edit` or `kubectl scale` platform resources —
 `selfHeal: true` will revert it, which is the system working correctly.
+
+### Reaching Argo CD
+
+On an environment with an operator plane, Argo CD is at
+`https://argocd-<environment>.<tailnet>` — see
+[`applications/core/operator-access`](../applications/core/operator-access/).
+Without one, port-forward is the only path:
+
+```bash
+kubectl port-forward -n argocd svc/argocd-server 8080:80
+```
+
+Argo CD is never on the product plane in either case.
 
 ### Verifying convergence
 
