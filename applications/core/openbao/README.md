@@ -28,6 +28,7 @@ Argo CD owns the OpenBao *deployment*. It does not own its contents.
 |---|---|
 | StatefulSet, storage, service, UI, RBAC | this repository |
 | Initialisation, unseal keys, root token | operator / external, never Git |
+| Kubernetes auth method for External Secrets | one-time bootstrap step, see [docs/bootstrap.md](../../../docs/bootstrap.md) |
 | Auth methods and policies for a client | client OpenTofu |
 | Per-client namespace inside OpenBao | client OpenTofu |
 
@@ -49,6 +50,14 @@ stanza backed by a key vault provisioned by `saas-fabric-hosting`, configured in
 pod requires `bao operator unseal`.
 
 No root token, unseal share or recovery key is permitted in this repository.
+
+## How secrets reach workloads
+
+OpenBao is the authority; it is not the delivery mechanism.
+[External Secrets](../external-secrets/) reads it and materialises Kubernetes
+Secrets, joined by a single [`ClusterSecretStore`](../secret-store/). A workload
+puts its values at `secret/<name>` and declares an `ExternalSecret`; nothing
+about those values enters this repository.
 
 ## Dependencies
 

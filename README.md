@@ -15,8 +15,9 @@ promoting a release to production.
 ## What this repository owns
 
 - the definition of the shared platform: the Envoy Gateway product routing
-  layer, the Tailscale operator plane, CloudNativePG, OpenBao, Keycloak, the
-  observability boundary, and SaaS Fabric's deployment;
+  layer, the Tailscale operator plane, CloudNativePG, OpenBao and its secret
+  projection, Keycloak, the observability boundary, and SaaS Fabric's
+  deployment;
 - the Argo CD projects, root Application and child Applications that reconcile
   them, plus the Argo CD runtime behaviour the platform depends on;
 - environment configuration for LucentRoot and production;
@@ -143,7 +144,7 @@ If yes, it may be core. If no, it belongs in the catalogue.
 | [Envoy Gateway](applications/core/envoy-gateway/) + [the platform Gateway](applications/core/platform-gateway/) | [Grafana](applications/catalogue/grafana/) |
 | [Tailscale](applications/core/tailscale/) + [operator access](applications/core/operator-access/) | |
 | [CloudNativePG](applications/core/cloudnative-pg/) | |
-| [OpenBao](applications/core/openbao/) | |
+| [OpenBao](applications/core/openbao/) + [External Secrets](applications/core/external-secrets/) + [secret store](applications/core/secret-store/) | |
 | [Keycloak](applications/core/keycloak/) + [its database](applications/core/keycloak-database/) | |
 | [OpenTelemetry collector](applications/core/observability/) | |
 | [SaaS Fabric](applications/core/saas-fabric/) | |
@@ -197,7 +198,7 @@ request that renders invalid manifests cannot merge.
 | [bootstrap.md](docs/bootstrap.md) | k3s / LucentRoot and AKS / production, step by step |
 | [releases.md](docs/releases.md) | cutting a release, promoting production by moving a Git ref, rolling back |
 | [adding-an-application.md](docs/adding-an-application.md) | core versus catalogue, which exposure plane, and how to add either |
-| [migrating-lucentroot.md](docs/migrating-lucentroot.md) | taking LucentRoot over from `FieldstateNZ/infrastructure` without dual ownership |
+| [migrating-lucentroot.md](docs/migrating-lucentroot.md) | rebuilding LucentRoot onto this repository, and what that costs |
 
 ## Licence
 

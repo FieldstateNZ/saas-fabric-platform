@@ -1,0 +1,41 @@
+# External Secrets values shared by every environment.
+# Environment differences live in environments/<env>/config/external-secrets.yaml.
+#
+# This projects secrets out of OpenBao into Kubernetes Secrets. It is the
+# consumer side of the platform's secrets capability; OpenBao is the authority.
+# See applications/core/secret-store for the connection between them.
+
+fullnameOverride: external-secrets
+
+# CRDs are part of the release, so a version bump upgrades them with the
+# controller rather than leaving them behind on an older schema.
+installCRDs: true
+
+serviceAccount:
+  create: true
+  name: external-secrets
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 96Mi
+  limits:
+    memory: 512Mi
+
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+certController:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi

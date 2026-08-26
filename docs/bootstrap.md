@@ -261,17 +261,51 @@ kubectl -n platform-system get gateway platform
 
 The `PROGRAMMED` condition must be `True` and an address must be allocated.
 
-### One remaining manual step
+### The remaining manual steps
 
-OpenBao starts uninitialised and sealed. Initialise it once:
+These are the bootstrap secret boundary in practice: the platform converges to
+exactly the point where a human must supply the first secret, and no further.
+
+**1. Initialise and unseal OpenBao.** It starts uninitialised and sealed:
 
 ```bash
 kubectl -n secrets exec -it openbao-0 -- bao operator init
+kubectl -n secrets exec -it openbao-0 -- bao operator unseal <share>
 ```
 
 Store the unseal shares and root token in the organisation's break-glass
 location. They must never be committed. See
 [`applications/core/openbao/README.md`](../applications/core/openbao/README.md).
+
+**2. Enable the Kubernetes auth method**, so External Secrets can authenticate
+without a static credential. Until this exists the `secret-store` Application
+retries and reports unhealthy, which is correct rather than broken:
+
+```bash
+kubectl -n secrets exec -it openbao-0 -- sh -c '
+  bao auth enable kubernetes
+  bao write auth/kubernetes/config \
+    kubernetes_host=https://kubernetes.default.svc
+  bao policy write external-secrets - <<POLICY
+path "secret/data/*"     { capabilities = ["read"] }
+path "secret/metadata/*" { capabilities = ["read", "list"] }
+POLICY
+  bao write auth/kubernetes/role/external-secrets \
+    bound_service_account_names=external-secrets \
+    bound_service_account_namespaces=secrets \
+    policies=external-secrets ttl=1h
+'
+```
+
+Confirm the store came up:
+
+```bash
+kubectl get clustersecretstore openbao \
+  -o jsonpath='{.status.conditions[0].type}{" "}{.status.conditions[0].status}'
+```
+
+`Ready True` means every workload can now take its secrets from OpenBao —
+see [`applications/core/external-secrets`](../applications/core/external-secrets/).
 
 ### Changing which ref a cluster tracks
 

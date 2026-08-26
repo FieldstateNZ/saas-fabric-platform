@@ -92,6 +92,8 @@ moved before the resource is created — not resolved afterwards by convention.
 | Tailnet ACL policy, tag ownership, OAuth client | outside Kubernetes; tailnet administration |
 | Keycloak deployment | `saas-fabric-platform` |
 | OpenBao deployment | `saas-fabric-platform` |
+| Secret projection into workloads | `saas-fabric-platform` |
+| Secret *values* | OpenBao, never Git |
 | CNPG operator | `saas-fabric-platform` |
 | SaaS Fabric deployment | `saas-fabric-platform` |
 | Client definition | `saas-fabric-clients` |
@@ -261,8 +263,8 @@ Waves are kept few and meaningful:
 | `-20` | Argo CD runtime configuration | must be active before any wave is ordered |
 | `-10` | environment ConfigMap, catalogue `AppProject` | must exist before anything references them |
 | `0` | Envoy Gateway, Tailscale operator, CloudNativePG operator | CRDs, control planes, ingress classes |
-| `10` | platform `Gateway`, operator access, OpenTelemetry collector, OpenBao, Keycloak database | routing, data, secrets and telemetry foundations |
-| `20` | Keycloak | needs its database Healthy and the Gateway to attach a route to |
+| `10` | platform `Gateway`, operator access, OpenTelemetry collector, OpenBao, External Secrets, Keycloak database | routing, data, secrets and telemetry foundations |
+| `20` | Keycloak, the OpenBao secret store | Keycloak needs its database Healthy and a Gateway to attach to; the store needs both halves it joins |
 | `30` | SaaS Fabric | needs routing, identity, secrets and telemetry |
 | `40` | catalogue applications | optional, last |
 
@@ -331,7 +333,7 @@ rather than by disabling pruning across the platform.
 | `argocd` | Argo CD, projects, Applications, environment ConfigMap |
 | `platform-system` | Envoy Gateway, the platform `Gateway`, SaaS Fabric |
 | `identity` | Keycloak and its database |
-| `secrets` | OpenBao |
+| `secrets` | OpenBao and External Secrets — the secrets authority and its delivery path |
 | `data-system` | CloudNativePG operator |
 | `observability` | OpenTelemetry collector |
 | `tailscale` | Tailscale operator and the `ts-*` proxies it creates |
@@ -406,12 +408,18 @@ workload secret projection         ← everything else
 would make administrative access depend on the thing you most need
 administrative access to debug.
 
-### What is on the other side, and not built yet
+### What is on the other side
 
-Workload secret projection — an External Secrets Operator reading OpenBao and
-materialising Kubernetes Secrets — is **not** in this repository yet. It is the
-immediate next piece of work; see
-[migrating-lucentroot.md](migrating-lucentroot.md#external-secrets).
+Everything else. [External Secrets](../applications/core/external-secrets/)
+reads OpenBao and materialises Kubernetes Secrets, joined to it by a single
+[`ClusterSecretStore`](../applications/core/secret-store/). A workload declares
+an `ExternalSecret` and its values live in OpenBao, never here — adding a
+variable means writing it to OpenBao and changing nothing in Git.
+
+The boundary is visible on a fresh cluster: `secret-store` retries until OpenBao
+has been initialised, unsealed and given its Kubernetes auth method. The
+platform converges to exactly the point where a human must supply the first
+secret, and no further.
 
 Longer term the bootstrap side is expected to shrink rather than grow. On AKS,
 `saas-fabric-hosting` can supply a key vault as the bootstrap trust root, with
@@ -428,7 +436,6 @@ Recorded rather than hidden. None blocks a cluster from converging.
 | No certificate automation | The production Gateway listener references a TLS secret that must be injected by hand | a `cert-manager` core application; it has a genuine platform requirement once public hostnames are served |
 | No telemetry backend | All three OTLP pipelines terminate in the `debug` exporter | an exporter in `environments/<env>/config/observability.yaml` |
 | No OpenBao auto-unseal | A restarted OpenBao pod must be unsealed by an operator | a seal stanza in `environments/production/config/openbao.yaml`, against a key vault from `saas-fabric-hosting` |
-| No workload secret projection | Every platform secret is injected by hand; nothing reads OpenBao yet | an External Secrets core application, immediately after the LucentRoot handover — see [migrating-lucentroot.md](migrating-lucentroot.md#external-secrets) |
 | No operator plane in production | Production administrative surfaces are reachable only by `kubectl port-forward` | a tailnet for production, then the same two lines LucentRoot uses |
 | No database backups | The Keycloak `Cluster` has no `barmanObjectStore` | `applications/core/keycloak-database`, against storage from `saas-fabric-hosting` |
 | SaaS Fabric has no image | The Deployment ships with `replicas: 0`, so the platform substrate converges but SaaS Fabric does not run — see [First milestone](#first-milestone) | a real tag in each environment overlay, once the application repository publishes one |

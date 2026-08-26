@@ -20,8 +20,10 @@ resources:
   - platform-gateway/application.yaml
   - observability/application.yaml
   - openbao/application.yaml
+  - external-secrets/application.yaml
   - keycloak-database/application.yaml
-  # wave 20 — identity
+  # wave 20 — identity and secret delivery
   - keycloak/application.yaml
+  - secret-store/application.yaml
   # wave 30 — SaaS Fabric
   - saas-fabric/application.yaml

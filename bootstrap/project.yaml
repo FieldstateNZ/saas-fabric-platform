@@ -23,6 +23,7 @@ spec:
     - https://cloudnative-pg.github.io/charts
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://openbao.github.io/openbao-helm
+    - https://charts.external-secrets.io
     - https://codecentric.github.io/helm-charts
 
   # Same-cluster only. Client namespaces (client-*) are deliberately excluded:

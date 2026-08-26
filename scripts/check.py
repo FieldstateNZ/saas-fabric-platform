@@ -42,7 +42,14 @@ SECRET_KEYS = re.compile(
 SECRET_VALUE_IS_A_REFERENCE = re.compile(
     r"^(\"\"|''|\{\{.*\}\}|\$\{.*\}|null|~|\||>|\{\}|\[\])$"
 )
-PEM_BLOCK = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+# A PEM header alone is not evidence of a key: upstream CRDs document expected
+# credential formats in their OpenAPI descriptions, placeholder and all. Require
+# a run of real base64 body before the END marker.
+PEM_BLOCK = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
+    r"(?:(?!-----END)[\s\S]){0,64}?"
+    r"[A-Za-z0-9+/]{40}"
+)
 CLIENT_SCOPED = re.compile(r"^client-[a-z0-9-]+$")
 CLUSTER_DNS = re.compile(r"\b([a-z0-9][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)\.svc\.cluster\.local\b")
 # CloudNativePG creates <cluster>-rw, -ro and -r Services for each Cluster it
@@ -79,7 +86,7 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
         relative = path.relative_to(root)
 
         if PEM_BLOCK.search(text):
-            fail(problems, f"{relative}: contains a private key block")
+            fail(problems, f"{relative}: contains private key material")
 
         for number, line in enumerate(text.splitlines(), start=1):
             match = SECRET_KEYS.match(line)
