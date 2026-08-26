@@ -228,7 +228,17 @@ open a pull request, merge to `main`, and LucentRoot reconciles. Do not
 On an environment with an operator plane, Argo CD is at
 `https://argocd-<environment>.<tailnet>` — see
 [`applications/core/operator-access`](../applications/core/operator-access/).
-Without one, port-forward is the only path:
+
+**Restart `argocd-server` once after the first bootstrap.** The bootstrap set
+adds `server.insecure` to `argocd-cmd-params-cm`, and command-line parameters
+are read at startup rather than watched, so the running server has not picked it
+up yet. Until it does, the Tailscale Ingress redirects to HTTPS in a loop:
+
+```bash
+kubectl -n argocd rollout restart deployment/argocd-server
+```
+
+Without an operator plane, port-forward is the only path:
 
 ```bash
 kubectl port-forward -n argocd svc/argocd-server 8080:80
@@ -286,16 +296,21 @@ kubectl -n secrets exec -it openbao-0 -- sh -c '
   bao auth enable kubernetes
   bao write auth/kubernetes/config \
     kubernetes_host=https://kubernetes.default.svc
-  bao policy write external-secrets - <<POLICY
-path "secret/data/*"     { capabilities = ["read"] }
-path "secret/metadata/*" { capabilities = ["read", "list"] }
+  bao policy write platform-secrets - <<POLICY
+path "secret/data/platform/*"     { capabilities = ["read"] }
+path "secret/metadata/platform/*" { capabilities = ["read", "list"] }
 POLICY
   bao write auth/kubernetes/role/external-secrets \
     bound_service_account_names=external-secrets \
     bound_service_account_namespaces=secrets \
-    policies=external-secrets ttl=1h
+    policies=platform-secrets ttl=1h
 '
 ```
+
+The policy covers `secret/platform/` only. `secret/clients/` is reserved for
+client-scoped roles created by client provisioning and is deliberately outside
+what this token can read — see
+[`applications/core/external-secrets`](../applications/core/external-secrets/).
 
 Confirm the store came up:
 

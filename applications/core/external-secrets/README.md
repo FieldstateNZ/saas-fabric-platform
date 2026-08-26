@@ -22,11 +22,11 @@ account for.
 It is core because SaaS Fabric's own credentials, and every client credential
 that follows, need a delivery path that is not a person running a command.
 
-## The contract for a workload
+## The contract for a platform workload
 
-Put the values at `secret/<name>` in OpenBao. Declare an `ExternalSecret`
-referencing the `openbao` store, and the operator materialises a Kubernetes
-Secret the Deployment reads with `envFrom`:
+Put the values at `secret/platform/<name>` in OpenBao. Declare an
+`ExternalSecret` referencing the `openbao` store, and the operator materialises
+a Kubernetes Secret the Deployment reads with `envFrom`:
 
 ```yaml
 apiVersion: external-secrets.io/v1
@@ -42,13 +42,55 @@ spec:
     creationPolicy: Owner
   dataFrom:
     - extract:
-        key: my-app
+        key: platform/my-app
 ```
 
 `dataFrom.extract` takes every key at the path, so **adding a variable means
 writing it to OpenBao and changing nothing in Git**. That is the property worth
 protecting: the repository describes where secrets come from, never what they
 are.
+
+## This store is bounded, deliberately
+
+A cluster-wide store authenticated as one service account with read across the
+whole mount would make the security boundary "anyone who can create an
+`ExternalSecret` can read anything". That is tolerable on a single-tenant box
+and completely wrong for the client model SaaS Fabric is being built for, so it
+is not the contract established here.
+
+Two bounds, and both matter:
+
+| Bound | Effect |
+|---|---|
+| `conditions` on the [`ClusterSecretStore`](../secret-store/) | only namespaces labelled `fieldstate.nz/layer: platform` may reference it |
+| the OpenBao policy | the operator's token can read `secret/platform/*` and nothing else |
+
+The namespace label is applied by each Application's
+`managedNamespaceMetadata`, and platform-owned labels are deliberately never
+applied to client-owned resources. A `client-acme` namespace therefore cannot
+reference this store, and even if it could, the token behind it cannot read
+`secret/clients/...`.
+
+**That label is now load-bearing.** It was descriptive when it was only used for
+inventory; it is part of a security boundary now. Do not apply it to a namespace
+this repository does not own.
+
+### Client secrets are a separate mechanism
+
+Not this store with a wider policy. A client gets its own `SecretStore` in its
+own namespace, bound to a client-scoped OpenBao role over its own path:
+
+```text
+client-acme namespace
+        ↓
+SecretStore in client-acme
+        ↓
+OpenBao role over secret/clients/acme/*
+```
+
+All three are created by client provisioning, alongside the client's realm,
+database and routes. `secret/clients/` is reserved for exactly that and is
+unreadable from the platform store.
 
 ## Authentication
 
@@ -68,21 +110,23 @@ because it happens once, against a freshly initialised OpenBao:
 bao auth enable kubernetes
 bao write auth/kubernetes/config \
   kubernetes_host=https://kubernetes.default.svc
-bao policy write external-secrets - <<'POLICY'
-path "secret/data/*"   { capabilities = ["read"] }
-path "secret/metadata/*" { capabilities = ["read", "list"] }
+bao policy write platform-secrets - <<'POLICY'
+path "secret/data/platform/*"     { capabilities = ["read"] }
+path "secret/metadata/platform/*" { capabilities = ["read", "list"] }
 POLICY
 bao write auth/kubernetes/role/external-secrets \
   bound_service_account_names=external-secrets \
   bound_service_account_namespaces=secrets \
-  policies=external-secrets ttl=1h
+  policies=platform-secrets ttl=1h
 ```
 
-The role grants read across the whole `secret/` mount, so a new workload needs
-no OpenBao policy change. That is a deliberate trade: one broad read grant for
-the operator, in exchange for adding a secret never touching this repository.
-Narrowing it per workload is possible and would mean a policy change per
-registration.
+The policy grants read on the **platform prefix only**. A new platform workload
+still needs no OpenBao policy change — its secret goes under
+`secret/platform/<name>` and the existing grant covers it — while
+`secret/clients/` stays outside what this token can reach at all.
+
+That is the trade worth making: convenience within the platform's own space, and
+a hard wall at the tenancy boundary.
 
 Full procedure in [docs/bootstrap.md](../../../docs/bootstrap.md).
 

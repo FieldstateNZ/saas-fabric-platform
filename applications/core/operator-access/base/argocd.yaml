@@ -4,9 +4,11 @@
 # platform decision, and the platform's answer is: over the tailnet, never from
 # the product edge. The hostname is set per environment.
 #
-# Argo CD's server runs with server.insecure=true and terminates plaintext
-# inside the cluster; the Tailscale proxy terminates TLS with a tailnet
-# certificate in front of it.
+# The Tailscale proxy terminates TLS with a tailnet certificate and forwards
+# plain HTTP. That requires argocd-server to serve HTTP rather than redirecting
+# to HTTPS, which is why server.insecure is part of the platform's Argo CD
+# runtime contract -- see argocd/runtime/server-insecure.yaml. Without it this
+# Ingress produces a redirect loop.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

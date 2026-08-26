@@ -1,0 +1,29 @@
+# Argo CD runtime configuration required by this platform.
+#
+# The operator plane terminates TLS at the Tailscale proxy and forwards plain
+# HTTP to argocd-server. By default argocd-server serves HTTPS and redirects
+# port 80 to it, so that arrangement produces a redirect loop. Argo CD's own
+# guidance for a TLS-terminating ingress is to run the server with TLS disabled.
+#
+# This is a different ConfigMap from argocd-cm: server flags live in
+# argocd-cmd-params-cm, and the keys are literal dotted strings rather than a
+# nested map. Nesting them renders a `server: {insecure: true}` entry that Argo
+# CD never reads, and the real setting is silently never applied.
+#
+# Applied with server-side apply, so this repository co-owns exactly this key
+# and leaves the rest of the ConfigMap to whoever installed Argo CD.
+#
+# Changing this requires an argocd-server restart: command-line parameters are
+# read at startup, not watched. See README.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+data:
+  server.insecure: "true"

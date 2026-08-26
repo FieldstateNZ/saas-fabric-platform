@@ -174,8 +174,10 @@ It then checks the invariants a schema cannot express:
   authority;
 - no administrative surface reachable from the product plane;
 - the non-default Argo CD behaviour the platform depends on present in both the
-  bootstrap set and the reconciled environment, so wave ordering cannot quietly
-  stop working;
+  bootstrap set and the reconciled environment, so neither wave ordering nor
+  operator-plane access can quietly stop working;
+- the platform secret store bounded to platform namespaces, so a client
+  namespace cannot reach platform secrets through it;
 - every chart repository and destination namespace allowed by the Application's
   own `AppProject`;
 - every chart version pinned exactly, never a range;

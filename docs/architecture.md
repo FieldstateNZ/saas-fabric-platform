@@ -86,6 +86,7 @@ moved before the resource is created — not resolved afterwards by convention.
 | Registry | `saas-fabric-hosting` |
 | Argo CD installation | `saas-fabric-hosting` |
 | Argo CD runtime configuration the platform depends on | `saas-fabric-platform` |
+| Operator-plane access to Argo CD | `saas-fabric-platform` |
 | Argo applications | `saas-fabric-platform` |
 | Envoy Gateway runtime, `GatewayClass`, `Gateway` | `saas-fabric-platform` |
 | Tailscale operator and operator-plane access | `saas-fabric-platform` |
@@ -211,10 +212,13 @@ yet — it has no tailnet — so its administrative surfaces are reachable by
 
 ## Argo CD runtime contract
 
-The platform depends on two things about Argo CD that are **not** defaults.
-Both are owned by this repository, in
-[`argocd/runtime`](../argocd/runtime/), applied at bootstrap and reconciled
-thereafter. Neither is left as an assumption.
+The platform depends on three things about Argo CD that are **not** defaults.
+All are owned by this repository, in [`argocd/runtime`](../argocd/runtime/),
+applied at bootstrap and reconciled thereafter. None is left as an assumption.
+
+The two ConfigMap settings share a property worth naming: when missing they fail
+*quietly*. Nothing errors — wave ordering simply stops working, and
+operator-plane access to Argo CD simply loops.
 
 ### Application health assessment
 
@@ -230,6 +234,21 @@ the next section into actual ordering.
 
 `scripts/check.py` fails the build if it is missing from either the bootstrap
 set or the reconciled environment, so it cannot quietly go away.
+
+### Server TLS termination
+
+[`argocd/runtime/server-insecure.yaml`](../argocd/runtime/server-insecure.yaml)
+sets `server.insecure: "true"` in `argocd-cmd-params-cm`.
+
+The operator plane terminates TLS at the Tailscale proxy and forwards plain
+HTTP. By default `argocd-server` serves HTTPS and redirects port 80 to it, so
+that arrangement is a redirect loop.
+
+This is the clearest case of why the split is *hosting installs, platform
+configures*: the requirement comes from how the platform routes to Argo CD, and
+hosting has no way to know that. It is also a different ConfigMap from the
+health assessment, and it needs an `argocd-server` restart to take effect —
+command-line parameters are read at startup, not watched.
 
 ### Argo CD version
 
@@ -410,16 +429,35 @@ administrative access to debug.
 
 ### What is on the other side
 
-Everything else. [External Secrets](../applications/core/external-secrets/)
-reads OpenBao and materialises Kubernetes Secrets, joined to it by a single
+The mechanism for everything else.
+[External Secrets](../applications/core/external-secrets/) reads OpenBao and
+materialises Kubernetes Secrets, joined to it by a single, deliberately bounded
 [`ClusterSecretStore`](../applications/core/secret-store/). A workload declares
 an `ExternalSecret` and its values live in OpenBao, never here — adding a
 variable means writing it to OpenBao and changing nothing in Git.
+
+**The mechanism exists; platform credentials have not moved onto it yet.** Every
+secret in the table above is still created by hand, which is correct for the
+three that genuinely cannot come from OpenBao. `grafana-admin` is the exception
+and the first candidate to move — see
+[migrating-lucentroot.md](migrating-lucentroot.md#external-secrets).
 
 The boundary is visible on a fresh cluster: `secret-store` retries until OpenBao
 has been initialised, unsealed and given its Kubernetes auth method. The
 platform converges to exactly the point where a human must supply the first
 secret, and no further.
+
+### The store is bounded, and the label is load-bearing
+
+The platform store is usable only from namespaces labelled
+`fieldstate.nz/layer: platform`, and the OpenBao policy behind it reads
+`secret/platform/*` and nothing else. Client secret delivery is a separate
+mechanism — a `SecretStore` in the client's own namespace over
+`secret/clients/<client>/*`, created by client provisioning.
+
+That means the platform label is part of a security boundary, not just
+inventory. The rule that platform-owned labels are never applied to client-owned
+resources is what keeps a client namespace out of platform secrets.
 
 Longer term the bootstrap side is expected to shrink rather than grow. On AKS,
 `saas-fabric-hosting` can supply a key vault as the bootstrap trust root, with

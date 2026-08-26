@@ -187,18 +187,58 @@ moved, and that moving OpenBao was the riskiest step. A rebuild removes that
 reason: OpenBao is not moved, it is created new, so there is no migrated
 database to debug a new secret path against.
 
-That leaves the opposite argument. A rebuild is a single, one-shot bootstrap.
-Standing the platform up without secret projection and adding it a week later
-means performing the bootstrap procedure twice and reconfiguring the secret path
-on a cluster people have started to rely on. Bootstrap once, in the final shape.
+That leaves the opposite argument. A rebuild is a single, one-shot bootstrap,
+and the OpenBao configuration that External Secrets depends on — the Kubernetes
+auth method, a policy, a role — is done by hand at bootstrap either way. Doing it
+once, in the shape we intend to keep, beats doing it twice.
+
+**What this establishes is the mechanism, not a migration of existing secrets.**
+Every platform credential is still created by hand at bootstrap, and that is
+correct for the ones on the bootstrap side of the boundary:
+
+| Secret | Still manual because |
+|---|---|
+| `keycloak-admin` | Keycloak will not start without it, and on a fresh cluster OpenBao is still sealed when Keycloak first syncs |
+| `operator-oauth` | deliberately permanent — the operator plane is how you reach OpenBao when OpenBao is not reachable |
+| `platform-tls` (production) | the product edge terminates TLS before anything behind it is up |
+| `grafana-admin` | **not** on the bootstrap side. Grafana is wave `40`, long after OpenBao could serve it. It is the first credential that should move, and it has not yet |
+
+`grafana-admin` is the honest gap. Moving it needs an `ExternalSecret` in the
+`catalogue` namespace, which no catalogue Application currently renders — the
+Grafana chart has no template for one. That is a small, self-contained follow-up,
+not a reason to hold the mechanism back.
 
 The pattern is `infrastructure`'s, because it was already the right one: a
 single `ClusterSecretStore` authenticating with the Kubernetes auth method, and
 `dataFrom.extract` so that adding a variable means writing it to OpenBao and
-changing nothing in Git.
+changing nothing in Git. What is **not** `infrastructure`'s is the scope — see
+below.
 
 See [`applications/core/external-secrets`](../applications/core/external-secrets/)
 and [`applications/core/secret-store`](../applications/core/secret-store/).
+
+### The store is bounded to platform namespaces
+
+`infrastructure`'s store is cluster-wide, authenticated as one service account
+holding read across the entire `secret/` mount. On a single-tenant box that is
+fine. As the contract for a multi-tenant platform it is wrong, because the
+security boundary it establishes is "anyone who can create an `ExternalSecret`
+can read anything".
+
+So the platform store is bounded on both sides:
+
+```text
+conditions.namespaceSelector    fieldstate.nz/layer: platform
+OpenBao policy                  read on secret/platform/* only
+```
+
+and client secret delivery is reserved as a separate mechanism — a `SecretStore`
+in the client's own namespace, over `secret/clients/<client>/*`, created by
+client provisioning alongside the client's realm, database and routes.
+
+This also promotes `fieldstate.nz/layer: platform` from inventory metadata to
+part of a security boundary. Applying it to a namespace this repository does not
+own now grants that namespace access to platform secrets.
 
 ### The Tailscale OAuth credential stays a bootstrap secret
 
