@@ -145,7 +145,37 @@ normal LucentRoot bootstrap; nothing about it is migration-specific.
 
 Rotate `LUCENTROOT_KUBECONFIG` in GitHub once the new cluster is up.
 
-### 6. Verify
+### 6. Restart `argocd-server`
+
+Do this before anything else, and do not skip it because the cluster looks fine.
+
+The bootstrap set adds `server.insecure` to `argocd-cmd-params-cm`, but
+command-line parameters are read at startup rather than watched, so the running
+server has not picked it up:
+
+```bash
+kubectl -n argocd rollout restart deployment/argocd-server
+kubectl -n argocd rollout status deployment/argocd-server
+```
+
+**The symptom if you miss it** is a redirect loop on
+`https://argocd-<environment>.<tailnet>` — the Tailscale proxy terminates TLS
+and forwards plain HTTP, `argocd-server` is still redirecting port 80 to HTTPS,
+and the browser bounces between them. Everything else looks healthy: the
+Application is Synced, the proxy device is online, `kubectl` works. It reads as a
+Tailscale fault and is not one.
+
+Confirm it took:
+
+```bash
+kubectl -n argocd exec deploy/argocd-server -- \
+  sh -c 'echo "$ARGOCD_SERVER_INSECURE"'
+```
+
+`true` means the operator plane will serve Argo CD. See
+[argocd/runtime/README.md](../argocd/runtime/README.md#server-tls-termination).
+
+### 7. Verify
 
 ```bash
 kubectl -n argocd get applications
@@ -159,7 +189,7 @@ one-time OpenBao steps are done:
   yet, and that is [the first milestone working as designed](architecture.md#first-milestone),
   not the application running.
 
-### 7. Hollow out `infrastructure`
+### 8. Hollow out `infrastructure`
 
 Remove the migrated registrations and reduce the repository to whatever
 genuinely remains outside SaaS Fabric. Do this only after LucentRoot has been
