@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Bootstraps a cluster as lucentroot:
+#
+#   kubectl apply --server-side --field-manager=saas-fabric-platform \
+#     -k environments/lucentroot/bootstrap
+#
+# Applies the AppProject, the Argo CD runtime configuration this platform
+# depends on, the environment ConfigMap and the root Application. Everything
+# after this is reconciled by Argo CD.
+namespace: argocd
+
+resources:
+  - ../../../bootstrap
+  - ../../../argocd/runtime
+  - ../config
+
+components:
+  - ../../../bootstrap/components/environment-config
+
+# The Git ref the root Application follows, matching the one its children
+# follow in ../kustomization.yaml.
+patches:
+  - target:
+      kind: Application
+      name: platform-root
+    patch: |-
+      - op: replace
+        path: /spec/source/targetRevision
+        value: main

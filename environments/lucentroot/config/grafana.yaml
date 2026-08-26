@@ -1,0 +1,13 @@
+# LucentRoot: internal hostname on local-path storage.
+persistence:
+  storageClassName: local-path
+
+route:
+  main:
+    enabled: true
+    parentRefs:
+      - name: platform
+        namespace: platform-system
+        sectionName: http
+    hostnames:
+      - grafana.lucentroot.internal

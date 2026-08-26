@@ -1,0 +1,13 @@
+# The platform's single routing authority.
+#
+# Every platform and client route attaches to a Gateway of this class. There is
+# deliberately no second ingress controller: two routing authorities in one
+# cluster means two places a hostname can be claimed.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: saas-fabric
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller

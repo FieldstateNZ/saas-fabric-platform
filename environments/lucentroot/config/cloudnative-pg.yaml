@@ -1,0 +1,2 @@
+# LucentRoot: one operator replica is sufficient for a development cluster.
+replicaCount: 1

@@ -1,0 +1,27 @@
+# Envoy Gateway values shared by every environment.
+# Environment differences live in environments/<env>/config/envoy-gateway.yaml.
+#
+# This installs the control plane and the Gateway API CRDs. The GatewayClass and
+# the shared Gateway itself are platform-owned resources and live in
+# applications/core/platform-gateway.
+
+crds:
+  # Envoy Gateway's own CRDs plus the upstream Gateway API CRDs. Nothing else in
+  # the platform installs Gateway API, so this must stay true.
+  enabled: true
+
+deployment:
+  replicas: 1
+  envoyGateway:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+config:
+  envoyGateway:
+    logging:
+      level:
+        default: info

@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: helm
+    fieldstate.nz/class: catalogue
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-catalogue
+
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: grafana
+      targetRevision: 10.5.15
+      helm:
+        releaseName: grafana
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $platform/applications/catalogue/grafana/values.yaml
+          - $platform/environments/PLACEHOLDER/config/grafana.yaml
+    - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+      targetRevision: PLACEHOLDER
+      ref: platform
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: catalogue
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+        # Permits this namespace to attach routes to the platform Gateway.
+        fieldstate.nz/gateway-access: "true"
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

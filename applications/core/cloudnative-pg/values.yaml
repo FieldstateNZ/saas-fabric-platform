@@ -1,0 +1,27 @@
+# CloudNativePG operator values shared by every environment.
+# Environment differences live in environments/<env>/config/cloudnative-pg.yaml.
+
+fullnameOverride: cloudnative-pg
+
+crds:
+  create: true
+
+# The operator watches every namespace. Client database Clusters are created by
+# OpenTofu into client namespaces this repository never sees, so restricting the
+# watch list here would break the client layer.
+config:
+  data: {}
+
+monitoring:
+  # Prometheus Operator is not a platform dependency; the OpenTelemetry
+  # collector scrapes the operator instead. See applications/core/observability.
+  podMonitorEnabled: false
+  grafanaDashboard:
+    create: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 100Mi
+  limits:
+    memory: 200Mi

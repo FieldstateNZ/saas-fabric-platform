@@ -1,0 +1,20 @@
+# Production: three-node Raft on managed CSI storage.
+#
+# Auto-unseal is not configured yet. Until a key vault and identity exist from
+# saas-fabric-hosting, a restarted pod must be unsealed by an operator. Add the
+# seal stanza to server.ha.raft.config here when they do.
+server:
+  ha:
+    replicas: 3
+  dataStorage:
+    size: 16Gi
+    storageClass: managed-csi
+  auditStorage:
+    size: 8Gi
+    storageClass: managed-csi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi

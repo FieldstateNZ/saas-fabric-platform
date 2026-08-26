@@ -1,0 +1,30 @@
+# The shared platform Gateway: the cluster's north/south edge.
+#
+# Ownership boundary. This repository owns the Gateway and its listeners. It
+# does not own routes for individual clients.
+#
+#   saas-fabric-platform  →  Gateway, listeners, platform HTTPRoutes
+#   client OpenTofu       →  HTTPRoute per client, in the client's namespace
+#
+# Client routes attach here from their own namespaces, which is why
+# allowedRoutes is a label selector rather than Same. A namespace may attach
+# routes when it carries fieldstate.nz/gateway-access: "true"; client
+# namespaces receive that label when OpenTofu creates them.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  gatewayClassName: saas-fabric
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              fieldstate.nz/gateway-access: "true"

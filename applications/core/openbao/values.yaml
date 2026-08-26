@@ -1,0 +1,68 @@
+# OpenBao values shared by every environment.
+# Environment differences live in environments/<env>/config/openbao.yaml.
+
+global:
+  enabled: true
+
+# The Kubernetes-secret injector is not enabled: platform components read from
+# OpenBao directly, and enabling a mutating webhook cluster-wide is a privilege
+# decision that should be taken deliberately rather than inherited from a chart
+# default.
+injector:
+  enabled: false
+
+server:
+  # Raft in both environments so LucentRoot exercises the production storage
+  # engine; only the replica count differs.
+  standalone:
+    enabled: false
+  ha:
+    enabled: true
+    replicas: 1
+    raft:
+      enabled: true
+      setNodeId: true
+
+  dataStorage:
+    enabled: true
+    size: 8Gi
+    accessMode: ReadWriteOnce
+
+  # Secret material must survive a StatefulSet being scaled down or deleted.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+  auditStorage:
+    enabled: true
+    size: 4Gi
+
+  readinessProbe:
+    enabled: true
+    # Treat "not initialised" and "sealed" as Ready rather than as failure. Both
+    # are expected states before the operator-driven initialise/unseal step in
+    # the README, and a freshly reconciled platform should report Healthy.
+    path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+
+  # Deliberately off. A sealed pod is not fixed by restarting it, so a liveness
+  # probe would turn "needs unsealing" into a crash loop. Readiness keeps a
+  # sealed instance out of the Service; recovery is the unseal step.
+  livenessProbe:
+    enabled: false
+
+  service:
+    enabled: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+ui:
+  enabled: true
+  serviceType: ClusterIP
+
+csi:
+  enabled: false

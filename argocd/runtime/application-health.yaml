@@ -1,0 +1,38 @@
+# Argo CD runtime configuration required by this platform.
+#
+# By default Argo CD reports a child `Application` resource as Healthy as soon
+# as it exists, regardless of the state of the application it names. Under that
+# default, sync waves in an app-of-apps do NOT sequence anything: every wave
+# proceeds immediately and the platform's dependency chain
+#
+#     Envoy Gateway / CloudNativePG  →  Gateway, Keycloak database  →  Keycloak
+#
+# is left to retry-until-it-works. This custom health assessment makes a parent
+# wait for a child's real health, which is what turns sync waves into ordering.
+#
+# Applied as a partial ConfigMap with server-side apply, so it co-owns only this
+# one key of argocd-cm and leaves the rest to whoever installed Argo CD.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+data:
+  resource.customizations.health.argoproj.io_Application: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = ""
+    if obj.status ~= nil then
+      if obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+    end
+    return hs

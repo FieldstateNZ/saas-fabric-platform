@@ -1,0 +1,10 @@
+# Production: two control-plane replicas for leader failover.
+deployment:
+  replicas: 2
+  envoyGateway:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        memory: 1Gi

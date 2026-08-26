@@ -1,0 +1,19 @@
+# Production: two replicas, public hostname, TLS terminated at the Gateway's
+# https listener rather than by a certificate attached to this service.
+replicas: 2
+
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: platform
+      namespace: platform-system
+      sectionName: https
+  hostnames:
+    - auth.fieldstate.nz
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 2Gi

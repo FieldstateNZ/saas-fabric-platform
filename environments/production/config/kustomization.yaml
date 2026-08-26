@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# platform.yaml is the only Kubernetes resource in this directory. The other
+# files are Helm values, read by Argo CD directly from Git through each
+# Application's valueFiles, and are deliberately not listed here.
+resources:
+  - platform.yaml

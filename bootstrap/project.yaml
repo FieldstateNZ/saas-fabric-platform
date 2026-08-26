@@ -1,0 +1,70 @@
+# Argo CD project for the SaaS Fabric shared platform.
+#
+# This project is applied by an administrator during bootstrap, before Argo CD
+# manages anything. It is deliberately not managed by the root Application:
+# an Application that can rewrite its own project could widen its own
+# privileges. See docs/architecture.md#privilege-boundaries.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: saas-fabric-platform
+  namespace: argocd
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+spec:
+  description: Shared Kubernetes platform owned by saas-fabric-platform.
+
+  sourceRepos:
+    - https://github.com/FieldstateNZ/saas-fabric-platform.git
+    - oci://docker.io/envoyproxy
+    - https://cloudnative-pg.github.io/charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+    - https://openbao.github.io/openbao-helm
+    - https://codecentric.github.io/helm-charts
+
+  # Same-cluster only. Client namespaces (client-*) are deliberately excluded:
+  # they belong to saas-fabric-clients / OpenTofu.
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: platform-system
+    - server: https://kubernetes.default.svc
+      namespace: identity
+    - server: https://kubernetes.default.svc
+      namespace: secrets
+    - server: https://kubernetes.default.svc
+      namespace: data-system
+    - server: https://kubernetes.default.svc
+      namespace: observability
+
+  # Cluster-scoped resources are enumerated rather than wildcarded so that a
+  # new chart cannot silently claim cluster-wide privilege.
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicyBinding
+    # The platform's routing authority. There is deliberately no IngressClass:
+    # a second routing authority would mean two places a hostname can be
+    # claimed. See applications/core/envoy-gateway/README.md.
+    - group: gateway.networking.k8s.io
+      kind: GatewayClass
+
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

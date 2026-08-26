@@ -1,0 +1,11 @@
+# LucentRoot: a single control-plane replica is sufficient for a development
+# cluster. The Envoy data plane is sized by Envoy Gateway itself.
+deployment:
+  replicas: 1
+  envoyGateway:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        memory: 256Mi

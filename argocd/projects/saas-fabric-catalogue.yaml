@@ -1,0 +1,29 @@
+# Argo CD project for catalogue applications.
+#
+# Catalogue applications are optional platform capabilities, so this project is
+# deliberately narrower than saas-fabric-platform: one namespace, and no
+# cluster-scoped resources at all. A catalogue chart that needs cluster scope
+# has to be re-evaluated rather than silently granted it.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: saas-fabric-catalogue
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  description: Optional catalogue workloads offered as SaaS Fabric capabilities.
+
+  sourceRepos:
+    - https://github.com/FieldstateNZ/saas-fabric-platform.git
+    - https://grafana.github.io/helm-charts
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: catalogue
+
+  clusterResourceWhitelist: []
+
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

@@ -1,0 +1,17 @@
+# Environment contract for production (AKS).
+#
+# Environmental facts only. Which Git ref Argo CD follows is part of this
+# environment's Argo binding, not runtime configuration, and lives in
+# ../kustomization.yaml and ../bootstrap/kustomization.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-environment
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+data:
+  environment: production
+  domain: platform.fieldstate.nz
+  replicaProfile: production
+  storageClass: managed-csi

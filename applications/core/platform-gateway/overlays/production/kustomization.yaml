@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  # Production adds TLS termination at the Gateway. One certificate on the
+  # listener replaces the per-service certificates an Ingress model would
+  # need, and it is the only place TLS is configured.
+  - target:
+      kind: Gateway
+      name: platform
+    patch: |-
+      - op: add
+        path: /spec/listeners/-
+        value:
+          name: https
+          protocol: HTTPS
+          port: 443
+          tls:
+            mode: Terminate
+            certificateRefs:
+              # Injected externally; see ../../README.md.
+              - kind: Secret
+                name: platform-tls
+          allowedRoutes:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  fieldstate.nz/gateway-access: "true"

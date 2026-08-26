@@ -1,0 +1,36 @@
+# Points every platform Application at one environment's configuration.
+#
+# The environment name is a genuine environmental fact, so it is copied from the
+# environment ConfigMap and never restated. The Git ref an environment follows
+# is a separate concern -- Argo binding, not environment configuration -- and is
+# set in each environment's own kustomization.
+#
+# Applications are selected by fieldstate.nz/source, because Helm-sourced and
+# Kustomize-sourced Applications carry the path at different places.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-environment
+      fieldPath: data.environment
+    targets:
+      # $platform/environments/<environment>/config/<app>.yaml
+      - select:
+          kind: Application
+          labelSelector: fieldstate.nz/source=helm
+        fieldPaths:
+          - spec.sources.0.helm.valueFiles.1
+        options:
+          delimiter: /
+          index: 2
+      # applications/<class>/<app>/overlays/<environment>
+      - select:
+          kind: Application
+          labelSelector: fieldstate.nz/source=kustomize
+        fieldPaths:
+          - spec.source.path
+        options:
+          delimiter: /
+          index: 4

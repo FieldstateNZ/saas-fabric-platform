@@ -1,0 +1,18 @@
+# LucentRoot: one replica, internal hostname, plain HTTP at the Gateway.
+replicas: 1
+
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: platform
+      namespace: platform-system
+      sectionName: http
+  hostnames:
+    - auth.lucentroot.internal
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

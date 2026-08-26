@@ -1,0 +1,41 @@
+# PostgreSQL cluster backing the shared platform Keycloak.
+#
+# This is a platform database, not a client database. Client Clusters are
+# created by OpenTofu into client-* namespaces and are never defined here.
+#
+# Prune=false and Delete=false: removing this Application from Git, or deleting
+# it, must not take the identity store with it. Retiring this database is a
+# deliberate act, not a reconciliation side effect.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-db
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  instances: 1
+
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+
+  storage:
+    size: 8Gi
+
+  # Keycloak connects as the owner role. CloudNativePG generates the password
+  # and publishes it as the secret keycloak-db-app; no credential is stored in
+  # Git, and no credential has to be injected by hand.
+  enableSuperuserAccess: false
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi

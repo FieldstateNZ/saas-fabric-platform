@@ -1,0 +1,15 @@
+# Non-secret runtime configuration for SaaS Fabric.
+#
+# Only platform-level facts belong here. Client definitions and client feature
+# configuration are reconciled by saas-fabric-clients and never appear in this
+# repository.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: saas-fabric-config
+data:
+  SAAS_FABRIC__ENVIRONMENT: unset
+  SAAS_FABRIC__PLATFORM_DOMAIN: unset
+  SAAS_FABRIC__KEYCLOAK_URL: http://keycloak-http.identity.svc.cluster.local
+  SAAS_FABRIC__OPENBAO_ADDR: http://openbao.secrets.svc.cluster.local:8200
+  SAAS_FABRIC__OTLP_ENDPOINT: http://observability-collector.observability.svc.cluster.local:4317

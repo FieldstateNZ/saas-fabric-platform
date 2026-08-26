@@ -1,0 +1,49 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: helm
+    fieldstate.nz/class: core
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  sources:
+    - repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+      chart: opentelemetry-collector
+      targetRevision: 0.171.0
+      helm:
+        releaseName: observability
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $platform/applications/core/observability/values.yaml
+          - $platform/environments/PLACEHOLDER/config/observability.yaml
+    - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+      targetRevision: PLACEHOLDER
+      ref: platform
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Core platform: the applications SaaS Fabric itself requires in order to
+# operate. Listed in sync-wave order for readability; the ordering that matters
+# is the argocd.argoproj.io/sync-wave annotation on each Application, which only
+# sequences anything because of argocd/runtime.
+#
+# Adding to this list is a claim that SaaS Fabric cannot run without the
+# component. See docs/adding-an-application.md.
+resources:
+  # wave 0 — operators and CRDs
+  - envoy-gateway/application.yaml
+  - cloudnative-pg/application.yaml
+  # wave 10 — routing, data, secrets and telemetry foundations
+  - platform-gateway/application.yaml
+  - observability/application.yaml
+  - openbao/application.yaml
+  - keycloak-database/application.yaml
+  # wave 20 — identity
+  - keycloak/application.yaml
+  # wave 30 — SaaS Fabric
+  - saas-fabric/application.yaml

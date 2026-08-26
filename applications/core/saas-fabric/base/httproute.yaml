@@ -1,0 +1,23 @@
+# Platform route for SaaS Fabric, attached to the shared platform Gateway.
+#
+# Client routes (acme.<domain>) are never defined here; they are created by
+# OpenTofu in the client's own namespace and attach to the same Gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: saas-fabric
+spec:
+  parentRefs:
+    - name: platform
+      namespace: platform-system
+      sectionName: http
+  hostnames:
+    - fabric.invalid
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: saas-fabric
+          port: 80
