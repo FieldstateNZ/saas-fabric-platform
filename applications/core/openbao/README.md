@@ -127,6 +127,45 @@ until `saas-fabric-hosting` supplies a key vault to seal against.
 No root token, unseal share or recovery key is permitted in this repository, in
 either environment.
 
+## Logging in as an operator
+
+The LucentRoot flow. Bootstrap surfaces no root token, so administrative access
+is a Kubernetes identity exchanged for an OpenBao one. Reaching the API to do
+that already requires the tailnet and the `cluster-admin` binding in
+[`../operator-access`](../operator-access/overlays/lucentroot/), so this grants
+no path that holding those two does not already grant.
+
+**Kubernetes auth is API-only.** It is not offered among OpenBao's UI or CLI
+login methods ([openbao#1814](https://github.com/openbao/openbao/issues/1814)),
+so `bao login -method=kubernetes` does not work. Exchange the ServiceAccount JWT
+over the HTTP API and use the token it returns.
+
+```bash
+curl -sX POST https://bao-lucentroot.tail5a7546.ts.net/v1/auth/kubernetes/login \
+  -d "{\"role\":\"operator\",\"jwt\":\"$(kubectl -n secrets create token openbao-operator --duration=10m)\"}" \
+  | jq -r .auth.client_token
+```
+
+That returns a `client_token` carrying the `platform-admin` policy, valid for an
+hour. Paste it into the UI's **Token** login at the same hostname, or use it
+from the CLI:
+
+```bash
+export BAO_ADDR=https://bao-lucentroot.tail5a7546.ts.net
+```
+
+```bash
+export BAO_TOKEN=<the client_token>
+```
+
+```bash
+bao kv put secret/platform/example key=value
+```
+
+Nothing above is persisted. The ServiceAccount token expires in ten minutes and
+the OpenBao token in an hour, so the property the zero-ceremony bootstrap exists
+to protect — no standing credential anywhere — survives having a human path.
+
 ## How secrets reach workloads
 
 OpenBao is the authority; it is not the delivery mechanism.
@@ -148,8 +187,17 @@ None hard. Wave `10`, alongside the other foundations.
 
 ## Configuration expected from outside this repository
 
-- **Unseal / auto-unseal material** — a key vault key and an identity permitted
-  to use it, created by `saas-fabric-hosting`.
+**Seal material is environment-specific**, and stating it as one contract was
+wrong: it read as though hosting supplies the seal in every environment, which
+is the boundary confusion this repository has been removing.
+
+| | LucentRoot | Production |
+|---|---|---|
+| Expected from outside | **nothing** | auto-unseal material, once implemented |
+| Seal key | generated in-cluster by [`../openbao-seal`](../openbao-seal/), disposable | a Key Vault key, plus a workload identity permitted to use it, from `saas-fabric-hosting` |
+
+Everything else is common to both:
+
 - **Tailnet access**, if operators need the UI. Workloads reach OpenBao
   cluster-locally at `openbao.secrets.svc.cluster.local:8200` and need no
   ingress at all; LucentRoot additionally exposes it on the operator plane. It
