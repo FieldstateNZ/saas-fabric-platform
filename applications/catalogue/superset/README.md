@@ -45,4 +45,32 @@ metadata database and cache. Two problems:
 - OIDC configuration against the platform Keycloak, with the client record owned
   by the client layer rather than defined here;
 - `https://apache.github.io/superset` added to the `saas-fabric-catalogue`
-  project's `sourceRepos`.
+  project's `sourceRepos`;
+- its secrets split across the two scopes — see below.
+
+## Secret scoping
+
+Superset is the sharpest example in the platform of a workload that legitimately
+needs secrets from **both** scopes. Getting this right at adoption is easier than
+untangling it afterwards.
+
+| Secret | Scope | Path |
+|---|---|---|
+| Admin credential | platform | `secret/platform/superset/...` |
+| Metadata database connection | platform | `secret/platform/superset/...` |
+| `SECRET_KEY` for signing | platform | `secret/platform/superset/...` |
+| OAuth client secret for Keycloak | platform | `secret/platform/superset/...` |
+| Credentials to read a client's data | **client** | `secret/clients/<client>/...` |
+
+Everything Superset needs *to be Superset* is a platform secret, projected into
+the `catalogue` namespace through the platform
+[`ClusterSecretStore`](../../core/secret-store/). Everything it needs *to reach
+one client's resources* belongs to that client, comes through that client's own
+store, and is created by client provisioning.
+
+It is not "Superset runs in a platform namespace, therefore its secrets are
+platform secrets". The namespace decides which store it may use; the *purpose*
+decides which scope a value belongs in. Widening the platform store so Superset
+can reach client data would collapse the boundary the rest of the platform is
+built on — see
+[`applications/core/external-secrets`](../../core/external-secrets/#the-split-is-about-purpose-not-about-which-namespace-asks).

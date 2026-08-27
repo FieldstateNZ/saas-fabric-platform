@@ -16,7 +16,8 @@ Checks, in order of how much damage they prevent:
      operator traffic on Tailscale Ingresses, and no third routing authority;
   8. no administrative surface on the product plane;
   9. the Argo CD runtime configuration the platform depends on is present;
- 10. the platform secret store is bounded to platform namespaces;
+ 10. the platform secret store is bounded to platform namespaces, and nothing
+     reads a client secret path through it;
  11. every in-cluster service reference resolves to something this repository
      actually deploys;
  12. the telemetry pipelines only reference components that exist;
@@ -35,9 +36,17 @@ ENVIRONMENTS = ("lucentroot", "production")
 
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
-SECRET_KEYS = re.compile(
-    r"^\s*-?\s*(password|passwd|adminPassword|token|apiKey|api_key|secretKey|"
-    r"secret_key|clientSecret|client_secret|privateKey|private_key)\s*:\s*(\S.*)$",
+#
+# Named for what they hold -- key *names* and a path prefix, all literals -- and
+# not "SECRET_*". Nothing here is credential material, and identifiers that say
+# otherwise get flagged as clear-text logging the moment one reaches a message.
+CREDENTIAL_KEY_NAMES = (
+    "password", "passwd", "adminPassword", "token", "apiKey", "api_key",
+    "secretKey", "secret_key", "clientSecret", "client_secret",
+    "privateKey", "private_key",
+)
+CREDENTIAL_KEY_PATTERN = re.compile(
+    r"^\s*-?\s*(" + "|".join(CREDENTIAL_KEY_NAMES) + r")\s*:\s*(\S.*)$",
     re.IGNORECASE,
 )
 SECRET_VALUE_IS_A_REFERENCE = re.compile(
@@ -71,6 +80,11 @@ REQUIRED_ARGOCD_RUNTIME = (
 # The label that marks a namespace as platform-owned. It gates access to the
 # platform secret store, so it is a security boundary rather than inventory.
 PLATFORM_NAMESPACE_LABEL = "fieldstate.nz/layer"
+# The platform secret store, and the OpenBao path prefix reserved for clients.
+# A platform ExternalSecret reaching into the client space is a tenancy
+# violation even though the OpenBao policy would also refuse it at runtime.
+PLATFORM_SECRET_STORE = "openbao"
+CLIENT_PATH_PREFIX = "clients/"
 # An exact chart version. Ranges, wildcards and "latest" make a release
 # non-reproducible: the same tag would deploy different software over time.
 PINNED_VERSION = re.compile(r"^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")
@@ -88,8 +102,28 @@ def fail(problems: list[str], message: str) -> None:
     problems.append(message)
 
 
+def _reported_key_name(matched: str) -> str:
+    """The key name to report, resolved back to a literal in this file.
+
+    This function reads lines that contain credentials, so it must never put
+    scanned content into a message. Resolving the match against the known list
+    means the reported name provably originates here rather than in the file
+    being scanned -- and it stays that way if the pattern is ever edited.
+
+    The matched *value*, group 2, is never touched.
+    """
+    lowered = matched.lower()
+    for known in CREDENTIAL_KEY_NAMES:
+        if known.lower() == lowered:
+            return known
+    return "credential"
+
+
 def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
-    """Nothing in Git, and nothing rendered from it, may carry a credential."""
+    """Nothing in Git, and nothing rendered from it, may carry a credential.
+
+    Reports where a credential is and what it is called, never what it is.
+    """
     for path in sorted(root.rglob("*.yaml")):
         if ".git" in path.parts:
             continue
@@ -100,13 +134,14 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
             fail(problems, f"{relative}: contains private key material")
 
         for number, line in enumerate(text.splitlines(), start=1):
-            match = SECRET_KEYS.match(line)
+            match = CREDENTIAL_KEY_PATTERN.match(line)
             if not match:
                 continue
             value = match.group(2).split("#")[0].strip()
             if SECRET_VALUE_IS_A_REFERENCE.match(value):
                 continue
-            fail(problems, f"{relative}:{number}: literal value for '{match.group(1)}'")
+            key_name = _reported_key_name(match.group(1))
+            fail(problems, f"{relative}:{number}: literal value for '{key_name}'")
 
         for document in load_all(path, problems):
             if document and document.get("kind") == "Secret":
@@ -454,6 +489,91 @@ def check_secret_store_is_bounded(render: Path, problems: list[str]) -> None:
                     )
 
 
+def _external_secret_spec(document: dict) -> dict:
+    """The ExternalSecretSpec, wherever this kind happens to keep it.
+
+    ClusterExternalSecret nests it under spec.externalSecretSpec rather than
+    holding data/dataFrom/secretStoreRef directly, so reading spec.* works for
+    one kind and silently matches nothing for the other.
+    """
+    spec = document.get("spec") or {}
+    if document.get("kind") == "ClusterExternalSecret":
+        return spec.get("externalSecretSpec") or {}
+    return spec
+
+
+def _remote_paths(entry: dict) -> list[str]:
+    """Every remote path one data or dataFrom entry can select.
+
+    Three shapes reach a secret, not one: an exact key, and -- for dataFrom --
+    a find over a path prefix, which selects everything beneath it.
+    """
+    paths = [
+        (entry.get("remoteRef") or {}).get("key"),
+        (entry.get("extract") or {}).get("key"),
+        (entry.get("find") or {}).get("path"),
+    ]
+    return [path for path in paths if path]
+
+
+def _reaches_client_space(remote: str) -> bool:
+    """Whether a remote path selects anything under the client prefix."""
+    return remote.lstrip("/").startswith(CLIENT_PATH_PREFIX)
+
+
+def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> None:
+    """The platform store serves platform secrets, not client ones.
+
+    The namespace bound on the store looks like a location rule, but the split
+    is about purpose: one workload can legitimately need both scopes. A
+    catalogue application's own admin credential is a platform secret; the
+    credentials it uses to reach one client's data are that client's, and come
+    through that client's own store.
+
+    OpenBao's policy refuses secret/clients/* to the platform token anyway, so
+    this is defence in depth -- it fails at build time with a clear reason
+    rather than at runtime with a permission denial, and it still holds if the
+    policy is widened later. That only works if it cannot be walked around
+    using ordinary ESO syntax, so it normalises the spec, resolves the store
+    per entry rather than once, and covers every shape that selects a path.
+    """
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") not in ("ExternalSecret", "ClusterExternalSecret"):
+                    continue
+
+                spec = _external_secret_spec(document)
+                default_store = (spec.get("secretStoreRef") or {}).get("name")
+                name = document.get("metadata", {}).get("name")
+
+                entries = [
+                    (field, index, entry)
+                    for field in ("data", "dataFrom")
+                    for index, entry in enumerate(spec.get(field) or [])
+                ]
+                for field, index, entry in entries:
+                    # An entry may name its own store, which overrides the
+                    # top-level one for that entry only.
+                    source = (entry.get("sourceRef") or {}).get("storeRef") or {}
+                    store = source.get("name") or default_store
+                    if store != PLATFORM_SECRET_STORE:
+                        continue
+
+                    if any(_reaches_client_space(remote) for remote in _remote_paths(entry)):
+                        # The offending path is identified by where it is, not
+                        # by quoting it. Nothing read out of a manifest reaches
+                        # this message -- see check_no_plaintext_secrets.
+                        fail(
+                            problems,
+                            f"{environment}/{path.name}:"
+                            f" {document['kind']}/{name} {field}[{index}]"
+                            f" reads a path under '{CLIENT_PATH_PREFIX}'"
+                            " through the platform store. Client secrets come"
+                            " from a client-scoped store, not this one",
+                        )
+
+
 def check_collector_pipelines(render: Path, problems: list[str]) -> None:
     """The collector config is opaque YAML inside a ConfigMap.
 
@@ -529,6 +649,7 @@ def main() -> int:
     check_routes_attach(render, problems)
     check_argocd_runtime_configuration(render, problems)
     check_secret_store_is_bounded(render, problems)
+    check_platform_secrets_stay_platform(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
 

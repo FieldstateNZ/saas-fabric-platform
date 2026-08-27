@@ -92,6 +92,53 @@ All three are created by client provisioning, alongside the client's realm,
 database and routes. `secret/clients/` is reserved for exactly that and is
 unreadable from the platform store.
 
+### The split is about purpose, not about which namespace asks
+
+This is the part that is easy to get wrong, because the namespace bound above
+makes it look like a location rule. It is not. **One workload can legitimately
+need secrets from both scopes**, and running in a platform namespace does not
+make everything it reads a platform secret.
+
+Superset is the clearest example, if it is ever adopted:
+
+| Secret | Scope | Path |
+|---|---|---|
+| Superset's admin credential | platform | `secret/platform/superset/...` |
+| Its metadata database connection | platform | `secret/platform/superset/...` |
+| Its signing / secret key | platform | `secret/platform/superset/...` |
+| Its OAuth client secret | platform | `secret/platform/superset/...` |
+| Credentials for Superset to read **Acme's** data | **client** | `secret/clients/acme/...` |
+
+Everything Superset needs *to be Superset* is platform. Everything it needs *to
+reach one client's resources* is that client's, and comes through that client's
+store — not this one, and not by widening this one.
+
+Ask which one a secret is:
+
+```text
+does the platform need this to run the component?      → secret/platform/...
+does it only exist because a particular client does?   → secret/clients/<client>/...
+```
+
+The runtime bound already enforces the answer — the platform token cannot read
+`secret/clients/*` — but the design decision has to be made before that, when
+someone chooses where to write the value.
+
+`scripts/check.py` also refuses it at build time, which is only worth anything
+if it cannot be walked around using ordinary ESO syntax. It covers:
+
+| Shape | Why it needs covering |
+|---|---|
+| `ExternalSecret` and `ClusterExternalSecret` | the latter nests its spec under `externalSecretSpec`, so reading `spec.*` matches nothing |
+| `data[].remoteRef.key` | an exact key |
+| `dataFrom[].extract.key` | an exact key |
+| `dataFrom[].find.path` | selects **everything** beneath a prefix, so it is the widest of the three |
+| `sourceRef.storeRef` per entry | an entry may name its own store, overriding the top-level one for that entry alone |
+
+A client path reached through a *client* store is fine and is not flagged —
+that is the intended pattern. What is refused is reaching client paths through
+**this** store.
+
 ## Authentication
 
 The operator authenticates to OpenBao with the Kubernetes auth method, minting
