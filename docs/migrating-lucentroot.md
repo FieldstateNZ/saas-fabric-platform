@@ -223,23 +223,25 @@ and the OpenBao configuration that External Secrets depends on — the Kubernete
 auth method, a policy, a role — is done by hand at bootstrap either way. Doing it
 once, in the shape we intend to keep, beats doing it twice.
 
-**What this establishes is the mechanism, not a migration of existing secrets.**
-Every platform credential is still created by hand at bootstrap, and that is
-correct for the ones on the bootstrap side of the boundary:
+A rebuild is also the moment the manual step disappears. Nothing is typed into
+this cluster by hand:
 
-| Secret | Still manual because |
+| Secret | Comes from |
 |---|---|
-| `keycloak-admin` | Keycloak will not start without it, and on a fresh cluster OpenBao is still sealed when Keycloak first syncs |
-| `operator-oauth` | deliberately permanent — the operator plane is how you reach OpenBao when OpenBao is not reachable |
-| `platform-tls` (production) | the product edge terminates TLS before anything behind it is up |
-| `grafana-admin` | **not** on the bootstrap side. Grafana is wave `40`, long after OpenBao could serve it. It is the first credential that should move, and it has not yet |
+| `keycloak-admin` | generated in-cluster, [`applications/core/keycloak-credentials`](../applications/core/keycloak-credentials/) |
+| `grafana-admin` | generated in-cluster, [`applications/catalogue/grafana-credentials`](../applications/catalogue/grafana-credentials/) |
+| `operator-oauth` | transported once, by [`inject-bootstrap-secrets.yaml`](../.github/workflows/inject-bootstrap-secrets.yaml) with a reviewer in the path |
+| everything a workload reads | OpenBao, via External Secrets |
 
-`grafana-admin` is the honest gap. Moving it needs an `ExternalSecret` in the
-`catalogue` namespace, which no catalogue Application currently renders — the
-Grafana chart has no template for one. That is a small, self-contained follow-up,
-not a reason to hold the mechanism back.
+The two admin credentials are arbitrary — nobody needs to *choose* them — so
+nobody does. Only the credential Tailscale issues has to travel, and it travels
+through an approval gate rather than a shell.
 
-The pattern is `infrastructure`'s, because it was already the right one: a
+The three sources and when each applies are set out in
+[architecture.md](architecture.md#the-bootstrap-secret-boundary).
+
+The projection pattern is `infrastructure`'s, because it was already the right
+one: a
 single `ClusterSecretStore` authenticating with the Kubernetes auth method, and
 `dataFrom.extract` so that adding a variable means writing it to OpenBao and
 changing nothing in Git. What is **not** `infrastructure`'s is the scope — see

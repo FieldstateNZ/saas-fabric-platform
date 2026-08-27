@@ -55,7 +55,7 @@ secret is created by an administrator and is never committed here.
 ### 4. Required external secret
 
 **One.** Everything else the platform needs is generated in-cluster — see
-[architecture.md](architecture.md#what-is-generated-instead).
+[architecture.md](architecture.md#what-is-generated-in-cluster).
 
 The Tailscale operator's OAuth client, because Tailscale issues it and nothing
 in the cluster can. It needs the `devices` scope and must own
