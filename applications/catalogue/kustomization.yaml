@@ -9,3 +9,4 @@ kind: Kustomization
 resources:
   - ../../argocd/projects
   - grafana/application.yaml
+  - grafana-credentials/application.yaml

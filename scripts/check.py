@@ -50,8 +50,22 @@ CREDENTIAL_KEY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 SECRET_VALUE_IS_A_REFERENCE = re.compile(
-    r"^(\"\"|''|\{\{.*\}\}|\$\{.*\}|null|~|\||>|\{\}|\[\])$"
+    r"^($|\"\"|''|\{\{.*\}\}|\$\{.*\}|null|~|\||>|\{\}|\[\])$"
 )
+
+
+def _unquote(value: str) -> str:
+    """Strip one layer of matching quotes.
+
+    A templated reference is still a reference when it is quoted, and YAML
+    routinely requires the quotes -- `password: "{{ .password }}"` starts with
+    a brace, which YAML would otherwise read as a flow mapping. Stripping does
+    not weaken the check: `"hunter2"` unquotes to `hunter2`, which is still not
+    a reference.
+    """
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
 # A PEM header alone is not evidence of a key: upstream CRDs document expected
 # credential formats in their OpenAPI descriptions, placeholder and all. Require
 # a run of real base64 body before the END marker.
@@ -137,7 +151,7 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
             match = CREDENTIAL_KEY_PATTERN.match(line)
             if not match:
                 continue
-            value = match.group(2).split("#")[0].strip()
+            value = _unquote(match.group(2).split("#")[0].strip())
             if SECRET_VALUE_IS_A_REFERENCE.match(value):
                 continue
             key_name = _reported_key_name(match.group(1))

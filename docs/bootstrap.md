@@ -52,50 +52,36 @@ Public repository, no credentials needed. Skip to step 4.
 For a private repository, add credentials as an Argo CD repository secret. That
 secret is created by an administrator and is never committed here.
 
-### 4. Required external secrets
+### 4. Required external secret
 
-Two secrets must exist before the platform converges. Neither is created by this
-repository, and neither may ever be committed to it. Create them with values
-from the organisation's secret store:
+**One.** Everything else the platform needs is generated in-cluster — see
+[architecture.md](architecture.md#what-is-generated-instead).
 
-```bash
-kubectl create namespace identity
-kubectl create secret generic keycloak-admin -n identity \
-  --from-literal=username=<admin-username> \
-  --from-literal=password=<admin-password>
+The Tailscale operator's OAuth client, because Tailscale issues it and nothing
+in the cluster can. It needs the `devices` scope and must own
+`tag:k8s-operator`.
+
+Store it as a GitHub **environment** secret on the `lucentroot` environment,
+alongside `LUCENTROOT_KUBECONFIG`:
+
+```text
+TAILSCALE_OAUTH_CLIENT_ID
+TAILSCALE_OAUTH_CLIENT_SECRET
+LUCENTROOT_KUBECONFIG
 ```
 
-LucentRoot also runs the operator plane, which needs a Tailscale OAuth client
-with the `devices` scope, owning `tag:k8s-operator`:
+Then run the **Inject bootstrap secrets** workflow against `lucentroot`. The
+environment's protection rules gate it, so applying a credential is an approval
+rather than a command.
 
-```bash
-kubectl create namespace tailscale
-kubectl create secret generic operator-oauth -n tailscale \
-  --from-literal=client_id=<oauth-client-id> \
-  --from-literal=client_secret=<oauth-client-secret>
-```
-
-This one is deliberately a bootstrap secret rather than something delivered from
-OpenBao: the operator plane is how you reach OpenBao when OpenBao is not
-reachable. See
+This is deliberately not an OpenBao-sourced secret: the operator plane is how
+you reach OpenBao when OpenBao is not reachable, so sourcing it from OpenBao
+would make a broken OpenBao unobservable. See
 [architecture.md](architecture.md#the-bootstrap-secret-boundary).
 
-The tailnet ACL policy must list `tag:k8s-operator` as a `tagOwner` of `tag:k8s`,
-or the operator cannot create proxies. That is tailnet configuration and lives
-outside Kubernetes entirely.
-
-And, for the catalogue:
-
-```bash
-kubectl create namespace catalogue
-kubectl create secret generic grafana-admin -n catalogue \
-  --from-literal=username=<admin-username> \
-  --from-literal=password=<admin-password>
-```
-
-These are temporary. As OpenBao takes over platform credential issuance, the
-Applications' secret *references* are repointed at OpenBao rather than the
-values being moved somewhere else.
+The tailnet ACL policy must also list `tag:k8s-operator` as a `tagOwner` of
+`tag:k8s`, or the operator cannot create proxies. That is tailnet configuration
+and lives outside Kubernetes entirely.
 
 ### 5. Hand over the cluster
 
@@ -166,15 +152,16 @@ If this repository is private, grant Argo CD read access before applying the
 bootstrap set — a root Application that cannot read its source will sit
 `Unknown` rather than fail loudly.
 
-### 4. Required external secrets
+### 4. Required external secret
 
-The same `keycloak-admin` secret in `identity`. The catalogue is not enabled in
-production, so `grafana-admin` is not needed.
+**One**, and it is not the same one as LucentRoot.
 
-Production runs no operator plane yet, so it needs no `operator-oauth`, and its
-administrative surfaces are reachable only by `kubectl port-forward`.
+`keycloak-admin` is generated in-cluster here as everywhere else, and production
+runs no operator plane yet, so it needs no `operator-oauth` — its administrative
+surfaces are reachable only by `kubectl port-forward`. The catalogue is not
+enabled, so `grafana-admin` is not needed either.
 
-It additionally expects one TLS certificate, referenced by the platform
+What production does need is a TLS certificate, referenced by the platform
 Gateway's `https` listener and not created here:
 
 | Secret | Namespace | Referenced by |
