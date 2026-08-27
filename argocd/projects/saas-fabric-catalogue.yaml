@@ -1,9 +1,9 @@
 # Argo CD project for catalogue applications.
 #
 # Catalogue applications are optional platform capabilities, so this project is
-# deliberately narrower than saas-fabric-platform: one namespace, and no
-# cluster-scoped resources at all. A catalogue chart that needs cluster scope
-# has to be re-evaluated rather than silently granted it.
+# deliberately narrower than saas-fabric-platform: one namespace, and one
+# cluster-scoped kind. A catalogue chart that needs anything more has to be
+# re-evaluated rather than silently granted it.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -22,7 +22,16 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: catalogue
 
-  clusterResourceWhitelist: []
+  # Namespace only, and only because Argo CD's CreateNamespace=true is itself a
+  # cluster-scoped write. Since `destinations` permits exactly one namespace,
+  # what these applications can actually create is `catalogue` and nothing else.
+  #
+  # This was an empty list until a real cluster refused to create the namespace
+  # the applications deploy into. Zero cluster-scoped kinds reads as the
+  # stronger boundary, and is simply not a workable one.
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
 
   namespaceResourceWhitelist:
     - group: '*'

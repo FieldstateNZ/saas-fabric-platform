@@ -12,5 +12,5 @@ kind: Kustomization
 namespace: argocd
 
 resources:
-  - project.yaml
+  - ../argocd/projects
   - root-application.yaml

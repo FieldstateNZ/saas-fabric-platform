@@ -4,9 +4,6 @@ kind: Kustomization
 # Optional platform capabilities. Nothing here is a prerequisite for SaaS
 # Fabric; an environment that omits this directory is a complete platform.
 #
-# The catalogue project is included here so that enabling the catalogue in an
-# environment is a single line.
 resources:
-  - ../../argocd/projects
   - grafana/application.yaml
   - grafana-credentials/application.yaml

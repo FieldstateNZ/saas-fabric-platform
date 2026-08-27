@@ -1,8 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# saas-fabric-platform itself lives in bootstrap/project.yaml: it must exist
-# before Argo CD manages anything, and an Application must not be able to widen
-# the project that constrains it.
+# Both projects. The bootstrap set creates them, because the root Application
+# cannot start without the platform project; every environment then reconciles
+# them, so a change to either is a Git change like anything else.
+#
+# The catalogue project is reconciled even where the catalogue is not enabled.
+# An AppProject with no Applications in it does nothing, and one fewer
+# conditional is worth more than the tidiness.
 resources:
+  - saas-fabric-platform.yaml
   - saas-fabric-catalogue.yaml

@@ -1,14 +1,27 @@
 # Argo CD project for the SaaS Fabric shared platform.
 #
-# This project is applied by an administrator during bootstrap, before Argo CD
-# manages anything. It is deliberately not managed by the root Application:
-# an Application that can rewrite its own project could widen its own
-# privileges. See docs/architecture.md#privilege-boundaries.
+# Created by the bootstrap set, because the root Application cannot start
+# without it -- and reconciled by the root Application thereafter, because
+# initial creation and ongoing ownership are different things.
+#
+# It was previously left outside reconciliation on the argument that an
+# Application able to rewrite its own project could widen its own privileges.
+# That argument does not hold: AppProject is a namespaced argoproj.io resource,
+# this project permits `group: "*", kind: "*"` in namespaced resources, and its
+# destinations include argocd. The root Application could already write
+# AppProjects. Keeping this file out of Git reconciliation bought no boundary
+# and cost a manual step after every change to it.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: saas-fabric-platform
   namespace: argocd
+  annotations:
+    # Every platform Application runs in this project. Pruning it because it
+    # left a rendered manifest would take the platform with it, so removing it
+    # stays a deliberate act rather than a reconciliation side effect.
+    argocd.argoproj.io/sync-options: Prune=false
+    argocd.argoproj.io/sync-wave: "-10"
   labels:
     app.kubernetes.io/managed-by: argocd
     fieldstate.nz/system: saas-fabric
@@ -71,6 +84,12 @@ spec:
     # used to stand up a competing product edge.
     - group: networking.k8s.io
       kind: IngressClass
+    # The single connection between External Secrets and OpenBao. Cluster-scoped
+    # despite serving namespaced workloads, which is why it needs naming here --
+    # it is bounded instead by its own `conditions`, to namespaces labelled as
+    # platform-owned. See applications/core/secret-store.
+    - group: external-secrets.io
+      kind: ClusterSecretStore
 
   namespaceResourceWhitelist:
     - group: '*'

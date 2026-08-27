@@ -338,10 +338,13 @@ application simply has no file for it.
 The app-of-apps model confers substantial cluster privilege: whoever can change
 this repository can change what runs in the cluster. Three things narrow that.
 
-1. **The platform project is not self-managed.** `saas-fabric-platform` is
-   applied by an administrator at bootstrap and is not reconciled by the root
-   Application, so a change here cannot widen the privileges of the thing
-   applying it.
+1. **Git is the boundary, and it is the only one.** The platform project used to
+   sit outside reconciliation on the argument that an Application able to
+   rewrite its own project could widen its own privileges. That was false —
+   `AppProject` is namespaced, the project permits `'*'/'*'` namespaced
+   resources, and `argocd` is among its destinations, so the root Application
+   could already write AppProjects. The projects are reconciled from Git like
+   everything else; protecting `main` is the control.
 2. **Cluster-scoped kinds are enumerated, not wildcarded.** A new chart that
    wants a `ClusterRole` beyond the listed kinds fails to sync rather than
    quietly acquiring it.

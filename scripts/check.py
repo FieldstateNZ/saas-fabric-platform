@@ -97,6 +97,32 @@ PLATFORM_NAMESPACE_LABEL = "fieldstate.nz/layer"
 # The platform secret store, and the OpenBao path prefix reserved for clients.
 # A platform ExternalSecret reaching into the client space is a tenancy
 # violation even though the OpenBao policy would also refuse it at runtime.
+# Cluster-scoped kinds this platform actually deploys. An AppProject enumerates
+# what it permits, so a kind missing from that list is refused at sync -- which
+# is the enumeration working, but only tells you once a cluster exists. This
+# list lets the same mistake fail during validation instead.
+#
+# Curated rather than discovered: rendering cannot tell scope apart, because
+# Helm and Kustomize routinely omit metadata.namespace on namespaced resources
+# too.
+CLUSTER_SCOPED_KINDS = {
+    ("", "Namespace"),
+    ("apiextensions.k8s.io", "CustomResourceDefinition"),
+    ("rbac.authorization.k8s.io", "ClusterRole"),
+    ("rbac.authorization.k8s.io", "ClusterRoleBinding"),
+    ("admissionregistration.k8s.io", "ValidatingWebhookConfiguration"),
+    ("admissionregistration.k8s.io", "MutatingWebhookConfiguration"),
+    ("admissionregistration.k8s.io", "ValidatingAdmissionPolicy"),
+    ("admissionregistration.k8s.io", "ValidatingAdmissionPolicyBinding"),
+    ("networking.k8s.io", "IngressClass"),
+    ("gateway.networking.k8s.io", "GatewayClass"),
+    ("external-secrets.io", "ClusterSecretStore"),
+    ("external-secrets.io", "ClusterExternalSecret"),
+    ("scheduling.k8s.io", "PriorityClass"),
+    ("storage.k8s.io", "StorageClass"),
+    ("apiregistration.k8s.io", "APIService"),
+}
+
 PLATFORM_SECRET_STORE = "openbao"
 CLIENT_PATH_PREFIX = "clients/"
 # An exact chart version. Ranges, wildcards and "latest" make a release
@@ -588,6 +614,69 @@ def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> N
                         )
 
 
+def _group_of(api_version: str) -> str:
+    """The API group, which is empty for core resources like Namespace."""
+    return api_version.split("/")[0] if "/" in api_version else ""
+
+
+def check_projects_permit_what_apps_deploy(render: Path, problems: list[str]) -> None:
+    """An AppProject refusing a kind is a sync failure, not a render failure.
+
+    Cluster-scoped kinds are enumerated per project on purpose, so that a new
+    chart cannot quietly acquire cluster-wide privilege. The cost is that
+    forgetting to add one is invisible until a cluster says
+    "resource X is not permitted in project Y". This says it during validation.
+    """
+    for environment in ENVIRONMENTS:
+        projects: dict[str, set[tuple[str, str]]] = {}
+        applications = []
+        for name in ("bootstrap.yaml", "platform.yaml"):
+            for document in load_all(render / environment / name, problems):
+                if document.get("kind") == "AppProject":
+                    projects[document["metadata"]["name"]] = {
+                        (entry.get("group", ""), entry.get("kind", ""))
+                        for entry in document["spec"].get("clusterResourceWhitelist") or []
+                    }
+                elif document.get("kind") == "Application":
+                    applications.append(document)
+
+        for application in applications:
+            name = application["metadata"]["name"]
+            spec = application["spec"]
+            allowed = projects.get(spec["project"])
+            if allowed is None:
+                continue
+
+            def permits(group: str, kind: str) -> bool:
+                return any(
+                    (g in ("*", group)) and (k in ("*", kind)) for g, k in allowed
+                )
+
+            # CreateNamespace=true makes Argo CD create the destination
+            # namespace, which is a cluster-scoped write like any other.
+            if "CreateNamespace=true" in (spec.get("syncPolicy", {}).get("syncOptions") or []):
+                if not permits("", "Namespace"):
+                    fail(
+                        problems,
+                        f"{environment}: {name} sets CreateNamespace=true but"
+                        f" project {spec['project']} does not permit Namespace",
+                    )
+
+            rendered = render / environment / "applications" / f"{name}.yaml"
+            if not rendered.is_file():
+                continue
+            for document in load_all(rendered, problems):
+                group = _group_of(document.get("apiVersion", ""))
+                kind = document.get("kind", "")
+                if (group, kind) in CLUSTER_SCOPED_KINDS and not permits(group, kind):
+                    fail(
+                        problems,
+                        f"{environment}: {name} deploys {kind}"
+                        f" ({group or 'core'}), which project"
+                        f" {spec['project']} does not permit",
+                    )
+
+
 def check_collector_pipelines(render: Path, problems: list[str]) -> None:
     """The collector config is opaque YAML inside a ConfigMap.
 
@@ -663,6 +752,7 @@ def main() -> int:
     check_routes_attach(render, problems)
     check_argocd_runtime_configuration(render, problems)
     check_secret_store_is_bounded(render, problems)
+    check_projects_permit_what_apps_deploy(render, problems)
     check_platform_secrets_stay_platform(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
