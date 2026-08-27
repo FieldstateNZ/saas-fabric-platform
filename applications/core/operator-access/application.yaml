@@ -8,8 +8,13 @@ metadata:
     fieldstate.nz/class: core
     fieldstate.nz/plane: operator
   annotations:
-    # After the Tailscale operator at wave 0, which supplies the IngressClass.
-    argocd.argoproj.io/sync-wave: "10"
+    # Terminal wave, after everything. The operator plane must never be able to
+    # gate the product plane: Argo CD treats an Ingress without a load-balancer
+    # address as Progressing, so anything holding operator-plane Ingresses is
+    # unhealthy for as long as the Tailscale operator is. Nothing depends on
+    # this Application, so its being unhealthy costs administrative access and
+    # nothing else.
+    argocd.argoproj.io/sync-wave: "50"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

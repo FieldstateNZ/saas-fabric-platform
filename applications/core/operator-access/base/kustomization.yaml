@@ -3,6 +3,8 @@ kind: Kustomization
 
 resources:
   - argocd.yaml
+  - keycloak.yaml
+  - openbao.yaml
 
 labels:
   - includeSelectors: false

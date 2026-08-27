@@ -10,43 +10,52 @@
 | Licence | BSD-3-Clause (the operator that fulfils these) |
 | Namespace | `argocd`, and any namespace holding an operator surface |
 | Class | core |
-| Sync wave | `10` |
+| Sync wave | `50` |
 | Plane | **operator** |
 
 ## Why it exists in SaaS Fabric
 
-Most platform services describe their own operator-plane exposure through their
-chart's values — OpenBao, Keycloak and Grafana all render a Tailscale `Ingress`
-from `environments/<env>/config/<app>.yaml`. This Application is for the ones
-that cannot.
+Every operator-plane `Ingress` for a platform service, in one Application, in a
+wave nothing depends on.
 
-Today that is Argo CD, which is installed by `saas-fabric-hosting` and so has no
-values file in this repository. How Argo CD is *reached* is still a platform
-decision, and the platform's answer is: over the tailnet, never from the product
-edge.
+It holds Argo CD's, which has no values file here because
+`saas-fabric-hosting` installs it, and Keycloak's and OpenBao's, which could be
+rendered by their charts but must not be — see below.
 
-## What belongs here, and what does not
+## Why operator-plane Ingresses live here rather than with their service
+
+Keeping a service's configuration in one place is normally right, and this is
+the exception, for a concrete reason found by running the platform.
+
+Argo CD treats an `Ingress` with no load-balancer address as **Progressing**.
+An operator-plane Ingress rendered by a service's own chart therefore makes that
+service's health depend on the Tailscale operator — and because the platform
+gates sync waves on health, a broken operator plane stops the product plane from
+deploying at all. Keycloak rendering its own tailnet Ingress was enough to hold
+back SaaS Fabric.
+
+Collecting them here confines that coupling to one Application in a terminal
+wave, which nothing depends on. If the operator plane is broken, you lose
+administrative access and nothing else.
 
 | | |
 |---|---|
-| **Belongs here** | operator-plane access to a service this repository does not otherwise render — currently Argo CD |
-| **Does not belong here** | access to a service whose chart can render its own `Ingress`. Put it in that service's environment config, next to the rest of its configuration |
+| **Belongs here** | operator-plane access to any platform service — Argo CD, Keycloak's admin surface, OpenBao's UI |
+| **The one exception** | a catalogue application. `catalogue` is not in the platform project's destinations, and catalogue is a terminal wave already, so its chart may render its own. Grafana does |
 | **Never belongs here** | anything on the product plane, and anything client-scoped |
-
-Keeping the exposure next to the service is the default because it keeps one
-service's configuration in one place. This directory is the exception, not a
-central registry of ingresses.
 
 ## Dependencies
 
 [Tailscale operator](../tailscale/) at wave `0`, for the `tailscale`
 IngressClass. Without it these Ingress resources are created and simply never
-fulfilled.
+fulfilled — which is the whole point of putting them last: that failure stays
+here instead of propagating into the product plane.
 
 ## Configuration owned by this repository
 
 - which platform services are reachable on the operator plane;
-- their tailnet hostnames, per environment.
+- their tailnet hostnames, per environment;
+- the Ingress resources themselves, rather than each service's chart.
 
 ## Configuration expected from outside this repository
 

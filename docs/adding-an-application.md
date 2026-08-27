@@ -65,9 +65,12 @@ Three rules:
 3. **Client traffic is product-plane only.** Never route a client through
    Tailscale.
 
-If a chart cannot render its own operator-plane `Ingress`, it goes in
-[`applications/core/operator-access`](../applications/core/operator-access/) —
-the exception, not a central registry.
+Operator-plane `Ingress` resources go in
+[`applications/core/operator-access`](../applications/core/operator-access/),
+**not** in the service's own chart values — even when the chart supports it. An
+Ingress with no load-balancer address reads as Progressing, so rendering one
+from a service's chart couples that service's health to the Tailscale operator
+and lets a broken operator plane gate the product plane.
 
 `scripts/check.py` fails the build on any `Ingress` that is not `tailscale`, on
 any other `IngressClass`, and on an admin path reachable from the product plane.
@@ -127,6 +130,7 @@ in wave order.
 | `20` | identity |
 | `30` | SaaS Fabric services |
 | `40` | catalogue |
+| `50` | operator-plane access |
 
 Use an existing wave. New waves are for genuinely new layers, not for nudging
 ordering — if two things in one wave race, they probably have a dependency that

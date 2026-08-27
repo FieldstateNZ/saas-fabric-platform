@@ -33,19 +33,11 @@ httpRoute:
             type: PathPrefix
             value: /.well-known
 
-# Operator plane. Reachable only from the tailnet, and the whole application is
-# exposed here on purpose: this is where administration happens.
-ingress:
-  enabled: true
-  ingressClassName: tailscale
-  rules:
-    - host: auth-lucentroot
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - hosts:
-        - auth-lucentroot
+# Operator-plane access is NOT rendered here. It lives in
+# applications/core/operator-access, because an Ingress without a load-balancer
+# address reads as Progressing to Argo CD -- rendering one from this chart would
+# make Keycloak's health depend on the Tailscale operator and gate every wave
+# behind it. See docs/architecture.md#exposure-planes.
 
 resources:
   requests:

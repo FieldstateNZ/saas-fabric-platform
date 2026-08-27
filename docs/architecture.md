@@ -201,6 +201,25 @@ Most in-cluster traffic is neither. OpenBao is reached by workloads at
 `observability-collector.observability.svc.cluster.local:4317`. Cluster-local is
 the default; a plane is something a service has to earn.
 
+### The operator plane must not gate the product plane
+
+Argo CD reports an `Ingress` with no load-balancer address as Progressing. An
+operator-plane Ingress rendered by a service's own chart therefore makes that
+service's health depend on the Tailscale operator, and because waves gate on
+health, a broken operator plane stops the product plane deploying at all.
+
+That is not hypothetical: on LucentRoot's first bootstrap, Keycloak rendering
+its own tailnet Ingress was enough to hold back SaaS Fabric.
+
+So every operator-plane `Ingress` for a platform service lives in
+[`applications/core/operator-access`](../applications/core/operator-access/) at
+wave `50`, which nothing depends on. A broken operator plane costs
+administrative access and nothing else.
+
+The one exception is a catalogue application: `catalogue` is not in the platform
+project's destinations, and catalogue is already terminal, so its chart may
+render its own.
+
 ### Enabling the operator plane
 
 It is core, and it is enabled per environment:
@@ -285,7 +304,8 @@ Waves are kept few and meaningful:
 | `10` | platform `Gateway`, operator access, OpenTelemetry collector, OpenBao, External Secrets, Keycloak database | routing, data, secrets and telemetry foundations |
 | `20` | Keycloak, the OpenBao secret store | Keycloak needs its database Healthy and a Gateway to attach to; the store needs both halves it joins |
 | `30` | SaaS Fabric | needs routing, identity, secrets and telemetry |
-| `40` | catalogue applications | optional, last |
+| `40` | catalogue applications | optional |
+| `50` | operator-plane access | must never gate anything — see below |
 
 This ordering is only real because of the
 [Application health assessment](#application-health-assessment). Wave `-20` is
