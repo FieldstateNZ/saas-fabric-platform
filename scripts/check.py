@@ -36,13 +36,17 @@ ENVIRONMENTS = ("lucentroot", "production")
 
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
-SECRET_KEY_NAMES = (
+#
+# Named for what they hold -- key *names* and a path prefix, all literals -- and
+# not "SECRET_*". Nothing here is credential material, and identifiers that say
+# otherwise get flagged as clear-text logging the moment one reaches a message.
+CREDENTIAL_KEY_NAMES = (
     "password", "passwd", "adminPassword", "token", "apiKey", "api_key",
     "secretKey", "secret_key", "clientSecret", "client_secret",
     "privateKey", "private_key",
 )
-SECRET_KEYS = re.compile(
-    r"^\s*-?\s*(" + "|".join(SECRET_KEY_NAMES) + r")\s*:\s*(\S.*)$",
+CREDENTIAL_KEY_PATTERN = re.compile(
+    r"^\s*-?\s*(" + "|".join(CREDENTIAL_KEY_NAMES) + r")\s*:\s*(\S.*)$",
     re.IGNORECASE,
 )
 SECRET_VALUE_IS_A_REFERENCE = re.compile(
@@ -80,7 +84,7 @@ PLATFORM_NAMESPACE_LABEL = "fieldstate.nz/layer"
 # A platform ExternalSecret reaching into the client space is a tenancy
 # violation even though the OpenBao policy would also refuse it at runtime.
 PLATFORM_SECRET_STORE = "openbao"
-CLIENT_SECRET_PREFIX = "clients/"
+CLIENT_PATH_PREFIX = "clients/"
 # An exact chart version. Ranges, wildcards and "latest" make a release
 # non-reproducible: the same tag would deploy different software over time.
 PINNED_VERSION = re.compile(r"^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")
@@ -109,7 +113,7 @@ def _reported_key_name(matched: str) -> str:
     The matched *value*, group 2, is never touched.
     """
     lowered = matched.lower()
-    for known in SECRET_KEY_NAMES:
+    for known in CREDENTIAL_KEY_NAMES:
         if known.lower() == lowered:
             return known
     return "credential"
@@ -130,7 +134,7 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
             fail(problems, f"{relative}: contains private key material")
 
         for number, line in enumerate(text.splitlines(), start=1):
-            match = SECRET_KEYS.match(line)
+            match = CREDENTIAL_KEY_PATTERN.match(line)
             if not match:
                 continue
             value = match.group(2).split("#")[0].strip()
@@ -514,7 +518,7 @@ def _remote_paths(entry: dict) -> list[str]:
 
 def _reaches_client_space(remote: str) -> bool:
     """Whether a remote path selects anything under the client prefix."""
-    return remote.lstrip("/").startswith(CLIENT_SECRET_PREFIX)
+    return remote.lstrip("/").startswith(CLIENT_PATH_PREFIX)
 
 
 def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> None:
@@ -564,7 +568,7 @@ def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> N
                             problems,
                             f"{environment}/{path.name}:"
                             f" {document['kind']}/{name} {field}[{index}]"
-                            f" reads a path under '{CLIENT_SECRET_PREFIX}'"
+                            f" reads a path under '{CLIENT_PATH_PREFIX}'"
                             " through the platform store. Client secrets come"
                             " from a client-scoped store, not this one",
                         )
