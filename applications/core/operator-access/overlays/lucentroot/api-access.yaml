@@ -1,0 +1,54 @@
+# LucentRoot operator identities.
+#
+# The Tailscale operator's API server proxy authenticates tailnet users to the
+# Kubernetes API by impersonation. That establishes *reachability*, not
+# authorization -- with the proxy enabled but nothing bound, kubectl
+# authenticates successfully and then fails every request:
+#
+#   namespaces is forbidden: User "FullStackChef@github" cannot list resource
+#   "namespaces" in API group "" at the cluster scope
+#
+# The subject is a tailnet login name, so it is environment-specific and belongs
+# in this overlay rather than the shared base.
+#
+# LucentRoot is a single-node cluster with one operator, run for validation and
+# dogfooding, and explicitly disposable. cluster-admin is proportionate to that.
+# A production operator plane should bind a *group* to a narrower role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: operator-cluster-admin
+  labels:
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+    fieldstate.nz/plane: operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: FullStackChef@github
+---
+# The identity a human assumes to administer OpenBao.
+#
+# OpenBao's bootstrap deliberately surfaces no root token, and `kubernetes` is
+# its only auth method -- so administrative access has to be an identity the
+# cluster itself can vouch for. This ServiceAccount is that identity.
+#
+# It holds no Kubernetes permissions and nothing runs as it. It exists so that
+# `kubectl create token` can mint a short-lived JWT to exchange at
+# auth/kubernetes/login. No Secret is stored for it and the token expires, so
+# this reintroduces no standing credential -- which is the property the
+# zero-ceremony bootstrap exists to preserve.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-operator
+  namespace: secrets
+  labels:
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+    fieldstate.nz/plane: operator
+automountServiceAccountToken: false

@@ -72,6 +72,45 @@ initializeStanza: |
         ttl                              = "1h"
       }
     }
+
+    # The human administrative path.
+    #
+    # Bootstrap surfaces no root token, so without a role here OpenBao has
+    # exactly one identity -- External Secrets -- and nobody can read or write
+    # secret/platform/* to operate the platform. The UI is reachable on the
+    # operator plane and unusable, which is worse than not exposing it.
+    #
+    # Authority comes from a Kubernetes ServiceAccount rather than a stored
+    # password, so there is still no standing credential to leak or rotate: an
+    # operator mints a short-lived token with `kubectl create token` and
+    # exchanges it here. Reaching the API to do that already requires the
+    # tailnet and a cluster-admin binding, so this grants no path that
+    # possessing those two does not already grant.
+    #
+    # See applications/core/operator-access/overlays/lucentroot for the
+    # ServiceAccount and the binding.
+    request "platform-admin-policy" {
+      operation = "update"
+      path      = "sys/policies/acl/platform-admin"
+      data      = {
+        policy = <<-POLICY
+          path "*" {
+            capabilities = ["create", "read", "update", "patch", "delete", "list", "sudo"]
+          }
+        POLICY
+      }
+    }
+
+    request "operator-role" {
+      operation = "update"
+      path      = "auth/kubernetes/role/operator"
+      data      = {
+        bound_service_account_names      = "openbao-operator"
+        bound_service_account_namespaces = "secrets"
+        policies                         = "platform-admin"
+        ttl                              = "1h"
+      }
+    }
   }
 #
 # Workloads reach OpenBao cluster-locally at
