@@ -18,6 +18,8 @@ Checks, in order of how much damage they prevent:
   9. the Argo CD runtime configuration the platform depends on is present;
  10. the platform secret store is bounded to platform namespaces, and nothing
      reads a client secret path through it;
+ 11. LucentRoot's OpenBao initialises and unseals itself, against a seal that
+     does not depend on OpenBao;
  11. every in-cluster service reference resolves to something this repository
      actually deploys;
  12. the telemetry pipelines only reference components that exist;
@@ -122,6 +124,14 @@ CLUSTER_SCOPED_KINDS = {
     ("storage.k8s.io", "StorageClass"),
     ("apiregistration.k8s.io", "APIService"),
 }
+# The environment whose OpenBao is disposable, self-initialising and
+# auto-unsealed. Everywhere else keeps durable state and deliberate recovery.
+DISPOSABLE_OPENBAO_ENVIRONMENT = "lucentroot"
+# Seal types that depend on infrastructure a development cluster does not have.
+PRODUCTION_SEAL_TYPES = (
+    "awskms", "azurekeyvault", "gcpckms", "ocikms",
+    "alicloudkms", "pkcs11", "kmip", "transit",
+)
 
 PLATFORM_SECRET_STORE = "openbao"
 CLIENT_PATH_PREFIX = "clients/"
@@ -677,6 +687,118 @@ def check_projects_permit_what_apps_deploy(render: Path, problems: list[str]) ->
                     )
 
 
+def _openbao_config(render: Path, environment: str, problems: list[str]) -> str:
+    """The rendered OpenBao server configuration, or an empty string."""
+    path = render / environment / "applications" / "openbao.yaml"
+    if not path.is_file():
+        return ""
+    for document in load_all(path, problems):
+        if document.get("kind") != "ConfigMap":
+            continue
+        for value in (document.get("data") or {}).values():
+            if "storage " in value and "listener " in value:
+                return value
+    return ""
+
+
+def check_openbao_bootstraps_itself(render: Path, problems: list[str]) -> None:
+    """LucentRoot's OpenBao must need no human in its lifecycle.
+
+    The environment is rebuilt rather than restored, so nothing about a previous
+    installation may be required to stand up the next one: no unseal shares, no
+    recovery keys, no captured root token. That only holds if self-initialisation
+    and auto-unseal are both configured -- self-init requires auto-unseal, and
+    auto-unseal without self-init still leaves an uninitialised instance.
+
+    None of this is checkable by a schema, and all of it is silently absent when
+    wrong: the platform simply stops converging and waits for someone.
+    """
+    environment = DISPOSABLE_OPENBAO_ENVIRONMENT
+    config = _openbao_config(render, environment, problems)
+    if not config:
+        return
+
+    if 'initialize "' not in config:
+        fail(
+            problems,
+            f"{environment}: OpenBao has no initialize stanza, so it would wait"
+            " for someone to run `bao operator init`",
+        )
+    if 'seal "' not in config:
+        fail(
+            problems,
+            f"{environment}: OpenBao has no seal stanza, so it would wait for"
+            " someone to run `bao operator unseal` on every restart",
+        )
+
+    for seal in PRODUCTION_SEAL_TYPES:
+        if f'seal "{seal}"' in config:
+            fail(
+                problems,
+                f"{environment}: OpenBao seals against '{seal}', which is"
+                " durable external infrastructure this environment does not"
+                " have. Its seal is meant to be disposable",
+            )
+
+    # A transit seal would also be circular -- OpenBao unsealing against OpenBao.
+    if "root_token" in config or "BAO_TOKEN" in config:
+        fail(
+            problems,
+            f"{environment}: OpenBao configuration references a root token."
+            " Self-initialisation revokes it rather than storing it",
+        )
+
+    # The tenancy boundary the initialize stanza establishes must be the same one
+    # the rest of the platform documents.
+    if "secret/data/platform/*" not in config:
+        fail(
+            problems,
+            f"{environment}: OpenBao self-init does not grant"
+            " secret/data/platform/*, which External Secrets needs",
+        )
+    if "secret/data/*" in config.replace("secret/data/platform/*", ""):
+        fail(
+            problems,
+            f"{environment}: OpenBao self-init grants secret/data/* rather than"
+            " the platform prefix, which would reach client secrets",
+        )
+    if "clients/" in config:
+        fail(
+            problems,
+            f"{environment}: OpenBao self-init references the client secret"
+            " space, which belongs to client provisioning",
+        )
+
+
+def check_seal_key_does_not_need_openbao(render: Path, problems: list[str]) -> None:
+    """Nothing OpenBao needs to start may itself come from OpenBao.
+
+    The cycle this prevents is the whole reason the seal key is generated rather
+    than projected:
+
+        OpenBao -> ExternalSecret -> ClusterSecretStore -> OpenBao
+
+    A generated secret has no such edge; one sourced from the platform store
+    would deadlock at first boot and look like a hung sync.
+    """
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "ExternalSecret":
+                    continue
+                metadata = document.get("metadata", {})
+                if "seal" not in metadata.get("name", ""):
+                    continue
+                spec = _external_secret_spec(document)
+                if (spec.get("secretStoreRef") or {}).get("name"):
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: the OpenBao seal key is"
+                        " sourced from a secret store. Anything OpenBao needs to"
+                        " unseal cannot come from OpenBao",
+                    )
+
+
 def check_collector_pipelines(render: Path, problems: list[str]) -> None:
     """The collector config is opaque YAML inside a ConfigMap.
 
@@ -754,6 +876,8 @@ def main() -> int:
     check_secret_store_is_bounded(render, problems)
     check_projects_permit_what_apps_deploy(render, problems)
     check_platform_secrets_stay_platform(render, problems)
+    check_openbao_bootstraps_itself(render, problems)
+    check_seal_key_does_not_need_openbao(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
 

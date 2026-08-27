@@ -11,6 +11,20 @@ global:
 injector:
   enabled: false
 
+# How this instance seals and whether it initialises itself. Both are supplied
+# per environment, because they are the one part of OpenBao's lifecycle that
+# genuinely differs: LucentRoot is disposable and initialises itself, production
+# keeps durable state and an external seal authority.
+#
+# The chart runs `tpl` over the Raft config below, so environments contribute
+# these two stanzas rather than restating the whole configuration.
+#
+# Empty by default. An environment that supplies neither gets a Shamir-sealed
+# OpenBao that must be initialised and unsealed deliberately, which is the safe
+# default for anything holding data worth keeping.
+sealStanza: ""
+initializeStanza: ""
+
 server:
   # Raft in both environments so LucentRoot exercises the production storage
   # engine; only the replica count differs.
@@ -22,6 +36,26 @@ server:
     raft:
       enabled: true
       setNodeId: true
+      # Owned here rather than left to the chart default, because the seal and
+      # initialize stanzas have to be composed into it.
+      config: |
+        ui = true
+
+        listener "tcp" {
+          tls_disable = 1
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
+
+        storage "raft" {
+          path = "/openbao/data"
+        }
+
+        service_registration "kubernetes" {}
+
+        {{ .Values.sealStanza }}
+
+        {{ .Values.initializeStanza }}
 
   dataStorage:
     enabled: true

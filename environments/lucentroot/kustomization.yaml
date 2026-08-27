@@ -11,6 +11,10 @@ resources:
   - ../../argocd/projects
   - ../../argocd/runtime
   - ../../applications/core
+  # A disposable OpenBao seal. LucentRoot is rebuilt rather than restored, so
+  # its seal key need not outlive the cluster -- only the pod. Production seals
+  # against durable key material and must not list this.
+  - ../../applications/core/openbao-seal
   # Operator plane: private tailnet access for the people who run the platform.
   # Enabled per environment; production has no tailnet yet. See
   # docs/architecture.md#exposure-planes.

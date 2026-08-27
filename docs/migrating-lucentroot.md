@@ -45,7 +45,7 @@ own, and every one of them lives outside Kubernetes:
 
 | Lost | Consequence | Recovery |
 |---|---|---|
-| OpenBao contents | `secret/superset`, `secret/tailscale` | Re-created at bootstrap. The Tailscale OAuth client can be regenerated in the tailnet admin console |
+| OpenBao contents **and its seal key** | `secret/superset`, `secret/tailscale` | Nothing to recover. A rebuilt OpenBao initialises itself with a new seal key and an empty store; the Tailscale OAuth client is regenerated in the tailnet admin console |
 | Superset's database | dashboards and charts | Accepted. Superset is [evaluated, not adopted](../applications/catalogue/superset/); it simply does not come back |
 | Tailnet devices | stale `ts-*` and operator devices linger | Remove them in the tailnet admin console. They do not expire promptly and will collide with new registrations by name |
 | Cluster CA | any stored copy of the kubeconfig becomes invalid | `infrastructure` holds one as `LUCENTROOT_KUBECONFIG` and its workflows fail until it is regenerated. This repository deliberately stores none — its workflow reads the node's own `/etc/rancher/k3s/k3s.yaml`, which is always current |
@@ -183,10 +183,9 @@ kubectl -n argocd exec deploy/argocd-server -- \
 kubectl -n argocd get applications
 ```
 
-Every Application `Synced` and `Healthy`, with two expected exceptions until the
-one-time OpenBao steps are done:
+Every Application `Synced` and `Healthy`, with one expected exception. OpenBao
+initialises and unseals itself, so nothing waits on it:
 
-- `secret-store` retries until OpenBao's Kubernetes auth method exists;
 - `saas-fabric` reports Healthy with **zero replicas** — no image is published
   yet, and that is [the first milestone working as designed](architecture.md#first-milestone),
   not the application running.

@@ -300,7 +300,7 @@ Waves are kept few and meaningful:
 |---|---|---|
 | `-20` | Argo CD runtime configuration | must be active before any wave is ordered |
 | `-10` | environment ConfigMap, catalogue `AppProject` | must exist before anything references them |
-| `0` | Envoy Gateway, Tailscale operator, CloudNativePG operator | CRDs, control planes, ingress classes |
+| `0` | Envoy Gateway, Tailscale operator, CloudNativePG, External Secrets, OpenBao's seal key | CRDs, control planes — and the key OpenBao starts with |
 | `10` | platform `Gateway`, operator access, OpenTelemetry collector, OpenBao, External Secrets, Keycloak database | routing, data, secrets and telemetry foundations |
 | `20` | Keycloak, the OpenBao secret store | Keycloak needs its database Healthy and a Gateway to attach to; the store needs both halves it joins |
 | `30` | SaaS Fabric | needs routing, identity, secrets and telemetry |
@@ -460,6 +460,7 @@ merely arbitrary is not a bootstrap secret — it is generated.
 | Secret | Namespace | Why it cannot originate in-cluster |
 |---|---|---|
 | `operator-oauth` | `tailscale` | Tailscale issues it. It is also the one credential that must not come from OpenBao: the operator plane is how you reach OpenBao when OpenBao is not reachable |
+| OpenBao's own seal key | `secrets` | Nothing OpenBao needs in order to start can come from OpenBao. Generated in-cluster, and on LucentRoot deliberately disposable — see [`applications/core/openbao-seal`](../applications/core/openbao-seal/) |
 | `platform-tls` (production) | `platform-system` | a certificate authority issues it, and the product edge terminates TLS before anything behind it is up |
 
 Delivered by [`inject-bootstrap-secrets.yaml`](../.github/workflows/inject-bootstrap-secrets.yaml)
@@ -513,10 +514,11 @@ categories above. A generated admin credential has no reason to make the round
 trip through OpenBao, and a bootstrap credential cannot: OpenBao is not running
 yet when it is needed.
 
-The boundary is visible on a fresh cluster: `secret-store` retries until OpenBao
-has been initialised, unsealed and given its Kubernetes auth method. The
-platform converges to exactly the point where a human must supply the first
-secret, and no further.
+On LucentRoot the boundary is invisible in practice, because OpenBao initialises
+and unseals itself and establishes its own auth method at first start. Nothing
+waits for anyone. On production, where the instance holds data that has to
+survive, initialisation stays deliberate — see
+[`applications/core/openbao`](../applications/core/openbao/).
 
 ### The store is bounded, and the label is load-bearing
 
@@ -559,7 +561,7 @@ Recorded rather than hidden. None blocks a cluster from converging.
 |---|---|---|
 | No certificate automation | The production Gateway listener references a TLS secret that must be injected by hand | a `cert-manager` core application; it has a genuine platform requirement once public hostnames are served |
 | No telemetry backend | All three OTLP pipelines terminate in the `debug` exporter | an exporter in `environments/<env>/config/observability.yaml` |
-| No OpenBao auto-unseal | A restarted OpenBao pod must be unsealed by an operator | a seal stanza in `environments/production/config/openbao.yaml`, against a key vault from `saas-fabric-hosting` |
+| No OpenBao auto-unseal **in production** | A restarted production pod must be unsealed by an operator. LucentRoot auto-unseals against a disposable static seal | an `azurekeyvault` seal stanza in `environments/production/config/openbao.yaml`, once `saas-fabric-hosting` supplies a vault and identity |
 | No operator plane in production | Production administrative surfaces are reachable only by `kubectl port-forward` | a tailnet for production, then the same two lines LucentRoot uses |
 | Secret injection runs as cluster-admin | The bootstrap workflow uses the node kubeconfig, which can do anything, to write one Secret in one namespace | a platform-owned ServiceAccount with a Role permitting `create`/`patch` on `operator-oauth` in `tailscale` and nothing else |
 | No database backups | The Keycloak `Cluster` has no `barmanObjectStore` | `applications/core/keycloak-database`, against storage from `saas-fabric-hosting` |

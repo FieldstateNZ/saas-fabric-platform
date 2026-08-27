@@ -1,8 +1,18 @@
 # Production: three-node Raft on managed CSI storage.
 #
-# Auto-unseal is not configured yet. Until a key vault and identity exist from
-# saas-fabric-hosting, a restarted pod must be unsealed by an operator. Add the
-# seal stanza to server.ha.raft.config here when they do.
+# Deliberately does NOT use LucentRoot's disposable seal or self-initialisation.
+# Both are correct there because the instance is rebuilt rather than restored;
+# neither is correct for data that has to survive.
+#
+#   sealStanza        empty -- Shamir, until an external key vault exists
+#   initializeStanza  empty -- initialised deliberately, with recovery material
+#                     captured and held outside the cluster
+#
+# Auto-unseal is still the destination here. When saas-fabric-hosting supplies a
+# key vault and an identity, sealStanza becomes an azurekeyvault seal and the
+# unseal step disappears -- while recovery, which LucentRoot does not need,
+# remains a real requirement. Until then a restarted pod is unsealed by an
+# operator.
 server:
   ha:
     replicas: 3
