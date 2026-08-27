@@ -1,9 +1,10 @@
 # LucentRoot: single-node Raft on local-path storage. Same storage engine as
 # production, lower availability.
 #
-# Operator plane only. Workloads reach OpenBao cluster-locally at
-# openbao.secrets.svc.cluster.local:8200 and need no ingress at all; the tailnet
-# hostname exists for the humans who administer it.
+# Workloads reach OpenBao cluster-locally at
+# openbao.secrets.svc.cluster.local:8200 and need no ingress at all. The tailnet
+# hostname for administrators is rendered by applications/core/operator-access,
+# not here -- see that directory for why.
 server:
   ha:
     replicas: 1
@@ -14,17 +15,6 @@ server:
     size: 2Gi
     storageClass: local-path
 
-  ingress:
-    enabled: true
-    ingressClassName: tailscale
-    pathType: Prefix
-    hosts:
-      - host: bao-lucentroot
-        paths:
-          - /
-    tls:
-      - hosts:
-          - bao-lucentroot
   resources:
     requests:
       cpu: 50m
