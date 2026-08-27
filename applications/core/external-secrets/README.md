@@ -124,6 +124,21 @@ The runtime bound already enforces the answer — the platform token cannot read
 `secret/clients/*` — but the design decision has to be made before that, when
 someone chooses where to write the value.
 
+`scripts/check.py` also refuses it at build time, which is only worth anything
+if it cannot be walked around using ordinary ESO syntax. It covers:
+
+| Shape | Why it needs covering |
+|---|---|
+| `ExternalSecret` and `ClusterExternalSecret` | the latter nests its spec under `externalSecretSpec`, so reading `spec.*` matches nothing |
+| `data[].remoteRef.key` | an exact key |
+| `dataFrom[].extract.key` | an exact key |
+| `dataFrom[].find.path` | selects **everything** beneath a prefix, so it is the widest of the three |
+| `sourceRef.storeRef` per entry | an entry may name its own store, overriding the top-level one for that entry alone |
+
+A client path reached through a *client* store is fine and is not flagged —
+that is the intended pattern. What is refused is reaching client paths through
+**this** store.
+
 ## Authentication
 
 The operator authenticates to OpenBao with the Kubernetes auth method, minting

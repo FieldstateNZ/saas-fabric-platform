@@ -460,6 +460,33 @@ def check_secret_store_is_bounded(render: Path, problems: list[str]) -> None:
                     )
 
 
+def _external_secret_spec(document: dict) -> dict:
+    """The ExternalSecretSpec, wherever this kind happens to keep it.
+
+    ClusterExternalSecret nests it under spec.externalSecretSpec rather than
+    holding data/dataFrom/secretStoreRef directly, so reading spec.* works for
+    one kind and silently matches nothing for the other.
+    """
+    spec = document.get("spec") or {}
+    if document.get("kind") == "ClusterExternalSecret":
+        return spec.get("externalSecretSpec") or {}
+    return spec
+
+
+def _remote_paths(entry: dict) -> list[str]:
+    """Every remote path one data or dataFrom entry can select.
+
+    Three shapes reach a secret, not one: an exact key, and -- for dataFrom --
+    a find over a path prefix, which selects everything beneath it.
+    """
+    paths = [
+        (entry.get("remoteRef") or {}).get("key"),
+        (entry.get("extract") or {}).get("key"),
+        (entry.get("find") or {}).get("path"),
+    ]
+    return [path for path in paths if path]
+
+
 def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> None:
     """The platform store serves platform secrets, not client ones.
 
@@ -470,36 +497,41 @@ def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> N
     through that client's own store.
 
     OpenBao's policy refuses secret/clients/* to the platform token anyway, so
-    this is defence in depth -- but it fails at build time with a clear reason
-    rather than at runtime with a permission denial.
+    this is defence in depth -- it fails at build time with a clear reason
+    rather than at runtime with a permission denial, and it still holds if the
+    policy is widened later. That only works if it cannot be walked around
+    using ordinary ESO syntax, so it normalises the spec, resolves the store
+    per entry rather than once, and covers every shape that selects a path.
     """
     for environment in ENVIRONMENTS:
         for path in sorted((render / environment).rglob("*.yaml")):
             for document in load_all(path, problems):
                 if document.get("kind") not in ("ExternalSecret", "ClusterExternalSecret"):
                     continue
-                spec = document["spec"]
-                store = spec.get("secretStoreRef", {}).get("name")
-                if store != PLATFORM_SECRET_STORE:
-                    continue
 
-                keys = [
-                    entry.get("extract", {}).get("key")
-                    for entry in spec.get("dataFrom", [])
-                ] + [
-                    entry.get("remoteRef", {}).get("key")
-                    for entry in spec.get("data", [])
-                ]
-                name = document["metadata"]["name"]
-                for key in filter(None, keys):
-                    if key.lstrip("/").startswith(CLIENT_SECRET_PREFIX):
-                        fail(
-                            problems,
-                            f"{environment}/{path.name}:"
-                            f" {document['kind']}/{name} reads '{key}' through"
-                            f" the platform store. Client secrets come from a"
-                            " client-scoped store, not this one",
-                        )
+                spec = _external_secret_spec(document)
+                default_store = (spec.get("secretStoreRef") or {}).get("name")
+                name = document.get("metadata", {}).get("name")
+
+                entries = (spec.get("data") or []) + (spec.get("dataFrom") or [])
+                for entry in entries:
+                    # An entry may name its own store, which overrides the
+                    # top-level one for that entry only.
+                    source = (entry.get("sourceRef") or {}).get("storeRef") or {}
+                    store = source.get("name") or default_store
+                    if store != PLATFORM_SECRET_STORE:
+                        continue
+
+                    for remote in _remote_paths(entry):
+                        if remote.lstrip("/").startswith(CLIENT_SECRET_PREFIX):
+                            fail(
+                                problems,
+                                f"{environment}/{path.name}:"
+                                f" {document['kind']}/{name} reads"
+                                f" '{remote}' through the platform store."
+                                " Client secrets come from a client-scoped"
+                                " store, not this one",
+                            )
 
 
 def check_collector_pipelines(render: Path, problems: list[str]) -> None:
