@@ -11,6 +11,19 @@
 # and admin API that have no reason to hang off it.
 replicas: 1
 
+# Product plane for tokens and redirects; operator plane for the console. The
+# schemes genuinely differ, and the value must match the listener that serves
+# it -- Keycloak puts this in the OIDC issuer, so claiming https over an HTTP
+# listener breaks every client that checks.
+#
+#   http   the shared Gateway has one listener, http on 80, and Keycloak's
+#          HTTPRoute attaches to it. Production adds an https listener and uses
+#          it; LucentRoot has no certificate authority for *.lucentroot.internal
+#   https  the Tailscale proxy terminates TLS with a tailnet certificate
+hostnames:
+  public: http://auth.lucentroot.internal
+  admin: https://auth-lucentroot.tail5a7546.ts.net
+
 httpRoute:
   enabled: true
   parentRefs:

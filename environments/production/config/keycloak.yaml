@@ -7,6 +7,12 @@
 # environments/lucentroot/config/keycloak.yaml.
 replicas: 2
 
+# Production runs no operator plane yet, so the console answers on the same
+# hostname as everything else. When a tailnet exists, admin moves to it.
+hostnames:
+  public: https://auth.fieldstate.nz
+  admin: https://auth.fieldstate.nz
+
 httpRoute:
   enabled: true
   parentRefs:
