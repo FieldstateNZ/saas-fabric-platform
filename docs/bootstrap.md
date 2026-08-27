@@ -276,56 +276,27 @@ kubectl -n platform-system get gateway platform
 
 The `PROGRAMMED` condition must be `True` and an address must be allocated.
 
-### The remaining manual steps
+### One remaining manual step
 
-These are the bootstrap secret boundary in practice: the platform converges to
-exactly the point where a human must supply the first secret, and no further.
+**Only one, and only because Tailscale mints it outside the cluster.** Run the
+*Inject bootstrap secrets* workflow against `lucentroot`, as described in
+[step 4](#4-required-external-secret).
 
-**1. Initialise and unseal OpenBao.** It starts uninitialised and sealed:
-
-```bash
-kubectl -n secrets exec -it openbao-0 -- bao operator init
-kubectl -n secrets exec -it openbao-0 -- bao operator unseal <share>
-```
-
-Store the unseal shares and root token in the organisation's break-glass
-location. They must never be committed. See
-[`applications/core/openbao/README.md`](../applications/core/openbao/README.md).
-
-**2. Enable the Kubernetes auth method**, so External Secrets can authenticate
-without a static credential. Until this exists the `secret-store` Application
-retries and reports unhealthy, which is correct rather than broken:
+**OpenBao needs nothing.** It initialises and unseals itself:
 
 ```bash
-kubectl -n secrets exec -it openbao-0 -- sh -c '
-  bao auth enable kubernetes
-  bao write auth/kubernetes/config \
-    kubernetes_host=https://kubernetes.default.svc
-  bao policy write platform-secrets - <<POLICY
-path "secret/data/platform/*"     { capabilities = ["read"] }
-path "secret/metadata/platform/*" { capabilities = ["read", "list"] }
-POLICY
-  bao write auth/kubernetes/role/external-secrets \
-    bound_service_account_names=external-secrets \
-    bound_service_account_namespaces=secrets \
-    policies=platform-secrets ttl=1h
-'
+kubectl -n secrets exec openbao-0 -- bao status
 ```
 
-The policy covers `secret/platform/` only. `secret/clients/` is reserved for
-client-scoped roles created by client provisioning and is deliberately outside
-what this token can read — see
-[`applications/core/external-secrets`](../applications/core/external-secrets/).
+`Initialized: true`, `Sealed: false`, with nobody having run a command. The
+secrets engine, Kubernetes auth method, platform policy and External Secrets
+role are all established at first start, so `secret-store` reaches `Ready`
+without intervention. See
+[`applications/core/openbao`](../applications/core/openbao/).
 
-Confirm the store came up:
-
-```bash
-kubectl get clustersecretstore openbao \
-  -o jsonpath='{.status.conditions[0].type}{" "}{.status.conditions[0].status}'
-```
-
-`Ready True` means every workload can now take its secrets from OpenBao —
-see [`applications/core/external-secrets`](../applications/core/external-secrets/).
+Destroying LucentRoot destroys its OpenBao state and its seal key together. A
+rebuild creates a new, empty instance automatically — there is nothing to
+capture, and nothing from a previous installation is needed.
 
 ### Changing which ref a cluster tracks
 

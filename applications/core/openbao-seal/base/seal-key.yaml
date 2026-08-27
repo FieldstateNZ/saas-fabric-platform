@@ -1,0 +1,56 @@
+# The seal key for a disposable OpenBao.
+#
+# LucentRoot's OpenBao is rebuilt, never restored, so its seal key does not need
+# to outlive the cluster -- only the pod. That removes the reason to reach for a
+# cloud KMS here: there is no prior data to decrypt after a rebuild, so an
+# external trust root would be protecting nothing.
+#
+# It must, however, survive pod restarts within one installation, or every
+# restart would strand the data written before it.
+#
+# Generated in-cluster with no dependency on OpenBao, which is what keeps the
+# graph acyclic:
+#
+#   External Secrets -> seal key -> OpenBao -> ClusterSecretStore -> workloads
+#
+# and never OpenBao -> ExternalSecret -> OpenBao.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: openbao-seal
+  namespace: secrets
+spec:
+  # A 32-character value is 32 bytes on disk, which is what AES-256-GCM-96
+  # requires. Symbols are excluded so the key survives being read from a file
+  # without quoting concerns.
+  length: 32
+  digits: 5
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+# refreshInterval "0" is not tidiness. Rotating this value would leave every
+# already-sealed byte undecryptable, which on a disposable instance means a
+# permanently sealed OpenBao rather than a rotated one. Key rotation is a
+# `sys/sealwrap/rewrap` operation, not a Kubernetes one.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: openbao-seal
+  namespace: secrets
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: "0"
+  target:
+    name: openbao-seal
+    creationPolicy: Owner
+    template:
+      data:
+        key: "{{ .password }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: openbao-seal

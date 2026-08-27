@@ -9,18 +9,20 @@ kind: Kustomization
 # Adding to this list is a claim that SaaS Fabric cannot run without the
 # component. See docs/adding-an-application.md.
 #
-# The operator plane -- ../core/tailscale and ../core/operator-access -- is also
-# core, but is enabled per environment and so is listed by each environment
-# rather than here.
+# Two things are core but listed by each environment rather than here, because
+# whether an environment runs them is a real decision:
+#
+#   ../core/tailscale, ../core/operator-access   the operator plane
+#   ../core/openbao-seal                         a disposable OpenBao seal
 resources:
-  # wave 0 — operators and CRDs
+  # wave 0 — operators, CRDs, and the seal key OpenBao starts with
   - envoy-gateway/application.yaml
   - cloudnative-pg/application.yaml
+  - external-secrets/application.yaml
   # wave 10 — routing, data, secrets and telemetry foundations
   - platform-gateway/application.yaml
   - observability/application.yaml
   - openbao/application.yaml
-  - external-secrets/application.yaml
   - keycloak-credentials/application.yaml
   - keycloak-database/application.yaml
   # wave 20 — identity and secret delivery

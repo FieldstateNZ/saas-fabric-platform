@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openbao-seal
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: kustomize
+    fieldstate.nz/class: core
+  annotations:
+    # Wave 0, with External Secrets, and before OpenBao at wave 10. The seal key
+    # must exist before OpenBao starts or it cannot unseal, and wave gating is
+    # what guarantees that rather than luck.
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  source:
+    repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+    targetRevision: PLACEHOLDER
+    path: applications/core/openbao-seal/overlays/PLACEHOLDER
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: secrets
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 10m
