@@ -71,6 +71,12 @@ spec:
     # used to stand up a competing product edge.
     - group: networking.k8s.io
       kind: IngressClass
+    # The single connection between External Secrets and OpenBao. Cluster-scoped
+    # despite serving namespaced workloads, which is why it needs naming here --
+    # it is bounded instead by its own `conditions`, to namespaces labelled as
+    # platform-owned. See applications/core/secret-store.
+    - group: external-secrets.io
+      kind: ClusterSecretStore
 
   namespaceResourceWhitelist:
     - group: '*'
