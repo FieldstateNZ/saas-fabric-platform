@@ -83,8 +83,36 @@ default:
 
 | | LucentRoot | Production |
 |---|---|---|
-| `hostnames.public` | `https://auth.lucentroot.internal` | `https://auth.fieldstate.nz` |
+| `hostnames.public` | `http://auth.lucentroot.internal` | `https://auth.fieldstate.nz` |
 | `hostnames.admin` | `https://auth-lucentroot.tail5a7546.ts.net` | same as public |
+
+**The scheme must match the listener that serves it.** LucentRoot's shared
+Gateway has one listener — `http` on 80 — and Keycloak's `HTTPRoute` attaches to
+it; there is no certificate authority for `*.lucentroot.internal`. Production
+adds an `https` listener and attaches there. Claiming `https` over an HTTP
+listener puts a URL in the OIDC issuer that no client can reach.
+
+The two planes differ in scheme on LucentRoot for a real reason: Envoy serves
+plain HTTP, while the Tailscale proxy terminates TLS with a tailnet certificate.
+
+## Proxy headers
+
+Keycloak speaks plain HTTP to a reverse proxy on **both** planes — Envoy Gateway
+and the Tailscale proxy — so it needs forwarded headers to determine a request's
+origin. Without them, origin checking on a proxied request answers `403`.
+
+`proxy.mode: xforwarded`, not `forwarded`. The latter is RFC 7239, and measuring
+what Envoy Gateway actually sends on LucentRoot gives:
+
+```text
+X-Forwarded-For: 192.168.1.9
+X-Forwarded-Proto: http
+```
+
+with no `Forwarded` header at all. Set to `forwarded`, Keycloak looks for a
+header that never arrives — configured-looking and wrong.
+
+## The admin hostname
 
 `KC_HOSTNAME_ADMIN` states the two planes in Keycloak's own configuration:
 tokens and redirects use the product hostname, the console answers on the
