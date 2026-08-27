@@ -21,12 +21,13 @@ where two Argo CD control loops point at one cluster, and the rule that keeps
 that safe — *a resource is never managed by both repositories at once* — has to
 hold for every resource, through every intermediate state.
 
-It also does not avoid the hard part. The two OpenBao definitions differ in
-namespace (`openbao` → `secrets`) and storage engine (`file` → Raft), so its
-data has to be exported and re-imported either way. A handover buys nothing and
-adds a window in which two controllers with `selfHeal: true` take turns
-reverting each other — a failure that presents as a workload flapping with no
-failing sync to point at.
+It also buys nothing. A handover's whole point is preserving what is running,
+and there is nothing here worth preserving: the two OpenBao definitions differ
+in namespace (`openbao` → `secrets`) and storage engine (`file` → Raft), so
+adopting the live one is not possible anyway, and its contents are reproducible.
+All a handover adds is a window in which two controllers with `selfHeal: true`
+take turns reverting each other — a failure that presents as a workload flapping
+with no failing sync to point at.
 
 A rebuild removes the window entirely:
 
@@ -98,17 +99,14 @@ Everything `infrastructure` owns on LucentRoot, and what happens to it.
 
 ## The rebuild
 
-### 1. Confirm what is being destroyed
+### 1. Read what a rebuild costs
 
-Run through [what a rebuild costs](#what-a-rebuild-actually-costs). If anything
-in OpenBao is not reproducible, export it now:
+[What a rebuild actually costs](#what-a-rebuild-actually-costs) — not to decide
+whether to proceed, but because two of the items are tailnet and GitHub
+cleanup that will bite later if skipped now.
 
-```bash
-kubectl -n openbao exec openbao-0 -- bao kv get -format=json secret/superset
-kubectl -n openbao exec openbao-0 -- bao kv get -format=json secret/tailscale
-```
-
-Everything else on the box is reproducible or expendable.
+Nothing on the box needs backing up. LucentRoot is expendable and its contents
+are reproducible; that is the premise the whole approach rests on.
 
 ### 2. Stop `infrastructure` managing the cluster
 
@@ -197,12 +195,11 @@ running from this repository long enough to trust it.
 
 ## Rollback
 
-Rebuild the old way: reinstall k3s and run `infrastructure`'s
-`bootstrap-platform.yml` with a manual dispatch. It is a full rebuild in the
-other direction, which is the honest cost of choosing rebuild over handover.
+There is none, and none is wanted. LucentRoot is expendable: if the rebuild goes
+wrong, rebuild again rather than trying to restore what was there.
 
-The window where rollback is cheap closes at step 3. Before it, nothing has
-happened that a `git revert` cannot undo.
+This is specific to LucentRoot. **Production rollback is a real requirement** and
+is a different thing entirely — see [releases.md](releases.md#rolling-back).
 
 ---
 
