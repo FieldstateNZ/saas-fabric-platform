@@ -512,6 +512,11 @@ def _remote_paths(entry: dict) -> list[str]:
     return [path for path in paths if path]
 
 
+def _reaches_client_space(remote: str) -> bool:
+    """Whether a remote path selects anything under the client prefix."""
+    return remote.lstrip("/").startswith(CLIENT_SECRET_PREFIX)
+
+
 def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> None:
     """The platform store serves platform secrets, not client ones.
 
@@ -538,8 +543,12 @@ def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> N
                 default_store = (spec.get("secretStoreRef") or {}).get("name")
                 name = document.get("metadata", {}).get("name")
 
-                entries = (spec.get("data") or []) + (spec.get("dataFrom") or [])
-                for entry in entries:
+                entries = [
+                    (field, index, entry)
+                    for field in ("data", "dataFrom")
+                    for index, entry in enumerate(spec.get(field) or [])
+                ]
+                for field, index, entry in entries:
                     # An entry may name its own store, which overrides the
                     # top-level one for that entry only.
                     source = (entry.get("sourceRef") or {}).get("storeRef") or {}
@@ -547,16 +556,18 @@ def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> N
                     if store != PLATFORM_SECRET_STORE:
                         continue
 
-                    for remote in _remote_paths(entry):
-                        if remote.lstrip("/").startswith(CLIENT_SECRET_PREFIX):
-                            fail(
-                                problems,
-                                f"{environment}/{path.name}:"
-                                f" {document['kind']}/{name} reads"
-                                f" '{remote}' through the platform store."
-                                " Client secrets come from a client-scoped"
-                                " store, not this one",
-                            )
+                    if any(_reaches_client_space(remote) for remote in _remote_paths(entry)):
+                        # The offending path is identified by where it is, not
+                        # by quoting it. Nothing read out of a manifest reaches
+                        # this message -- see check_no_plaintext_secrets.
+                        fail(
+                            problems,
+                            f"{environment}/{path.name}:"
+                            f" {document['kind']}/{name} {field}[{index}]"
+                            f" reads a path under '{CLIENT_SECRET_PREFIX}'"
+                            " through the platform store. Client secrets come"
+                            " from a client-scoped store, not this one",
+                        )
 
 
 def check_collector_pipelines(render: Path, problems: list[str]) -> None:
