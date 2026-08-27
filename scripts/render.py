@@ -63,10 +63,12 @@ def render_application(root: Path, app: dict, out_dir: Path) -> None:
     if "sources" in spec:
         chart = spec["sources"][0]
         repo = chart["repoURL"]
-        # OCI charts are addressed as a single reference; classic HTTP repos
-        # take the chart name plus --repo.
+        # An oci:// repoURL is the complete chart reference, exactly as Argo CD
+        # resolves it and as `helm template oci://...` expects. Appending the
+        # chart name here would address a repository that does not exist, and
+        # CI would render something Argo cannot fetch.
         if repo.startswith("oci://"):
-            argv = ["helm", "template", name, f"{repo}/{chart['chart']}"]
+            argv = ["helm", "template", name, repo]
         else:
             argv = ["helm", "template", name, chart["chart"], "--repo", repo]
         argv += [

@@ -14,9 +14,14 @@ spec:
   project: saas-fabric-platform
 
   sources:
-    # Envoy Gateway publishes only to OCI. This requires Argo CD 2.13 or later;
-    # see docs/architecture.md#argo-cd-runtime-contract.
-    - repoURL: oci://docker.io/envoyproxy
+    # Envoy Gateway publishes only to OCI. With an oci:// scheme Argo CD treats
+    # repoURL as the complete chart reference and does not append `chart` to the
+    # registry path, so the chart name belongs in both: repoURL is what is
+    # fetched, `chart` is what Helm is told it is rendering. Dropping it from
+    # repoURL produces a 401 from the registry for a repository that does not
+    # exist. Requires Argo CD 2.13 or later; see
+    # docs/architecture.md#argo-cd-runtime-contract.
+    - repoURL: oci://docker.io/envoyproxy/gateway-helm
       chart: gateway-helm
       targetRevision: 1.9.0
       helm:
