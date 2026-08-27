@@ -31,7 +31,8 @@ Three questions, in order:
 2. **Is it client-shaped?** A Keycloak realm, a client database, a client
    hostname — these belong to `saas-fabric-clients`, whatever they are made of.
 3. **Does it need cluster-scoped resources?** Core applications may, within the
-   kinds enumerated in `bootstrap/project.yaml`. Catalogue applications may not,
+   kinds enumerated in `argocd/projects/saas-fabric-platform.yaml`. Catalogue
+   applications may not,
    at all.
 4. **Which plane does it belong on?** See below. Getting this wrong is how an
    administrative console ends up on the public edge.
@@ -109,9 +110,10 @@ for platform-owned manifests. Then:
 ### 3. Add the chart repository to the project
 
 An Application whose `repoURL` is not in the project's `sourceRepos` will not
-sync. Add it to [`bootstrap/project.yaml`](../bootstrap/project.yaml), and note
-that this file is applied by an administrator — an existing cluster needs the
-project re-applied before the new application will work.
+sync. Add it to
+[`argocd/projects/saas-fabric-platform.yaml`](../argocd/projects/saas-fabric-platform.yaml).
+The projects are reconciled from Git, so merging is enough — nothing needs
+re-applying against a cluster.
 
 `scripts/check.py` fails the build if you forget.
 

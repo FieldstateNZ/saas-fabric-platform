@@ -6,20 +6,42 @@ write. The unrestricted `default` project is not used.
 
 | Project | Defined in | Managed by | Scope |
 |---|---|---|---|
-| `saas-fabric-platform` | [`bootstrap/project.yaml`](../../bootstrap/project.yaml) | administrator, at bootstrap | core platform namespaces plus an enumerated list of cluster-scoped kinds |
-| `saas-fabric-catalogue` | [`saas-fabric-catalogue.yaml`](saas-fabric-catalogue.yaml) | Argo CD, via the root Application | the `catalogue` namespace only, plus `Namespace` so it can create it |
+| `saas-fabric-platform` | [`saas-fabric-platform.yaml`](saas-fabric-platform.yaml) | created by the bootstrap set, reconciled by Argo CD | core platform namespaces plus an enumerated list of cluster-scoped kinds |
+| `saas-fabric-catalogue` | [`saas-fabric-catalogue.yaml`](saas-fabric-catalogue.yaml) | created by the bootstrap set, reconciled by Argo CD | the `catalogue` namespace only, plus `Namespace` so it can create it |
 
-## Why the platform project is not managed by Argo CD
+## Created once, reconciled thereafter
 
-`saas-fabric-platform` is the project the root Application runs in. If the root
-Application also reconciled that project, a change to this repository could
-widen the privileges of the thing applying the change. Argo CD's app-of-apps
-model already confers substantial cluster privilege, so the project that bounds
-it stays an administrator-applied resource, versioned here but applied by
-`kubectl apply -k bootstrap/overlays/<environment>`.
+The root Application cannot start without the project that constrains it, so
+the bootstrap set creates both projects. After that they are reconciled like
+everything else — **initial creation and ongoing ownership are different
+things**, and conflating them is what used to make every project change require
+someone with `kubectl`.
 
-`saas-fabric-catalogue` is strictly narrower than the project that creates it,
-so it is safe to reconcile from Git.
+```text
+bootstrap set        creates the projects, then the root Application
+root Application     adopts and reconciles them from then on
+```
+
+This replaces an earlier arrangement in which the platform project sat outside
+reconciliation, on the argument that an Application able to rewrite its own
+project could widen its own privileges.
+
+**That argument was false.** `AppProject` is a namespaced `argoproj.io`
+resource; this project permits `group: "*", kind: "*"` for namespaced resources
+and lists `argocd` among its destinations. The root Application could already
+create and update AppProjects. Keeping this one file out of Git bought no
+boundary at all, and cost a manual step after every change to it.
+
+The boundary that does exist is Git: whoever can merge to `main` can change what
+runs. Protecting `main` is the control, not withholding one file from
+reconciliation.
+
+### Why the platform project is not pruned
+
+It carries `argocd.argoproj.io/sync-options: Prune=false`. Every platform
+Application runs in it, so pruning it because it left a rendered manifest would
+take the platform down with it. Retiring it stays a deliberate act rather than a
+reconciliation side effect.
 
 ## Adding a cluster-scoped kind
 
@@ -35,6 +57,8 @@ resource external-secrets.io:ClusterSecretStore is not permitted
 `scripts/check.py` now reports that during validation instead, by comparing what
 each Application renders against what its project permits. It also treats
 `CreateNamespace=true` as the cluster-scoped write it is.
+
+Because the projects are reconciled, adding a kind is a merge — no re-apply.
 
 The list of kinds it knows about is curated, not discovered — rendering cannot
 tell scope apart, because Helm and Kustomize routinely omit

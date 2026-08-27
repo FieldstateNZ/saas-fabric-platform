@@ -223,4 +223,5 @@ environments/<environment>/bootstrap/kustomization.yaml  the root Application
 
 Changing it is a change to how a cluster is bootstrapped, so it takes effect for
 child Applications on the next reconciliation and for the root Application when
-the bootstrap set is re-applied. It is not something a normal release touches.
+the bootstrap set is re-applied. It is not something a normal release touches,
+and it is the only thing left that a re-apply is needed for.
