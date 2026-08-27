@@ -61,22 +61,32 @@ The Tailscale operator's OAuth client, because Tailscale issues it and nothing
 in the cluster can. It needs the `devices` scope and must own
 `tag:k8s-operator`.
 
-Store it as a GitHub **environment** secret on the `lucentroot` environment,
-alongside `LUCENTROOT_KUBECONFIG`:
+Store it as GitHub **environment** secrets on the `lucentroot` environment:
 
 | Secret | Holds |
 |---|---|
 | `TAILSCALE_OAUTH_CLIENT_ID` | the OAuth client's ID |
 | `TAILSCALE_OAUTH_CLIENT_SECRET` | its secret |
-| `LUCENTROOT_KUBECONFIG` | a kubeconfig for the cluster, so the runner can apply |
 
-All three exist already, holding **placeholder values prefixed `replace-me`**, so
-the environment is wired before the credentials are. Update them in place.
+Both exist already, holding **placeholder values prefixed `replace-me`**, so the
+environment is wired before the credentials are. Update them in place.
 
-The workflow refuses to run while any of them still holds its placeholder, and
-says which. An unreplaced placeholder that sailed through would inject a
-credential that cannot authenticate, and surface much later as a Tailscale
-operator that will not register, with nothing pointing at the cause.
+The workflow refuses to run while either still holds its placeholder, and says
+which. An unreplaced placeholder that sailed through would inject a credential
+that cannot authenticate, and surface much later as a Tailscale operator that
+will not register, with nothing pointing at the cause.
+
+**There is deliberately no kubeconfig secret.** The workflow can only run on the
+box — the cluster API is tailnet-only, so no hosted runner could reach it with
+any credential — and on the box the kubeconfig already exists at
+`/etc/rancher/k3s/k3s.yaml`. A copy in GitHub would put a cluster-admin
+credential somewhere with a far larger blast radius for no capability gain, and
+it would go stale every time the CA rotates on a rebuild.
+
+The runner user must be able to read that file. If it cannot, fix it on the host
+— install k3s with `--write-kubeconfig-mode 644`, or give the runner a group
+that can read it. Do not copy the credential into GitHub to work around it; the
+workflow fails with that instruction rather than letting it pass.
 
 Then run the **Inject bootstrap secrets** workflow against `lucentroot`. The
 environment's protection rules gate it, so applying a credential is an approval

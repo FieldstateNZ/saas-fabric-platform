@@ -48,7 +48,7 @@ own, and every one of them lives outside Kubernetes:
 | OpenBao contents | `secret/superset`, `secret/tailscale` | Re-created at bootstrap. The Tailscale OAuth client can be regenerated in the tailnet admin console |
 | Superset's database | dashboards and charts | Accepted. Superset is [evaluated, not adopted](../applications/catalogue/superset/); it simply does not come back |
 | Tailnet devices | stale `ts-*` and operator devices linger | Remove them in the tailnet admin console. They do not expire promptly and will collide with new registrations by name |
-| Cluster CA | `LUCENTROOT_KUBECONFIG` becomes invalid | Regenerate the org secret from the new `/etc/rancher/k3s/k3s.yaml`. Any workflow in `infrastructure` using it fails until then |
+| Cluster CA | any stored copy of the kubeconfig becomes invalid | `infrastructure` holds one as `LUCENTROOT_KUBECONFIG` and its workflows fail until it is regenerated. This repository deliberately stores none — its workflow reads the node's own `/etc/rancher/k3s/k3s.yaml`, which is always current |
 | Node-local PVCs | everything on `local-path` | Accepted; that is the whole point of calling the box expendable |
 
 The self-hosted GitHub Actions runner is installed on the host, not in the
@@ -141,7 +141,11 @@ device it thinks already exists.
 Follow [bootstrap.md](bootstrap.md#k3s--lucentroot) from the top. It is the
 normal LucentRoot bootstrap; nothing about it is migration-specific.
 
-Rotate `LUCENTROOT_KUBECONFIG` in GitHub once the new cluster is up.
+Nothing in this repository needs rotating afterwards: its bootstrap workflow
+reads the node's own kubeconfig rather than a stored copy. `infrastructure`'s
+`LUCENTROOT_KUBECONFIG` does go stale, and its workflows fail until it is
+regenerated — which matters only for as long as that repository is still in
+use.
 
 ### 6. Restart `argocd-server`
 

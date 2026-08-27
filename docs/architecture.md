@@ -449,6 +449,11 @@ Delivered by [`inject-bootstrap-secrets.yaml`](../.github/workflows/inject-boots
 from a GitHub environment with required reviewers, so applying a credential to a
 cluster is an approval rather than a command anyone with push access can run.
 
+The workflow holds no cluster credential of its own. It runs on the node — the
+API is tailnet-only, so nothing else could reach it — and uses the kubeconfig
+already on that host. Storing a copy in GitHub would add a cluster-admin
+credential in a larger blast radius for no capability gain.
+
 ### What is generated instead
 
 `keycloak-admin` and `grafana-admin` used to be on the list above. They are not
@@ -528,6 +533,7 @@ Recorded rather than hidden. None blocks a cluster from converging.
 | No telemetry backend | All three OTLP pipelines terminate in the `debug` exporter | an exporter in `environments/<env>/config/observability.yaml` |
 | No OpenBao auto-unseal | A restarted OpenBao pod must be unsealed by an operator | a seal stanza in `environments/production/config/openbao.yaml`, against a key vault from `saas-fabric-hosting` |
 | No operator plane in production | Production administrative surfaces are reachable only by `kubectl port-forward` | a tailnet for production, then the same two lines LucentRoot uses |
+| Secret injection runs as cluster-admin | The bootstrap workflow uses the node kubeconfig, which can do anything, to write one Secret in one namespace | a platform-owned ServiceAccount with a Role permitting `create`/`patch` on `operator-oauth` in `tailscale` and nothing else |
 | No database backups | The Keycloak `Cluster` has no `barmanObjectStore` | `applications/core/keycloak-database`, against storage from `saas-fabric-hosting` |
 | SaaS Fabric has no image | The Deployment ships with `replicas: 0`, so the platform substrate converges but SaaS Fabric does not run — see [First milestone](#first-milestone) | a real tag in each environment overlay, once the application repository publishes one |
 | Airflow DAG ownership undecided | Airflow cannot be adopted into the catalogue | [`applications/catalogue/airflow`](../applications/catalogue/airflow/) |
