@@ -64,11 +64,19 @@ in the cluster can. It needs the `devices` scope and must own
 Store it as a GitHub **environment** secret on the `lucentroot` environment,
 alongside `LUCENTROOT_KUBECONFIG`:
 
-```text
-TAILSCALE_OAUTH_CLIENT_ID
-TAILSCALE_OAUTH_CLIENT_SECRET
-LUCENTROOT_KUBECONFIG
-```
+| Secret | Holds |
+|---|---|
+| `TAILSCALE_OAUTH_CLIENT_ID` | the OAuth client's ID |
+| `TAILSCALE_OAUTH_CLIENT_SECRET` | its secret |
+| `LUCENTROOT_KUBECONFIG` | a kubeconfig for the cluster, so the runner can apply |
+
+All three exist already, holding **placeholder values prefixed `replace-me`**, so
+the environment is wired before the credentials are. Update them in place.
+
+The workflow refuses to run while any of them still holds its placeholder, and
+says which. An unreplaced placeholder that sailed through would inject a
+credential that cannot authenticate, and surface much later as a Tailscale
+operator that will not register, with nothing pointing at the cause.
 
 Then run the **Inject bootstrap secrets** workflow against `lucentroot`. The
 environment's protection rules gate it, so applying a credential is an approval
