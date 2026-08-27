@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - ../../base
+  - api-access.yaml
 
 # Tailnet hostnames. The Tailscale operator registers each as
 # <hostname>.<tailnet>, so these are short names rather than FQDNs.
