@@ -21,6 +21,7 @@ resources:
   - observability/application.yaml
   - openbao/application.yaml
   - external-secrets/application.yaml
+  - keycloak-credentials/application.yaml
   - keycloak-database/application.yaml
   # wave 20 — identity and secret delivery
   - keycloak/application.yaml

@@ -48,7 +48,7 @@ own, and every one of them lives outside Kubernetes:
 | OpenBao contents | `secret/superset`, `secret/tailscale` | Re-created at bootstrap. The Tailscale OAuth client can be regenerated in the tailnet admin console |
 | Superset's database | dashboards and charts | Accepted. Superset is [evaluated, not adopted](../applications/catalogue/superset/); it simply does not come back |
 | Tailnet devices | stale `ts-*` and operator devices linger | Remove them in the tailnet admin console. They do not expire promptly and will collide with new registrations by name |
-| Cluster CA | `LUCENTROOT_KUBECONFIG` becomes invalid | Regenerate the org secret from the new `/etc/rancher/k3s/k3s.yaml`. Any workflow in `infrastructure` using it fails until then |
+| Cluster CA | any stored copy of the kubeconfig becomes invalid | `infrastructure` holds one as `LUCENTROOT_KUBECONFIG` and its workflows fail until it is regenerated. This repository deliberately stores none — its workflow reads the node's own `/etc/rancher/k3s/k3s.yaml`, which is always current |
 | Node-local PVCs | everything on `local-path` | Accepted; that is the whole point of calling the box expendable |
 
 The self-hosted GitHub Actions runner is installed on the host, not in the
@@ -141,7 +141,11 @@ device it thinks already exists.
 Follow [bootstrap.md](bootstrap.md#k3s--lucentroot) from the top. It is the
 normal LucentRoot bootstrap; nothing about it is migration-specific.
 
-Rotate `LUCENTROOT_KUBECONFIG` in GitHub once the new cluster is up.
+Nothing in this repository needs rotating afterwards: its bootstrap workflow
+reads the node's own kubeconfig rather than a stored copy. `infrastructure`'s
+`LUCENTROOT_KUBECONFIG` does go stale, and its workflows fail until it is
+regenerated — which matters only for as long as that repository is still in
+use.
 
 ### 6. Restart `argocd-server`
 
@@ -219,23 +223,25 @@ and the OpenBao configuration that External Secrets depends on — the Kubernete
 auth method, a policy, a role — is done by hand at bootstrap either way. Doing it
 once, in the shape we intend to keep, beats doing it twice.
 
-**What this establishes is the mechanism, not a migration of existing secrets.**
-Every platform credential is still created by hand at bootstrap, and that is
-correct for the ones on the bootstrap side of the boundary:
+A rebuild is also the moment the manual step disappears. Nothing is typed into
+this cluster by hand:
 
-| Secret | Still manual because |
+| Secret | Comes from |
 |---|---|
-| `keycloak-admin` | Keycloak will not start without it, and on a fresh cluster OpenBao is still sealed when Keycloak first syncs |
-| `operator-oauth` | deliberately permanent — the operator plane is how you reach OpenBao when OpenBao is not reachable |
-| `platform-tls` (production) | the product edge terminates TLS before anything behind it is up |
-| `grafana-admin` | **not** on the bootstrap side. Grafana is wave `40`, long after OpenBao could serve it. It is the first credential that should move, and it has not yet |
+| `keycloak-admin` | generated in-cluster, [`applications/core/keycloak-credentials`](../applications/core/keycloak-credentials/) |
+| `grafana-admin` | generated in-cluster, [`applications/catalogue/grafana-credentials`](../applications/catalogue/grafana-credentials/) |
+| `operator-oauth` | transported once, by [`inject-bootstrap-secrets.yaml`](../.github/workflows/inject-bootstrap-secrets.yaml) with a reviewer in the path |
+| everything a workload reads | OpenBao, via External Secrets |
 
-`grafana-admin` is the honest gap. Moving it needs an `ExternalSecret` in the
-`catalogue` namespace, which no catalogue Application currently renders — the
-Grafana chart has no template for one. That is a small, self-contained follow-up,
-not a reason to hold the mechanism back.
+The two admin credentials are arbitrary — nobody needs to *choose* them — so
+nobody does. Only the credential Tailscale issues has to travel, and it travels
+through an approval gate rather than a shell.
 
-The pattern is `infrastructure`'s, because it was already the right one: a
+The three sources and when each applies are set out in
+[architecture.md](architecture.md#the-bootstrap-secret-boundary).
+
+The projection pattern is `infrastructure`'s, because it was already the right
+one: a
 single `ClusterSecretStore` authenticating with the Kubernetes auth method, and
 `dataFrom.extract` so that adding a variable means writing it to OpenBao and
 changing nothing in Git. What is **not** `infrastructure`'s is the scope — see

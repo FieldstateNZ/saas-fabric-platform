@@ -31,7 +31,7 @@ Catalogue applications are enabled per environment by including
 the catalogue; production does not yet. See
 [docs/adding-an-application.md](../../../docs/adding-an-application.md).
 
-## Required external secret
+## Admin credential
 
 ```yaml
 secretRef:
@@ -39,8 +39,14 @@ secretRef:
   keys: [username, password]
 ```
 
-The chart's default behaviour of generating and storing an admin password is
-disabled in favour of an externally injected secret.
+**Generated in-cluster, not injected.** The chart's own password handling is
+disabled in favour of an External Secrets `Password` generator — see
+[`../grafana-credentials`](../grafana-credentials/).
+
+```bash
+kubectl -n catalogue get secret grafana-admin \
+  -o jsonpath='{.data.password}' | base64 -d
+```
 
 ## Exposure
 
@@ -65,7 +71,6 @@ which is why its data sources are configured per environment rather than here.
 
 ## Configuration expected from outside this repository
 
-- **`grafana-admin` secret**, injected externally.
 - **Data source endpoints and credentials** for the environment's telemetry
   backend.
 - **Dashboards and per-client views.** Anything client-shaped — a dashboard

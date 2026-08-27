@@ -28,7 +28,7 @@ elsewhere.
 |---|---|
 | Deployment, service, routes on both planes, probes, persistence | this repository |
 | Database connection interface | this repository |
-| Admin bootstrap credential *reference* | this repository (the value is external) |
+| Admin bootstrap credential | this repository — generated, see [`../keycloak-credentials`](../keycloak-credentials/) |
 | Realm for a client | client OpenTofu |
 | Clients, roles, groups, identity providers within a client realm | client OpenTofu |
 | Client hostname and `HTTPRoute` such as `acme.fieldstate.nz` | client OpenTofu |
@@ -54,10 +54,7 @@ database:
   existingSecretKey: password
 ```
 
-## Required external secret
-
-One secret must exist before Keycloak first starts. It is **not** created by
-this repository:
+## Admin credential
 
 ```yaml
 secretRef:
@@ -65,10 +62,18 @@ secretRef:
   keys: [username, password]
 ```
 
-This is the temporary bootstrap administrator. It exists only until OpenBao can
-issue platform credentials, at which point this reference is replaced rather
-than the value being moved. Creating it is a documented bootstrap step — see
-[docs/bootstrap.md](../../../docs/bootstrap.md).
+**Generated in-cluster, not injected.** Nobody chooses this password and nobody
+transports it — an External Secrets `Password` generator creates it before
+Keycloak starts. See
+[`../keycloak-credentials`](../keycloak-credentials/), including why that
+Secret must never be refreshed.
+
+Read it with:
+
+```bash
+kubectl -n identity get secret keycloak-admin \
+  -o jsonpath='{.data.password}' | base64 -d
+```
 
 ## Exposure: both planes, deliberately
 
@@ -110,7 +115,6 @@ reachable by `kubectl port-forward` and nothing else. See
 
 ## Configuration expected from outside this repository
 
-- **`keycloak-admin` secret**, injected at bootstrap.
 - **TLS**, terminated at the platform `Gateway` rather than here.
 - **DNS** for `auth.<domain>`, from `saas-fabric-hosting`.
 - **All realm content**, from the client layer.
