@@ -36,9 +36,13 @@ ENVIRONMENTS = ("lucentroot", "production")
 
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
+SECRET_KEY_NAMES = (
+    "password", "passwd", "adminPassword", "token", "apiKey", "api_key",
+    "secretKey", "secret_key", "clientSecret", "client_secret",
+    "privateKey", "private_key",
+)
 SECRET_KEYS = re.compile(
-    r"^\s*-?\s*(password|passwd|adminPassword|token|apiKey|api_key|secretKey|"
-    r"secret_key|clientSecret|client_secret|privateKey|private_key)\s*:\s*(\S.*)$",
+    r"^\s*-?\s*(" + "|".join(SECRET_KEY_NAMES) + r")\s*:\s*(\S.*)$",
     re.IGNORECASE,
 )
 SECRET_VALUE_IS_A_REFERENCE = re.compile(
@@ -94,8 +98,28 @@ def fail(problems: list[str], message: str) -> None:
     problems.append(message)
 
 
+def _reported_key_name(matched: str) -> str:
+    """The key name to report, resolved back to a literal in this file.
+
+    This function reads lines that contain credentials, so it must never put
+    scanned content into a message. Resolving the match against the known list
+    means the reported name provably originates here rather than in the file
+    being scanned -- and it stays that way if the pattern is ever edited.
+
+    The matched *value*, group 2, is never touched.
+    """
+    lowered = matched.lower()
+    for known in SECRET_KEY_NAMES:
+        if known.lower() == lowered:
+            return known
+    return "credential"
+
+
 def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
-    """Nothing in Git, and nothing rendered from it, may carry a credential."""
+    """Nothing in Git, and nothing rendered from it, may carry a credential.
+
+    Reports where a credential is and what it is called, never what it is.
+    """
     for path in sorted(root.rglob("*.yaml")):
         if ".git" in path.parts:
             continue
@@ -112,7 +136,8 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
             value = match.group(2).split("#")[0].strip()
             if SECRET_VALUE_IS_A_REFERENCE.match(value):
                 continue
-            fail(problems, f"{relative}:{number}: literal value for '{match.group(1)}'")
+            key_name = _reported_key_name(match.group(1))
+            fail(problems, f"{relative}:{number}: literal value for '{key_name}'")
 
         for document in load_all(path, problems):
             if document and document.get("kind") == "Secret":
