@@ -75,6 +75,24 @@ kubectl -n identity get secret keycloak-admin \
   -o jsonpath='{.data.password}' | base64 -d
 ```
 
+## Hostnames
+
+Keycloak 26 refuses to start in production mode without `hostname` — the value
+it puts in the OIDC issuer — so it is set per environment rather than left to a
+default:
+
+| | LucentRoot | Production |
+|---|---|---|
+| `hostnames.public` | `https://auth.lucentroot.internal` | `https://auth.fieldstate.nz` |
+| `hostnames.admin` | `https://auth-lucentroot.tail5a7546.ts.net` | same as public |
+
+`KC_HOSTNAME_ADMIN` states the two planes in Keycloak's own configuration:
+tokens and redirects use the product hostname, the console answers on the
+operator-plane one. Without it, reaching the console over the tailnet is a
+hostname mismatch against the issuer.
+
+Production has no operator plane yet, so both are the same there.
+
 ## Exposure: both planes, deliberately
 
 Keycloak is the clearest case in the platform of a service that belongs on both

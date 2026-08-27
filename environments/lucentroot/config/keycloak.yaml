@@ -11,6 +11,11 @@
 # and admin API that have no reason to hang off it.
 replicas: 1
 
+# Product plane for tokens and redirects; operator plane for the console.
+hostnames:
+  public: https://auth.lucentroot.internal
+  admin: https://auth-lucentroot.tail5a7546.ts.net
+
 httpRoute:
   enabled: true
   parentRefs:
