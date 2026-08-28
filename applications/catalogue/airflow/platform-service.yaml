@@ -3,6 +3,10 @@ service: airflow
 deployment: assessed          # not adopted; see README.md
 required: false
 operatorUsage: true           # intended: provisioning and platform automation
+controlPlane:
+  # The scheduler UI is operationally useful in its own right.
+  managed: false
+  upstreamAdminSurface: exposed
 clientPartitioning:
   mode: none                  # assessed and found unsuitable, not merely absent
   provisioning: unsupported

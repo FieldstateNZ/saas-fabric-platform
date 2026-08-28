@@ -3,6 +3,10 @@ service: envoy-gateway
 deployment: adopted
 required: true          # the product plane; nothing reachable without it
 operatorUsage: false    # no operator-facing surface of its own
+controlPlane:
+  # Infrastructure reconciled by Argo CD, with no operator-facing console.
+  managed: false
+  upstreamAdminSurface: none
 clientPartitioning:
   mode: logical         # a client's hostnames attach as routes to the shared Gateway
   unit: HTTPRoute

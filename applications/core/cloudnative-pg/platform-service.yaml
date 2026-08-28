@@ -3,6 +3,10 @@ service: cloudnative-pg
 deployment: adopted
 required: true
 operatorUsage: false
+controlPlane:
+  # Infrastructure reconciled by Argo CD, with no operator-facing console.
+  managed: false
+  upstreamAdminSurface: none
 clientPartitioning:
   mode: strong          # a separate Cluster, with separate storage and credentials
   unit: Cluster

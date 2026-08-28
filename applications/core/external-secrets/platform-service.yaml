@@ -3,6 +3,10 @@ service: external-secrets
 deployment: adopted
 required: true
 operatorUsage: false
+controlPlane:
+  # Infrastructure reconciled by Argo CD, with no operator-facing console.
+  managed: false
+  upstreamAdminSurface: none
 clientPartitioning:
   mode: logical         # a SecretStore in the client's namespace over its own paths
   unit: SecretStore

@@ -9,6 +9,10 @@ service: openfga
 deployment: planned
 required: true
 operatorUsage: true
+controlPlane:
+  # API-only upstream; there is no console to withhold.
+  managed: true
+  upstreamAdminSurface: none
 clientPartitioning:
   # `unknown` because the mechanism is genuinely undecided -- store per client
   # or client-namespaced types in one shared store are different boundaries with

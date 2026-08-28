@@ -164,6 +164,18 @@ TENANCY_PERMITTING_CLIENTS = ("accepted",)
 # tenancy has to license it. Without this pairing a contract could say `strong`
 # while its own status said the mechanism was undecided -- asserting the answer to
 # the question it was simultaneously recording as open.
+# Whether SaaS Fabric administers a service, and whether that service's own
+# administrative UI is published. These are separate questions: some upstream UIs
+# *are* the capability operators want (Grafana's dashboards), others are vendor
+# administration surfaces that SaaS Fabric replaces (Keycloak's console).
+CONTROL_PLANE_MANAGEMENT = (True, False, "partial")
+ADMIN_SURFACES = (
+    "none",         # upstream ships no console at all
+    "not-exposed",  # it ships one; SaaS Fabric replaces it and it is published nowhere
+    "break-glass",  # published for diagnostics, outside the normal contract
+    "exposed",      # the UI is itself the capability
+)
+
 MODES_PERMITTED_BY_TENANCY = {
     "accepted": ("logical", "strong"),      # established: name the strength
     "candidate": ("unknown",),              # a mechanism is in view, unproven
@@ -956,6 +968,24 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
     if not isinstance(available, bool):
         bad("clientCapability.available must be true or false")
 
+    control = declared.get("controlPlane") or {}
+    managed = control.get("managed")
+    surface = control.get("upstreamAdminSurface")
+    admin_backends = control.get("adminBackends") or []
+    if managed not in CONTROL_PLANE_MANAGEMENT:
+        bad(f"controlPlane.managed '{managed}' is not one of true, false, partial")
+    if surface not in ADMIN_SURFACES:
+        bad(f"controlPlane.upstreamAdminSurface '{surface}' is not one of {', '.join(ADMIN_SURFACES)}")
+    # `not-exposed` is a claim about the cluster, so it has to name what would
+    # carry the console -- otherwise check_control_plane_surfaces has nothing to
+    # prove the claim against and the rule silently stops applying.
+    if surface == "not-exposed" and not admin_backends:
+        bad("controlPlane.upstreamAdminSurface is 'not-exposed' but no adminBackends are named -- "
+            "name the Services that would front the console so validation can prove none is published")
+    if surface == "none" and admin_backends:
+        bad("controlPlane.upstreamAdminSurface is 'none' but adminBackends are named -- "
+            "a service with no console has nothing to withhold")
+
     tenancy = declared.get("tenancy") or {}
     status = tenancy.get("status")
     if status not in TENANCY_STATES:
@@ -1005,6 +1035,48 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
         bad(f"deployment is '{deployment}' but the directory has an application.yaml")
 
 
+def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) -> None:
+    """Section 15: SaaS Fabric is the administrative control plane.
+
+    A service whose upstream administration SaaS Fabric has taken over must not
+    have that upstream console published on any plane. The console being absent
+    today is not the invariant -- nothing stopping it returning is the problem,
+    and an Ingress is one line to add.
+
+    "Upstream software ships an admin UI" is not an operational need. Services
+    whose UI is itself the capability (Grafana) declare `exposed`, and diagnostic
+    surfaces (OpenBao) declare `break-glass`; both are left alone.
+    """
+    withheld: dict[str, str] = {}
+    for contract in sorted(root.glob("applications/*/*/platform-service.yaml")):
+        declared = yaml.safe_load(contract.read_text()) or {}
+        control = declared.get("controlPlane") or {}
+        if control.get("upstreamAdminSurface") != "not-exposed":
+            continue
+        for backend in control.get("adminBackends") or []:
+            withheld[backend] = declared.get("service", contract.parent.name)
+    if not withheld:
+        return
+
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "Ingress":
+                    continue
+                name = document["metadata"]["name"]
+                for rule in document["spec"].get("rules", []):
+                    for entry in (rule.get("http") or {}).get("paths", []):
+                        backend = entry.get("backend", {}).get("service", {}).get("name")
+                        if backend in withheld:
+                            fail(
+                                problems,
+                                f"{environment}/{path.name}: Ingress/{name} publishes"
+                                f" '{backend}', the upstream administrative surface of"
+                                f" {withheld[backend]}, which SaaS Fabric administers"
+                                " through its API instead",
+                            )
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -1032,6 +1104,7 @@ def main() -> int:
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
     check_service_capabilities(root, problems)
+    check_control_plane_surfaces(root, render, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")

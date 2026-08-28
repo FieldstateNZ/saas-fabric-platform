@@ -41,9 +41,9 @@ administrative access and nothing else.
 
 | | |
 |---|---|
-| **Belongs here** | operator-plane access to any platform service — Argo CD, Keycloak's admin surface, OpenBao's UI |
+| **Belongs here** | operator-plane access with a stated operational need — Argo CD, OpenBao's UI for break-glass |
 | **The one exception** | a catalogue application. `catalogue` is not in the platform project's destinations, and catalogue is a terminal wave already, so its chart may render its own. Grafana does |
-| **Never belongs here** | anything on the product plane, and anything client-scoped |
+| **Never belongs here** | anything on the product plane, anything client-scoped, and any upstream admin console SaaS Fabric has replaced — *"upstream ships an admin UI"* is not an operational need. Keycloak's console was removed from here for exactly that reason |
 
 ## Dependencies
 

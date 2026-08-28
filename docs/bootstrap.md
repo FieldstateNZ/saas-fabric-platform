@@ -141,8 +141,8 @@ kubectl get ingress -A -o custom-columns=\
 NAME:.metadata.name,NS:.metadata.namespace,CLASS:.spec.ingressClassName,HOST:.spec.rules[0].host
 ```
 
-On LucentRoot that is `argocd-lucentroot`, `auth-lucentroot`, `bao-lucentroot`
-and `grafana-lucentroot`. Who can reach them is decided by the tailnet ACL, not
+On LucentRoot that is `argocd-lucentroot`, `bao-lucentroot` and
+`grafana-lucentroot`. Who can reach them is decided by the tailnet ACL, not
 by this repository.
 
 ---
