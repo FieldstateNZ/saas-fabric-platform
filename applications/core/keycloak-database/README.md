@@ -9,7 +9,8 @@
 | Application version | PostgreSQL image selected by the pinned CNPG operator |
 | Licence | PostgreSQL Licence (server), Apache-2.0 (operator) |
 | Namespace | `identity` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `10` |
 
 ## Why it exists in SaaS Fabric

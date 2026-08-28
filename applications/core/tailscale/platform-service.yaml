@@ -1,0 +1,17 @@
+# Platform service contract. See docs/platform-services.md.
+service: tailscale
+deployment: adopted
+required: false         # environments without an operator plane are complete
+operatorUsage: true     # it is the operator plane
+clientPartitioning:
+  mode: none
+  provisioning: unsupported
+clientCapability:
+  available: false
+tenancy:
+  status: not-applicable
+  rationale: |
+    Deliberate, and not the outcome of an assessment. The operator plane never
+    carries product or client traffic at all, so there is nothing for a client
+    partition to be a partition of. Partitioning it would be the boundary
+    violation the two-plane design exists to prevent. See docs/architecture.md.

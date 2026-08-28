@@ -9,8 +9,32 @@
 | Application version | `6.1.0` |
 | Licence | Apache-2.0 |
 | Intended namespace | `catalogue` |
-| Class | catalogue |
+| Grouping | `catalogue` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Status | **not deployed** — no `application.yaml` in this directory |
+
+## What it is
+
+A **platform service**, not merely an optional extra. Not being required by SaaS
+Fabric decides its deployment tier, not its architectural identity — see
+[docs/platform-services.md](../../../docs/platform-services.md).
+
+```text
+platform service      yes
+deployment adopted    not yet
+operator usage        intended -- platform and operator analytics
+client partitioning   unresolved -- mode 'unknown'
+client capability     candidate
+```
+
+The blocker below is an **implementation constraint**, not a judgement that
+Superset does not belong. Its declared contract is in
+[`platform-service.yaml`](platform-service.yaml), where `tenancy.status` is
+`unresolved`: nothing may be offered to clients through Superset until the
+[isolation checklist](../../../docs/platform-services.md#assessing-tenancy) has
+been worked through. Row-level security and per-client database roles look
+promising and have not been assessed, and cross-client enumeration through saved
+queries, datasets and charts is unexamined.
 
 ## Why it exists as a directory
 

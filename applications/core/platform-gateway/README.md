@@ -9,7 +9,8 @@
 | Application version | CRDs supplied by the pinned Envoy Gateway chart |
 | Licence | Apache-2.0 |
 | Namespace | `platform-system` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `10` |
 
 ## Why it exists in SaaS Fabric

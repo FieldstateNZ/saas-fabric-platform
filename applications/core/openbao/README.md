@@ -9,7 +9,8 @@
 | Application version | `v2.6.2` |
 | Licence | MPL-2.0 |
 | Namespace | `secrets` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `10` |
 
 ## Why it exists in SaaS Fabric

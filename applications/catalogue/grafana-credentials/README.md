@@ -9,7 +9,8 @@
 | Application version | generator supplied by the pinned External Secrets chart |
 | Licence | Apache-2.0 |
 | Namespace | `catalogue` |
-| Class | catalogue |
+| Grouping | `catalogue` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `40` |
 
 ## Why it exists in SaaS Fabric

@@ -1,25 +1,34 @@
 # Adding an application
 
-## The test
+## Classify it before you place it
 
-> **Does SaaS Fabric itself require this service in order to operate?**
+There is no single test any more, because there is no single question. A
+platform service has four independent properties, and the old *"does SaaS Fabric
+require it?"* answered only the first while implying the rest.
 
-If **yes**, it may be core. If **no**, it belongs in the catalogue.
+| Declare | Asks |
+|---|---|
+| `required` | does SaaS Fabric fail to operate without it? |
+| `operatorUsage` | do the people running the platform use it? |
+| `clientPartitioning` | can one runtime hold separated client partitions? |
+| `clientCapability` | is it offered to a client as a selectable capability? |
 
-Apply it honestly. Two failure modes it exists to prevent:
+Write them into a `platform-service.yaml` beside the application. See
+[platform-services.md](platform-services.md) for the schema and the register.
 
-- *"It's useful, so it's core."* Usefulness is not a dependency. Grafana is
-  extremely useful and is catalogue.
-- *"It's in this repository, so Fabric depends on it."* Presence is not a
-  requirement. This is exactly the reasoning that turns a platform into a
-  monolith:
+Two inferences to refuse, both of which the previous model encouraged:
 
-```text
-Bad:  Fabric requires Airflow because Airflow exists in this repo.
-Good: Fabric can deploy Airflow when that capability is required.
-```
+- *"It's optional, so it's peripheral."* Grafana is optional and is where
+  operational visibility lives.
+- *"It's partitionable, so offer it."* Partitioning is a property of the
+  runtime. Whether a client selects it is a product decision.
 
-If a component is core, you must be able to say what breaks without it.
+And one claim you may not make early: **a service is not multi-tenant because it
+has users, roles or permissions.** `tenancy.status` stays `candidate` or
+`unresolved` until the isolation checklist has actually been worked through, and
+`scripts/check.py` will reject a contract that claims client capability or client
+provisioning without `accepted`. Record the unknowns instead — that is what the
+field is for.
 
 ## Before you add anything
 
@@ -30,10 +39,11 @@ Three questions, in order:
    client-scoped resources. Competing ownership is worse than a missing feature.
 2. **Is it client-shaped?** A Keycloak realm, a client database, a client
    hostname — these belong to `saas-fabric-clients`, whatever they are made of.
-3. **Does it need cluster-scoped resources?** Core applications may, within the
-   kinds enumerated in `argocd/projects/saas-fabric-platform.yaml`. Catalogue
-   applications may not,
-   at all.
+3. **Does it need cluster-scoped resources?** This decides the *deployment
+   grouping*, and nothing else. `core` may use the kinds enumerated in
+   `argocd/projects/saas-fabric-platform.yaml`; `catalogue` gets one namespace
+   and no cluster scope at all. Neither directory says anything about whether
+   the service is important or client-facing.
 4. **Which plane does it belong on?** See below. Getting this wrong is how an
    administrative console ends up on the public edge.
 5. **Which scope are its secrets?** Its own operational credentials are platform

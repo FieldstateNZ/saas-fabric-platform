@@ -21,7 +21,7 @@ promoting a release to production.
 - the Argo CD projects, root Application and child Applications that reconcile
   them, plus the Argo CD runtime behaviour the platform depends on;
 - environment configuration for LucentRoot and production;
-- the optional catalogue of platform capabilities.
+- the shared platform services, and how each may serve operators or clients.
 
 ## What it does not own
 
@@ -91,7 +91,7 @@ its admin console is operator-only. Full contract in
 | Moves when | a pull request merges | that branch is fast-forwarded to a release tag |
 | Domain | `lucentroot.internal` | `platform.fieldstate.nz` |
 | Storage | `local-path` | `managed-csi` |
-| Catalogue | enabled | not enabled |
+| `catalogue` tier | enabled | not enabled |
 | Operator plane | enabled | not enabled — no tailnet yet |
 
 LucentRoot is where platform changes are exercised. It runs the same application
@@ -121,8 +121,8 @@ releases. See [docs/releases.md](docs/releases.md).
 bootstrap/        the project and root Application; three files, one command
 argocd/           Argo CD projects and the runtime behaviour the platform needs
 applications/
-  core/           what SaaS Fabric requires in order to operate
-  catalogue/      optional capabilities SaaS Fabric can offer
+  core/           deployment tier: several namespaces, enumerated cluster scope
+  catalogue/      deployment tier: one namespace, no cluster scope
 environments/     the thin per-environment differences
 docs/             architecture, bootstrap, releases, contributing
 scripts/          render and validate everything, offline
@@ -133,24 +133,47 @@ deliberately apart: the environment's identity, which is an environmental fact
 declared in `environments/<environment>/config/platform.yaml`; and the Git ref it
 follows, which is Argo binding and lives in that environment's kustomizations.
 
-## Core versus catalogue
+## Platform services
 
-> Does SaaS Fabric itself require this service in order to operate?
+The platform owns shared service runtimes. A service may be required by SaaS
+Fabric, used by platform operators, partitionable for clients, offered as a
+client capability — or any combination. **These are independent**, and each is
+declared in a `platform-service.yaml` beside the application.
 
-If yes, it may be core. If no, it belongs in the catalogue.
+| Service | Required | Operator | Client partitioning | Tenancy | Deployed |
+|---|---|---|---|---|---|
+| [Envoy Gateway](applications/core/envoy-gateway/) | yes | no | logical — routes | accepted | yes |
+| [CloudNativePG](applications/core/cloudnative-pg/) | yes | no | strong — `Cluster` | accepted | yes |
+| [External Secrets](applications/core/external-secrets/) | yes | no | logical — store | accepted | yes |
+| [OpenBao](applications/core/openbao/) | yes | yes | strong — path prefix | accepted | yes |
+| [Keycloak](applications/core/keycloak/) | yes | yes | strong — realm | accepted | yes |
+| [Grafana](applications/catalogue/grafana/) | no | **yes** | unknown — organisation proposed | candidate | yes |
+| [OpenFGA](applications/core/openfga/) | **yes** | yes | unknown | unresolved | **planned** |
+| [Superset](applications/catalogue/superset/) | no | yes | unknown | unresolved | assessed |
+| [Airflow](applications/catalogue/airflow/) | no | yes | none | rejected | assessed |
+| [OpenTelemetry](applications/core/observability/) | yes | no | none | not-applicable | yes |
+| [SaaS Fabric](applications/core/saas-fabric/) | yes | no | none | not-applicable | yes |
+| [Tailscale](applications/core/tailscale/) | no | yes | none | not-applicable | yes |
 
-| Core | Catalogue |
-|---|---|
-| [Envoy Gateway](applications/core/envoy-gateway/) + [the platform Gateway](applications/core/platform-gateway/) | [Grafana](applications/catalogue/grafana/) |
-| [Tailscale](applications/core/tailscale/) + [operator access](applications/core/operator-access/) | |
-| [CloudNativePG](applications/core/cloudnative-pg/) | |
-| [OpenBao](applications/core/openbao/) + [External Secrets](applications/core/external-secrets/) + [secret store](applications/core/secret-store/) | |
-| [Keycloak](applications/core/keycloak/) + [its database](applications/core/keycloak-database/) | |
-| [OpenTelemetry collector](applications/core/observability/) | |
-| [SaaS Fabric](applications/core/saas-fabric/) | |
+A boundary strength is only named once it has been established: `unknown` means
+the mechanism is proposed or undecided, and `check.py` refuses a contract that
+claims `logical` or `strong` before its tenancy assessment says `accepted`.
 
-A component is not core because it is useful. Grafana is useful and is
-catalogue; the platform's observability contract is OTLP, not a dashboard.
+Keycloak is the reference shape — one runtime, one platform administrative
+context, one partition per client — and the client-facing rule generalises from
+it:
+
+> Platform owns the shared runtime. Client provisioning owns the client-scoped
+> partitions inside it.
+
+`core/` and `catalogue/` are **deployment tiers**, not classifications:
+`catalogue` gets one namespace and no cluster-scoped resources. Grafana lives
+there because SaaS Fabric does not require it, which says nothing about whether
+operators depend on it — they do.
+
+See [docs/platform-services.md](docs/platform-services.md) for the full model,
+the register, and the isolation checklist a service must pass before it may
+claim client partitioning.
 
 ## Validation
 
@@ -199,7 +222,8 @@ request that renders invalid manifests cannot merge.
 | [architecture.md](docs/architecture.md) | layers, ownership, the Argo CD runtime contract, dependency ordering, privilege boundaries, the first milestone, known gaps |
 | [bootstrap.md](docs/bootstrap.md) | k3s / LucentRoot and AKS / production, step by step |
 | [releases.md](docs/releases.md) | cutting a release, promoting production by moving a Git ref, rolling back |
-| [adding-an-application.md](docs/adding-an-application.md) | core versus catalogue, which exposure plane, and how to add either |
+| [platform-services.md](docs/platform-services.md) | the service capability model, the register, and the tenancy checklist |
+| [adding-an-application.md](docs/adding-an-application.md) | how to classify, place and add a service |
 | [migrating-lucentroot.md](docs/migrating-lucentroot.md) | rebuilding LucentRoot onto this repository, and what that costs |
 
 ## Licence

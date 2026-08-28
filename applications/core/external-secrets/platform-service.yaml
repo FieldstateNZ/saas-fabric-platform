@@ -1,0 +1,18 @@
+# Platform service contract. See docs/platform-services.md.
+service: external-secrets
+deployment: adopted
+required: true
+operatorUsage: false
+clientPartitioning:
+  mode: logical         # a SecretStore in the client's namespace over its own paths
+  unit: SecretStore
+  provisioning: supported
+  owner: saas-fabric-clients
+clientCapability:
+  available: false
+tenancy:
+  status: accepted
+  rationale: |
+    The platform ClusterSecretStore is bounded by namespace label and by an
+    OpenBao policy that can read secret/platform/* and nothing else. A client
+    store is a different object over secret/clients/<client>/*.

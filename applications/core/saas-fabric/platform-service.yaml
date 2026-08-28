@@ -1,0 +1,17 @@
+# Platform service contract. See docs/platform-services.md.
+service: saas-fabric
+deployment: adopted
+required: true          # it is the product this platform exists to run
+operatorUsage: false
+clientPartitioning:
+  mode: none
+  provisioning: unsupported
+clientCapability:
+  available: false
+tenancy:
+  status: not-applicable
+  rationale: |
+    Category-wrong rather than unsuitable. SaaS Fabric is not a shared runtime
+    clients hold partitions inside -- it is the thing that owns the definition
+    of a client and reconciles the partitions in the services below it. Asking
+    whether it is a tenant boundary inverts the relationship.

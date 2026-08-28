@@ -1,0 +1,4 @@
+# Not a platform service in its own right. See docs/platform-services.md.
+#
+# The platform-owned CloudNativePG cluster Keycloak stores state in.
+componentOf: keycloak

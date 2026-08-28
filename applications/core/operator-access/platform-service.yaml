@@ -1,0 +1,4 @@
+# Not a platform service in its own right. See docs/platform-services.md.
+#
+# The operator plane's Ingresses, and LucentRoot's operator identities.
+componentOf: tailscale

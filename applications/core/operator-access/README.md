@@ -9,7 +9,8 @@
 | Application version | supplied by the pinned Tailscale operator |
 | Licence | BSD-3-Clause (the operator that fulfils these) |
 | Namespace | `argocd`, and any namespace holding an operator surface |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `50` |
 | Plane | **operator** |
 

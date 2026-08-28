@@ -9,8 +9,31 @@
 | Application version | `3.2.2` |
 | Licence | Apache-2.0 |
 | Intended namespace | `catalogue` |
-| Class | catalogue |
+| Grouping | `catalogue` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Status | **not deployed** — no `application.yaml` in this directory |
+
+## What it is
+
+A **platform service**, not merely an optional extra — most likely a platform
+orchestration one: provisioning workflows, platform automation, integration
+workflows and scheduled operations.
+
+```text
+platform service      yes
+deployment adopted    not yet
+operator usage        intended
+client partitioning   assessed, and rejected
+client capability     not directly
+```
+
+**A shared Airflow installation is not a client isolation boundary**, and its
+contract records that as `tenancy.status: rejected` rather than as an open
+question. Workers execute DAG code with the installation's own credentials, so a
+per-client partition inside one installation would be a convention rather than a
+boundary. Airflow may well *implement* client capabilities without ever being
+one a client selects — see
+[docs/platform-services.md](../../../docs/platform-services.md#what-catalogue-means-now).
 
 ## Why it exists as a directory
 

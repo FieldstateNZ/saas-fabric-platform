@@ -1,48 +1,74 @@
-# Catalogue applications
+# `catalogue` — a deployment grouping
 
-Workloads SaaS Fabric can offer as platform capabilities, but which SaaS Fabric
-does not need in order to run.
+**This directory name is not an architectural classification.** It says where an
+application is deployed and how much privilege it gets. It says nothing about
+whether the application matters, whether operators depend on it, or whether it
+can serve clients.
 
-## The test
+For what a service *is*, see
+[docs/platform-services.md](../../docs/platform-services.md) and each
+directory's `platform-service.yaml`.
 
-> Does SaaS Fabric itself require this service in order to operate?
+## What the grouping actually means
 
-If **yes**, it may be core. If **no**, it belongs here. A component is not core
-because it is useful, and it is not core because it happens to be in this
-repository.
+| | `core` | `catalogue` |
+|---|---|---|
+| Namespaces | several, per concern | `catalogue`, only |
+| Argo CD project | `saas-fabric-platform` | `saas-fabric-catalogue` |
+| Cluster-scoped resources | permitted, within an enumerated list | **none, at all** |
+
+That is the whole distinction: a privilege tier. A chart placed here that
+demands cluster scope is a signal to re-examine the placement — not evidence
+that the service is unimportant.
+
+## It used to mean something else, and that was wrong
+
+The old test was *"does SaaS Fabric require this to operate?"* — if no, it was
+catalogue. That made "catalogue" a synonym for "optional", and optional read as
+peripheral.
+
+Grafana is the counterexample that retired the model. SaaS Fabric runs without
+it, so it lands here; platform operators nonetheless use it daily, and its
+organisation model is a plausible client partition. Those three facts are
+independent, and one directory name could not carry them.
+
+Required, operator-facing, client-partitionable and client-selectable are now
+four separate declared properties. See
+[docs/platform-services.md](../../docs/platform-services.md#the-four-dimensions).
+
+## Not the client capability catalogue
+
+The word is reserved, elsewhere, for a SaaS Fabric product concept: the
+capabilities that can be enabled for a client. That catalogue does not live in
+this repository. It may be *implemented by* services defined here, but a
+platform service and a client capability are different things.
 
 ## Current contents
 
-| Application | Status | Notes |
+| Application | Platform service | Deployed |
 |---|---|---|
-| [Grafana](grafana/) | deployed | reads platform telemetry; enabled in LucentRoot |
-| [Superset](superset/) | evaluated, not adopted | bundled Bitnami PostgreSQL competes with CloudNativePG |
-| [Airflow](airflow/) | evaluated, not adopted | same, plus DAG ownership is undecided |
+| [Grafana](grafana/) | yes — operator-facing, client organisations intended | yes |
+| [Superset](superset/) | yes — client partitioning unresolved | assessed, not adopted |
+| [Airflow](airflow/) | yes — not a client isolation boundary | assessed, not adopted |
+| [grafana-credentials](grafana-credentials/) | component of Grafana | yes |
 
-Superset and Airflow are directories with a documented assessment and no
+Superset and Airflow are directories holding an assessment and no
 `application.yaml`. That is deliberate: the evaluation is worth keeping, and
-adding an Application would mean shipping a database this platform does not
-intend to own.
+adding an Application would mean shipping a bundled database this platform does
+not intend to own. Both remain platform service candidates — the blocker is an
+implementation constraint, not a judgement that they do not belong.
 
 ## Enablement
 
-The catalogue is enabled per environment. An environment that includes
-`../../applications/catalogue` in its kustomization gets every catalogue
-application; one that omits it gets none, and is still a complete platform.
+Per environment, and independent of classification. An environment that includes
+`../../applications/catalogue` gets every application here; one that omits it
+gets none and is still a complete platform.
 
-| Environment | Catalogue |
-|---|---|
-| LucentRoot | enabled |
-| Production | not enabled |
+| Environment | Enabled | Why |
+|---|---|---|
+| LucentRoot | yes | it dogfoods the services SaaS Fabric expects to manage |
+| Production | not yet | |
 
-Catalogue applications run in the `catalogue` namespace under the
-`saas-fabric-catalogue` project, which grants no cluster-scoped resources at
-all. A catalogue chart that demands cluster scope is a signal to re-examine
-whether it belongs here.
-
-## Where this is going
-
-The catalogue is expected to become part of SaaS Fabric's product capability
-model: SaaS Fabric decides which capabilities a client gets, and this directory
-becomes the platform-side definition of what those capabilities are. Until then
-it is a plain per-environment opt-in.
+Grafana being enabled in one and not the other does not make it a different kind
+of thing in each. See
+[docs/platform-services.md](../../docs/platform-services.md#environment-enablement-is-separate-again).

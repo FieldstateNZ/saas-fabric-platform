@@ -9,7 +9,8 @@
 | Application version | `26.7.2` |
 | Licence | Apache-2.0 |
 | Namespace | `identity` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `20` |
 
 ## Why it exists in SaaS Fabric

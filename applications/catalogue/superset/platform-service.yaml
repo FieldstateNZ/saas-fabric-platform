@@ -1,0 +1,22 @@
+# Platform service contract. See docs/platform-services.md.
+service: superset
+deployment: assessed          # not adopted; see README.md
+required: false
+operatorUsage: true           # intended: platform and operator analytics
+clientPartitioning:
+  mode: unknown               # partitioning is intended; the mechanism is not settled
+  provisioning: unsupported
+clientCapability:
+  available: false            # candidate only
+tenancy:
+  status: unresolved
+  unknowns:
+    - Row-level security and per-client database roles are the plausible
+      mechanisms and neither has been assessed against the isolation checklist
+      in docs/platform-services.md.
+    - Cross-client enumeration through saved queries, datasets and charts is
+      unexamined.
+blockers:
+  - The chart bundles its own PostgreSQL, which would compete with
+    CloudNativePG for ownership. An implementation constraint, not a reason it
+    is architecturally not a platform service.

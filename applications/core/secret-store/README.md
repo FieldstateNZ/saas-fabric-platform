@@ -9,7 +9,8 @@
 | Application version | CRD supplied by the pinned External Secrets chart |
 | Licence | Apache-2.0 |
 | Namespace | `secrets` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `20` |
 
 ## Why it exists in SaaS Fabric
