@@ -150,15 +150,27 @@ REQUIRED_DOC_FIELDS = (
 # The platform service contract. See docs/platform-services.md.
 SERVICE_CONTRACT = "platform-service.yaml"
 DEPLOYMENT_STATES = ("adopted", "planned", "assessed")
-PARTITION_MODES = ("none", "logical", "strong")
+PARTITION_MODES = ("unknown", "none", "logical", "strong")
 PROVISIONING_STATES = ("supported", "unsupported")
-TENANCY_STATES = ("accepted", "candidate", "unresolved", "rejected")
+TENANCY_STATES = ("accepted", "candidate", "unresolved", "rejected", "not-applicable")
 
 # A boundary may be claimed only once it has been established. Anything short of
 # `accepted` means the assessment in docs/platform-services.md#assessing-tenancy
 # has not been completed, and intent must not be recorded as though it were a
 # boundary.
 TENANCY_PERMITTING_CLIENTS = ("accepted",)
+
+# `mode` states the strength of a boundary, so it is a claim in its own right and
+# tenancy has to license it. Without this pairing a contract could say `strong`
+# while its own status said the mechanism was undecided -- asserting the answer to
+# the question it was simultaneously recording as open.
+MODES_PERMITTED_BY_TENANCY = {
+    "accepted": ("logical", "strong"),      # established: name the strength
+    "candidate": ("unknown",),              # a mechanism is in view, unproven
+    "unresolved": ("unknown",),             # partitioning intended, mechanism absent
+    "rejected": ("none",),                  # assessed, and it is not a boundary
+    "not-applicable": ("none",),            # partitioning is not part of its role
+}
 
 
 def fail(problems: list[str], message: str) -> None:
@@ -950,13 +962,33 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
         bad(f"tenancy.status '{status}' is not one of {', '.join(TENANCY_STATES)}")
         return
 
-    # An assessment has to say something. `accepted` and `rejected` are positions
-    # and need a reason; the others are admissions and need the open questions.
-    if status in ("accepted", "rejected") and not tenancy.get("rationale"):
+    # An assessment has to say something. `accepted`, `rejected` and
+    # `not-applicable` are positions and need a reason; the other two are
+    # admissions and need the open questions written down.
+    if status in ("accepted", "rejected", "not-applicable") and not tenancy.get("rationale"):
         bad(f"tenancy.status is '{status}' but no rationale is recorded")
     if status in ("candidate", "unresolved") and not tenancy.get("unknowns"):
         bad(f"tenancy.status is '{status}' but no unknowns are recorded -- "
             "document what has not been established rather than leaving it blank")
+
+    # The mode must be licensed by the tenancy status. This is the rule that stops
+    # a contract claiming a boundary strength it has not established.
+    permitted = MODES_PERMITTED_BY_TENANCY[status]
+    if mode in PARTITION_MODES and mode not in permitted:
+        bad(f"clientPartitioning.mode '{mode}' with tenancy.status '{status}' -- "
+            f"only {' or '.join(permitted)} is valid there. A strength may not be "
+            "claimed before the assessment establishing it")
+
+    # A named unit is a claim too: state it once the mechanism is settled, and
+    # mark it as a candidate while it is not.
+    if mode in ("logical", "strong") and not partitioning.get("unit"):
+        bad(f"clientPartitioning.mode is '{mode}' but no unit is named")
+    if mode == "unknown" and partitioning.get("unit"):
+        bad("clientPartitioning.mode is 'unknown' but a unit is named -- "
+            "use candidateUnit for a mechanism that is proposed rather than settled")
+    if status == "candidate" and not partitioning.get("candidateUnit"):
+        bad("tenancy.status is 'candidate' but no candidateUnit is named -- "
+            "a candidate is a specific proposed mechanism, not a general intention")
 
     # No premature tenancy claims.
     if available and status not in TENANCY_PERMITTING_CLIENTS:
@@ -964,10 +996,6 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
             "a capability may not be offered to clients before its isolation is established")
     if provisioning == "supported" and status not in TENANCY_PERMITTING_CLIENTS:
         bad(f"claims clientPartitioning.provisioning 'supported' with tenancy.status '{status}'")
-    if available and mode == "none":
-        bad("claims clientCapability.available while clientPartitioning.mode is 'none'")
-    if provisioning == "supported" and mode == "none":
-        bad("claims clientPartitioning.provisioning 'supported' while mode is 'none'")
 
     # The contract must match what the directory actually does.
     deploys = (application / "application.yaml").is_file()

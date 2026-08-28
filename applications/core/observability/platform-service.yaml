@@ -9,9 +9,14 @@ clientPartitioning:
 clientCapability:
   available: false
 tenancy:
-  status: unresolved
-  unknowns:
-    - No per-client attribute is enforced on emitted telemetry, so client
-      separation would today rest on convention rather than on a boundary.
-    - The pipeline terminates in a debug exporter, so no backend's tenancy
-      model has been assessed.
+  status: not-applicable
+  rationale: |
+    The collector is a transport boundary, not a service clients hold partitions
+    in. It receives OTLP from platform workloads and forwards it; there is no
+    per-client object inside it to own.
+
+    This is a statement about its role today, not a permanent one. Per-client
+    telemetry would need a client attribute enforced at ingest and a backend
+    whose own tenancy model has been assessed -- at which point this becomes a
+    real partitioning question rather than a category-wrong one. Recorded as a
+    known gap in docs/architecture.md.

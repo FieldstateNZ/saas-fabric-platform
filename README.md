@@ -140,20 +140,24 @@ Fabric, used by platform operators, partitionable for clients, offered as a
 client capability — or any combination. **These are independent**, and each is
 declared in a `platform-service.yaml` beside the application.
 
-| Service | Required | Operator | Client partitioning | Deployed |
-|---|---|---|---|---|
-| [Envoy Gateway](applications/core/envoy-gateway/) | yes | no | logical — routes | yes |
-| [CloudNativePG](applications/core/cloudnative-pg/) | yes | no | strong — `Cluster` | yes |
-| [External Secrets](applications/core/external-secrets/) | yes | no | logical — store | yes |
-| [OpenBao](applications/core/openbao/) | yes | yes | strong — path prefix | yes |
-| [Keycloak](applications/core/keycloak/) | yes | yes | strong — realm | yes |
-| [OpenTelemetry](applications/core/observability/) | yes | no | none | yes |
-| [SaaS Fabric](applications/core/saas-fabric/) | yes | no | — owns clients | yes |
-| [Tailscale](applications/core/tailscale/) | no | yes | none, deliberately | yes |
-| [Grafana](applications/catalogue/grafana/) | no | **yes** | candidate — organisation | yes |
-| [OpenFGA](applications/core/openfga/) | **yes** | yes | candidate — store | **planned** |
-| [Superset](applications/catalogue/superset/) | no | yes | unresolved | assessed |
-| [Airflow](applications/catalogue/airflow/) | no | yes | not a boundary | assessed |
+| Service | Required | Operator | Client partitioning | Tenancy | Deployed |
+|---|---|---|---|---|---|
+| [Envoy Gateway](applications/core/envoy-gateway/) | yes | no | logical — routes | accepted | yes |
+| [CloudNativePG](applications/core/cloudnative-pg/) | yes | no | strong — `Cluster` | accepted | yes |
+| [External Secrets](applications/core/external-secrets/) | yes | no | logical — store | accepted | yes |
+| [OpenBao](applications/core/openbao/) | yes | yes | strong — path prefix | accepted | yes |
+| [Keycloak](applications/core/keycloak/) | yes | yes | strong — realm | accepted | yes |
+| [Grafana](applications/catalogue/grafana/) | no | **yes** | unknown — organisation proposed | candidate | yes |
+| [OpenFGA](applications/core/openfga/) | **yes** | yes | unknown | unresolved | **planned** |
+| [Superset](applications/catalogue/superset/) | no | yes | unknown | unresolved | assessed |
+| [Airflow](applications/catalogue/airflow/) | no | yes | none | rejected | assessed |
+| [OpenTelemetry](applications/core/observability/) | yes | no | none | not-applicable | yes |
+| [SaaS Fabric](applications/core/saas-fabric/) | yes | no | none | not-applicable | yes |
+| [Tailscale](applications/core/tailscale/) | no | yes | none | not-applicable | yes |
+
+A boundary strength is only named once it has been established: `unknown` means
+the mechanism is proposed or undecided, and `check.py` refuses a contract that
+claims `logical` or `strong` before its tenancy assessment says `accepted`.
 
 Keycloak is the reference shape — one runtime, one platform administrative
 context, one partition per client — and the client-facing rule generalises from

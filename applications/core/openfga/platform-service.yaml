@@ -10,16 +10,18 @@ deployment: planned
 required: true
 operatorUsage: true
 clientPartitioning:
-  mode: strong
-  unit: store             # provisional; the partitioning strategy is undecided
+  # `unknown` because the mechanism is genuinely undecided -- store per client
+  # or client-namespaced types in one shared store are different boundaries with
+  # different strengths. Recording `strong` here would have claimed the answer
+  # to the question the unknowns below say is open.
+  mode: unknown
   provisioning: unsupported
-  owner: saas-fabric-clients
 clientCapability:
-  available: false        # clients get authorization indirectly, via Fabric
+  available: false        # clients would get authorization indirectly, via Fabric
 tenancy:
-  status: candidate
+  status: unresolved
   unknowns:
-    - Whether a client partition is a separate store or a namespaced type in a
-      shared store is an open architecture decision.
+    - Whether a client partition is a separate store or a client-namespaced type
+      in a shared store is undecided, and the two differ in isolation strength.
     - The relationship between a client's authorization model and its Keycloak
       realm is undefined.

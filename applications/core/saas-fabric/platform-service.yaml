@@ -4,13 +4,14 @@ deployment: adopted
 required: true          # it is the product this platform exists to run
 operatorUsage: false
 clientPartitioning:
-  mode: none            # SaaS Fabric manages clients; clients are not inside it
+  mode: none
   provisioning: unsupported
 clientCapability:
   available: false
 tenancy:
-  status: rejected
+  status: not-applicable
   rationale: |
-    Not a shared service clients partition into. It is the thing that owns the
-    definition of a client, and it reconciles the partitions in the services
-    below it.
+    Category-wrong rather than unsuitable. SaaS Fabric is not a shared runtime
+    clients hold partitions inside -- it is the thing that owns the definition
+    of a client and reconciles the partitions in the services below it. Asking
+    whether it is a tenant boundary inverts the relationship.

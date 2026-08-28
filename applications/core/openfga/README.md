@@ -60,8 +60,10 @@ an implementation detail:
   client's relations may belong to SaaS Fabric rather than to client
   provisioning.
 
-Until those are settled, `tenancy.status` is `candidate` and the contract claims
-no client provisioning.
+Until those are settled, `tenancy.status` is `unresolved` — partitioning is
+intended and the mechanism is not chosen — and `clientPartitioning.mode` is
+`unknown`. Naming a strength there would claim the answer to the very question
+listed above.
 
 ## What adoption requires
 

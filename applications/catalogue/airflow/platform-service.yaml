@@ -4,16 +4,18 @@ deployment: assessed          # not adopted; see README.md
 required: false
 operatorUsage: true           # intended: provisioning and platform automation
 clientPartitioning:
-  mode: none
+  mode: none                  # assessed and found unsuitable, not merely absent
   provisioning: unsupported
 clientCapability:
   available: false            # would implement capabilities, never be one
 tenancy:
   status: rejected
   rationale: |
-    A shared Airflow installation is not a client isolation boundary. Workers
-    execute DAG code with the installation's own credentials, so a per-client
-    partition inside one installation would be a convention, not a boundary.
+    Assessed and rejected, which is why this is `rejected` rather than
+    `not-applicable`: a shared Airflow installation could plausibly have been a
+    partition boundary and is not one. Workers execute DAG code with the
+    installation's own credentials, so a per-client partition inside a single
+    installation would be a convention rather than a boundary.
 blockers:
   - The chart bundles its own PostgreSQL, as Superset does.
   - DAG ownership is undecided -- which repository writes them, and how they

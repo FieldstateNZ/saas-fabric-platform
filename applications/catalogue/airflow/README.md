@@ -23,7 +23,7 @@ workflows and scheduled operations.
 platform service      yes
 deployment adopted    not yet
 operator usage        intended
-client partitioning   unsupported / unresolved
+client partitioning   assessed, and rejected
 client capability     not directly
 ```
 

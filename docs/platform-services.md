@@ -102,17 +102,43 @@ deployment: adopted          # adopted | planned | assessed
 required: true
 operatorUsage: true
 clientPartitioning:
-  mode: strong               # none | logical | strong
-  unit: realm
+  mode: strong               # unknown | none | logical | strong
+  unit: realm                # named only once the mechanism is settled
   provisioning: supported    # supported | unsupported
   owner: saas-fabric-clients
 clientCapability:
   available: false
 tenancy:
-  status: accepted           # accepted | candidate | unresolved | rejected
+  status: accepted           # accepted | candidate | unresolved | rejected | not-applicable
   rationale: |
     ...
 ```
+
+### `mode` is a claim, and tenancy licenses it
+
+`mode` states the *strength* of a boundary, so it cannot be asserted ahead of
+the assessment that establishes it. An earlier version of this model allowed
+`mode: strong` beside `status: candidate`, which read as *"we know this is a
+strong tenant boundary, but we have not established whether it is a boundary"* —
+and undermined the one rule the model exists to enforce.
+
+The two fields are therefore a state machine:
+
+| `tenancy.status` | means | valid `mode` |
+|---|---|---|
+| `accepted` | we rely on this as a tenant boundary | `logical` or `strong` |
+| `candidate` | a plausible upstream mechanism, assessment incomplete | `unknown` |
+| `unresolved` | partitioning intended, mechanism not settled | `unknown` |
+| `rejected` | assessed, and unsuitable as a boundary | `none` |
+| `not-applicable` | partitioning is not part of this service's role | `none` |
+
+A settled mechanism is named in `unit`; a proposed one in `candidateUnit`, which
+`candidate` requires — a candidate is a specific proposal, not a general
+intention.
+
+The last two states are deliberately distinct. *"We assessed this and it is not
+a boundary"* and *"this service does not partition clients at all"* are
+different facts, and collapsing them loses the assessment.
 
 A directory that supports a service rather than being one declares that
 instead, so the register stays honest about what is actually a service:
@@ -135,13 +161,20 @@ down as though it were a boundary.
 | External Secrets | yes | no | logical — `SecretStore` | accepted | yes |
 | OpenBao | yes | yes | strong — path prefix | accepted | yes |
 | Keycloak | yes | yes | strong — realm | accepted | yes |
-| OpenTelemetry | yes | no | none | unresolved | yes |
-| SaaS Fabric | yes | no | none | rejected — owns clients | yes |
-| Tailscale | no | yes | none | rejected — by design | yes |
-| Grafana | no | yes | logical — organisation | **candidate** | yes |
-| OpenFGA | **yes** | yes | strong — store | candidate | **planned** |
-| Superset | no | yes | none | unresolved | assessed |
+| Grafana | no | yes | unknown — organisation proposed | **candidate** | yes |
+| OpenFGA | **yes** | yes | unknown | unresolved | **planned** |
+| Superset | no | yes | unknown | unresolved | assessed |
 | Airflow | no | yes | none | rejected | assessed |
+| OpenTelemetry | yes | no | none | not-applicable | yes |
+| SaaS Fabric | yes | no | none | not-applicable | yes |
+| Tailscale | no | yes | none | not-applicable | yes |
+
+Read the bottom four rows carefully, because they are four different facts.
+Airflow was assessed and found unsuitable. Tailscale deliberately carries no
+client traffic at all. SaaS Fabric owns the definition of a client, so asking
+whether it is a tenant boundary inverts the relationship. OpenTelemetry is a
+transport boundary with no per-client object inside it — true of its role today,
+and a real partitioning question the moment per-client telemetry is wanted.
 
 OpenFGA is the row worth pausing on: required by the intended SaaS Fabric
 runtime and not yet deployed. That pairing is deliberate — recording it as
@@ -168,11 +201,12 @@ Current positions:
 
 | | |
 |---|---|
-| Keycloak | client partitioning **accepted** |
+| Keycloak, OpenBao, CloudNativePG, Envoy Gateway | **accepted** — relied on as boundaries |
 | Grafana | organisation model **promising**, unproven |
 | OpenFGA | partitioning strategy **undecided** |
 | Superset | **requires explicit assessment** |
-| Airflow | **not accepted** as a tenant isolation boundary |
+| Airflow | assessed and **rejected** as a tenant isolation boundary |
+| Tailscale, SaaS Fabric, OpenTelemetry | **not applicable** — partitioning is not part of their role |
 
 ## What `catalogue` means now
 

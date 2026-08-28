@@ -10,10 +10,12 @@ deployment: adopted
 required: false         # SaaS Fabric operates without it
 operatorUsage: true     # platform dashboards and operational visibility
 clientPartitioning:
-  mode: logical         # organisations, upstream's own separation unit
-  unit: organisation
-  provisioning: unsupported   # intended, not built -- see tenancy below
-  owner: saas-fabric-clients
+  # `unknown`, not `logical`. Organisations look like the right mechanism and
+  # that is a hypothesis, not a finding -- claiming a strength here would assert
+  # the very thing tenancy.status says is unestablished.
+  mode: unknown
+  candidateUnit: organisation
+  provisioning: unsupported
 clientCapability:
   available: false      # a candidate capability, not an offered one
 tenancy:

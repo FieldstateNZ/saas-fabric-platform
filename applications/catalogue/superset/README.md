@@ -23,7 +23,7 @@ Fabric decides its deployment tier, not its architectural identity — see
 platform service      yes
 deployment adopted    not yet
 operator usage        intended -- platform and operator analytics
-client partitioning   unresolved
+client partitioning   unresolved -- mode 'unknown'
 client capability     candidate
 ```
 
