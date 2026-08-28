@@ -67,7 +67,7 @@ counts, storage classes, hostnames, resource sizing.
 An environment with nothing to say about an application has no file for it —
 Argo CD is configured with `ignoreMissingValueFiles`, so the shared values apply
 unchanged. LucentRoot has no `saas-fabric.yaml` for that reason; production has
-no `grafana.yaml` because it does not run the catalogue.
+no `grafana.yaml` because it does not deploy Grafana yet.
 
 ## What must not go here
 
@@ -96,12 +96,36 @@ lives. See
 
 `kustomization.yaml` lists what this environment reconciles, and sets the Git
 ref above. Core and [`argocd/runtime`](../argocd/runtime/) are always included.
-The catalogue is one line, and omitting it yields a complete platform:
+The `catalogue` tier is one line, and omitting it yields a complete platform:
 
 | Environment | `applications/core` | operator plane | `applications/catalogue` |
 |---|---|---|---|
 | LucentRoot | yes | yes | yes |
 | Production | yes | no — no tailnet yet | no |
+
+**Enablement is independent of what a service is.** Grafana is the same platform
+service in both environments; LucentRoot deploys it and production does not yet.
+A service does not change architectural type by being switched on somewhere.
+
+### LucentRoot dogfoods the platform
+
+Its purpose is not only to prove that mandatory dependencies start. It exists to
+exercise the services SaaS Fabric expects to manage, which is why it enables
+things production does not:
+
+```text
+LucentRoot
+  Envoy Gateway      CloudNativePG      OpenBao
+  External Secrets   Keycloak           OpenTelemetry
+  Grafana            SaaS Fabric
+  OpenFGA    [when adopted]
+  Superset   [when adopted]
+  Airflow    [when adopted]
+```
+
+The bracketed three are not enabled to satisfy that list. Each still has to
+solve its deployment contract first — see
+[docs/platform-services.md](../docs/platform-services.md#the-register).
 
 The operator plane is `applications/core/tailscale` and
 `applications/core/operator-access`. Both are core, but an environment without a

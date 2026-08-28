@@ -1,0 +1,17 @@
+# Platform service contract. See docs/platform-services.md.
+service: openbao
+deployment: adopted
+required: true
+operatorUsage: true     # UI and CLI on the operator plane
+clientPartitioning:
+  mode: strong          # a path prefix plus a policy that cannot escape it
+  unit: secret/clients/<client>/*
+  provisioning: supported
+  owner: saas-fabric-clients
+clientCapability:
+  available: false
+tenancy:
+  status: accepted
+  rationale: |
+    Policies are deny-by-default and path-scoped, so a client token cannot read
+    secret/platform/* or another client's prefix.

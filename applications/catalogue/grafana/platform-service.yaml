@@ -1,0 +1,26 @@
+# Platform service contract. See docs/platform-services.md.
+#
+# The motivating case for this model. Grafana is not required by SaaS Fabric,
+# which under the old core/catalogue split made it "catalogue" and therefore
+# implicitly peripheral. It is in fact a platform-management capability that
+# operators use daily, and its organisation model is a plausible client
+# partition -- three independent facts the old classification could not express.
+service: grafana
+deployment: adopted
+required: false         # SaaS Fabric operates without it
+operatorUsage: true     # platform dashboards and operational visibility
+clientPartitioning:
+  mode: logical         # organisations, upstream's own separation unit
+  unit: organisation
+  provisioning: unsupported   # intended, not built -- see tenancy below
+  owner: saas-fabric-clients
+clientCapability:
+  available: false      # a candidate capability, not an offered one
+tenancy:
+  status: candidate
+  unknowns:
+    - Datasource scoping per organisation has not been proven to prevent a
+      client organisation reaching platform telemetry.
+    - Administrator escape paths between organisations are unassessed.
+    - No provisioning model exists for creating or removing a client
+      organisation and its datasources.

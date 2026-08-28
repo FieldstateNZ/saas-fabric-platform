@@ -1,0 +1,17 @@
+# Platform service contract. See docs/platform-services.md.
+service: cloudnative-pg
+deployment: adopted
+required: true
+operatorUsage: false
+clientPartitioning:
+  mode: strong          # a separate Cluster, with separate storage and credentials
+  unit: Cluster
+  provisioning: supported
+  owner: saas-fabric-clients
+clientCapability:
+  available: false      # a client gets a database because it is a client
+tenancy:
+  status: accepted
+  rationale: |
+    Separation is at the PostgreSQL instance level rather than the schema level,
+    so data, credentials and backups are disjoint by construction.

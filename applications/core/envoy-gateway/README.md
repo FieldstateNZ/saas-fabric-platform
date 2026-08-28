@@ -9,7 +9,8 @@
 | Application version | `v1.9.0` |
 | Licence | Apache-2.0 |
 | Namespace | `platform-system` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `0` |
 | Plane | **product** |
 

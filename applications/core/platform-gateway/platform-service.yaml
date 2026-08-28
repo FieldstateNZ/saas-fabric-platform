@@ -1,0 +1,4 @@
+# Not a platform service in its own right. See docs/platform-services.md.
+#
+# The shared Gateway and its listeners.
+componentOf: envoy-gateway

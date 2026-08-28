@@ -9,7 +9,8 @@
 | Container image | `ghcr.io/fieldstatenz/saas-fabric:<version>` |
 | Licence | Fieldstate |
 | Namespace | `platform-system` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `30` |
 
 ## What this directory is

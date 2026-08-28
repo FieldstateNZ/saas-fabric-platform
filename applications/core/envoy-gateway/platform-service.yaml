@@ -1,0 +1,18 @@
+# Platform service contract. See docs/platform-services.md.
+service: envoy-gateway
+deployment: adopted
+required: true          # the product plane; nothing reachable without it
+operatorUsage: false    # no operator-facing surface of its own
+clientPartitioning:
+  mode: logical         # a client's hostnames attach as routes to the shared Gateway
+  unit: HTTPRoute
+  provisioning: supported
+  owner: saas-fabric-clients
+clientCapability:
+  available: false      # routing is implied by having a client, never selected
+tenancy:
+  status: accepted
+  rationale: |
+    Route attachment is bounded by the Gateway's allowedRoutes selector, and a
+    route names the hostname it serves. Clients cannot enumerate or capture each
+    other's hostnames through the shared Gateway.

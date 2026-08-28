@@ -1,0 +1,4 @@
+# Not a platform service in its own right. See docs/platform-services.md.
+#
+# The single ClusterSecretStore joining External Secrets to OpenBao.
+componentOf: external-secrets

@@ -147,6 +147,19 @@ REQUIRED_DOC_FIELDS = (
     "Namespace",
 )
 
+# The platform service contract. See docs/platform-services.md.
+SERVICE_CONTRACT = "platform-service.yaml"
+DEPLOYMENT_STATES = ("adopted", "planned", "assessed")
+PARTITION_MODES = ("none", "logical", "strong")
+PROVISIONING_STATES = ("supported", "unsupported")
+TENANCY_STATES = ("accepted", "candidate", "unresolved", "rejected")
+
+# A boundary may be claimed only once it has been established. Anything short of
+# `accepted` means the assessment in docs/platform-services.md#assessing-tenancy
+# has not been completed, and intent must not be recorded as though it were a
+# boundary.
+TENANCY_PERMITTING_CLIENTS = ("accepted",)
+
 
 def fail(problems: list[str], message: str) -> None:
     problems.append(message)
@@ -854,6 +867,116 @@ def check_application_documentation(root: Path, problems: list[str]) -> None:
                     fail(problems, f"{readme.relative_to(root)}: missing '{field}'")
 
 
+def check_service_capabilities(root: Path, problems: list[str]) -> None:
+    """Section 14: capability is a declared contract, not a directory name.
+
+    `core` and `catalogue` are deployment tiers. What a service *is* -- whether
+    SaaS Fabric requires it, whether operators use it, whether it can hold
+    client partitions, whether it is offered as a client capability -- is
+    declared per service and checked here, because four independent properties
+    cannot be inferred from one filesystem location.
+
+    The rule that does the real work is the last one: a service may not claim
+    client capability or client provisioning while its tenancy status is
+    anything other than `accepted`. Without it, "we intend to partition this"
+    and "this is a boundary" look identical in Git.
+    """
+    services: dict[str, Path] = {}
+    components: dict[str, tuple[str, Path]] = {}
+
+    for klass in ("core", "catalogue"):
+        for application in sorted(d for d in (root / "applications" / klass).iterdir() if d.is_dir()):
+            where = application.relative_to(root)
+            contract = application / SERVICE_CONTRACT
+            if not contract.is_file():
+                fail(problems, f"{where}: no {SERVICE_CONTRACT}")
+                continue
+
+            try:
+                declared = yaml.safe_load(contract.read_text()) or {}
+            except yaml.YAMLError as error:
+                fail(problems, f"{where}/{SERVICE_CONTRACT}: not valid YAML -- {error}")
+                continue
+
+            if "componentOf" in declared:
+                if "service" in declared:
+                    fail(problems, f"{where}/{SERVICE_CONTRACT}: declares both 'service' and 'componentOf'")
+                components[str(declared["componentOf"])] = (str(where), application)
+                continue
+
+            name = declared.get("service")
+            if not name:
+                fail(problems, f"{where}/{SERVICE_CONTRACT}: declares neither 'service' nor 'componentOf'")
+                continue
+            if name in services:
+                fail(problems, f"{where}/{SERVICE_CONTRACT}: service '{name}' already declared by {services[name]}")
+            services[name] = where
+
+            _check_one_contract(where, declared, application, problems)
+
+    for parent, (where, _) in components.items():
+        if parent not in services:
+            fail(problems, f"{where}/{SERVICE_CONTRACT}: componentOf '{parent}', which is not a declared service")
+
+
+def _check_one_contract(where: Path, declared: dict, application: Path, problems: list[str]) -> None:
+    """Field validity, then the cross-field rules that carry the meaning."""
+    def bad(message: str) -> None:
+        fail(problems, f"{where}/{SERVICE_CONTRACT}: {message}")
+
+    deployment = declared.get("deployment")
+    if deployment not in DEPLOYMENT_STATES:
+        bad(f"deployment '{deployment}' is not one of {', '.join(DEPLOYMENT_STATES)}")
+    for field in ("required", "operatorUsage"):
+        if not isinstance(declared.get(field), bool):
+            bad(f"'{field}' must be true or false")
+
+    partitioning = declared.get("clientPartitioning") or {}
+    mode = partitioning.get("mode")
+    provisioning = partitioning.get("provisioning")
+    if mode not in PARTITION_MODES:
+        bad(f"clientPartitioning.mode '{mode}' is not one of {', '.join(PARTITION_MODES)}")
+    if provisioning not in PROVISIONING_STATES:
+        bad(f"clientPartitioning.provisioning '{provisioning}' is not one of {', '.join(PROVISIONING_STATES)}")
+
+    capability = declared.get("clientCapability") or {}
+    available = capability.get("available")
+    if not isinstance(available, bool):
+        bad("clientCapability.available must be true or false")
+
+    tenancy = declared.get("tenancy") or {}
+    status = tenancy.get("status")
+    if status not in TENANCY_STATES:
+        bad(f"tenancy.status '{status}' is not one of {', '.join(TENANCY_STATES)}")
+        return
+
+    # An assessment has to say something. `accepted` and `rejected` are positions
+    # and need a reason; the others are admissions and need the open questions.
+    if status in ("accepted", "rejected") and not tenancy.get("rationale"):
+        bad(f"tenancy.status is '{status}' but no rationale is recorded")
+    if status in ("candidate", "unresolved") and not tenancy.get("unknowns"):
+        bad(f"tenancy.status is '{status}' but no unknowns are recorded -- "
+            "document what has not been established rather than leaving it blank")
+
+    # No premature tenancy claims.
+    if available and status not in TENANCY_PERMITTING_CLIENTS:
+        bad(f"claims clientCapability.available with tenancy.status '{status}' -- "
+            "a capability may not be offered to clients before its isolation is established")
+    if provisioning == "supported" and status not in TENANCY_PERMITTING_CLIENTS:
+        bad(f"claims clientPartitioning.provisioning 'supported' with tenancy.status '{status}'")
+    if available and mode == "none":
+        bad("claims clientCapability.available while clientPartitioning.mode is 'none'")
+    if provisioning == "supported" and mode == "none":
+        bad("claims clientPartitioning.provisioning 'supported' while mode is 'none'")
+
+    # The contract must match what the directory actually does.
+    deploys = (application / "application.yaml").is_file()
+    if deployment == "adopted" and not deploys:
+        bad("deployment is 'adopted' but the directory has no application.yaml")
+    if deployment in ("planned", "assessed") and deploys:
+        bad(f"deployment is '{deployment}' but the directory has an application.yaml")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -880,6 +1003,7 @@ def main() -> int:
     check_seal_key_does_not_need_openbao(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
+    check_service_capabilities(root, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")

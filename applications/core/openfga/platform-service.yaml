@@ -1,0 +1,25 @@
+# Platform service contract. See docs/platform-services.md.
+#
+# Declared before it is deployed, deliberately. SaaS Fabric's intended runtime
+# needs a fine-grained authorization service, and leaving it out of the model
+# until the day it is installed would make the platform look complete when it
+# is not. required: true with deployment: planned is the honest pairing, and it
+# is what puts this on the known-gaps list.
+service: openfga
+deployment: planned
+required: true
+operatorUsage: true
+clientPartitioning:
+  mode: strong
+  unit: store             # provisional; the partitioning strategy is undecided
+  provisioning: unsupported
+  owner: saas-fabric-clients
+clientCapability:
+  available: false        # clients get authorization indirectly, via Fabric
+tenancy:
+  status: candidate
+  unknowns:
+    - Whether a client partition is a separate store or a namespaced type in a
+      shared store is an open architecture decision.
+    - The relationship between a client's authorization model and its Keycloak
+      realm is undefined.

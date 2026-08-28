@@ -77,6 +77,56 @@ No resource may have competing ownership. If both an Argo CD Application and
 OpenTofu could plausibly reconcile something, the boundary is wrong and must be
 moved before the resource is created — not resolved afterwards by convention.
 
+## Platform services
+
+The ownership rule above says who owns a *resource*. This says what a *service*
+is, which the repository used to answer far too narrowly.
+
+Applications were classified by one question — does SaaS Fabric require this to
+operate? — into `core` and `catalogue`. That conflated two unrelated things:
+whether SaaS Fabric depends on a service, and whether the service can offer
+client-scoped capability. Grafana is optional, operator-critical, and plausibly
+client-partitionable, and one binary could not say so.
+
+Four independent properties now, declared per service in a
+`platform-service.yaml` beside the application:
+
+| Property | Asks |
+|---|---|
+| `required` | does SaaS Fabric fail to operate without it? |
+| `operatorUsage` | do the people running the platform use it? |
+| `clientPartitioning` | can one runtime hold separated client partitions? |
+| `clientCapability` | is it offered to a client as a selectable capability? |
+
+Keycloak is the reference shape, and generalises to *one runtime, one platform
+administrative context, one partition per client*:
+
+```text
+Keycloak runtime            platform
+  ├── master / admin        platform
+  ├── Acme realm            client
+  └── Contoso realm         client
+```
+
+Which makes the client-facing half of the ownership rule a general statement
+rather than a list of special cases:
+
+> **Platform owns the shared runtime. Client provisioning owns the client-scoped
+> partitions inside it.**
+
+Two consequences worth stating explicitly, because both were previously implied
+the other way:
+
+- **`core` and `catalogue` are deployment groupings** — a privilege tier and a
+  namespace — not architectural identity. `catalogue` grants no cluster-scoped
+  resources; that is the entire distinction.
+- **Required versus optional is a deployment dependency property.** It does not
+  determine whether operators depend on a service, or whether clients can.
+
+The full model, the register of every service and its classification, and the
+isolation checklist a service must pass before claiming client partitioning are
+in [platform-services.md](platform-services.md).
+
 ## Ownership contract
 
 | Resource | Owner |
@@ -304,7 +354,7 @@ Waves are kept few and meaningful:
 | `10` | platform `Gateway`, operator access, OpenTelemetry collector, OpenBao, External Secrets, Keycloak database | routing, data, secrets and telemetry foundations |
 | `20` | Keycloak, the OpenBao secret store | Keycloak needs its database Healthy and a Gateway to attach to; the store needs both halves it joins |
 | `30` | SaaS Fabric | needs routing, identity, secrets and telemetry |
-| `40` | catalogue applications | optional |
+| `40` | `catalogue`-grouped services | nothing in an earlier wave depends on them |
 | `50` | operator-plane access | must never gate anything — see below |
 
 This ordering is only real because of the
@@ -379,7 +429,7 @@ rather than by disabling pruning across the platform.
 | `data-system` | CloudNativePG operator |
 | `observability` | OpenTelemetry collector |
 | `tailscale` | Tailscale operator and the `ts-*` proxies it creates |
-| `catalogue` | optional catalogue workloads |
+| `catalogue` | services deployed in the narrower `catalogue` privilege tier |
 
 Client namespaces (`client-acme`, `client-example`) are created by the client
 layer and never appear here. `scripts/check.py` fails the build if one does.
@@ -566,6 +616,10 @@ Recorded rather than hidden. None blocks a cluster from converging.
 | Secret injection runs as cluster-admin | The bootstrap workflow uses the node kubeconfig, which can do anything, to write one Secret in one namespace | a platform-owned ServiceAccount with a Role permitting `create`/`patch` on `operator-oauth` in `tailscale` and nothing else |
 | No database backups | The Keycloak `Cluster` has no `barmanObjectStore` | `applications/core/keycloak-database`, against storage from `saas-fabric-hosting` |
 | SaaS Fabric has no image | The Deployment ships with `replicas: 0`, so the platform substrate converges but SaaS Fabric does not run — see [First milestone](#first-milestone) | a real tag in each environment overlay, once the application repository publishes one |
-| Airflow DAG ownership undecided | Airflow cannot be adopted into the catalogue | [`applications/catalogue/airflow`](../applications/catalogue/airflow/) |
+| **OpenFGA is required and not deployed** | SaaS Fabric's intended runtime needs fine-grained authorization — *may this subject act on this object* — which neither Keycloak nor OpenBao answers. The platform is incomplete until it exists, and its contract says `required: true, deployment: planned` so this reads as a gap rather than an omission | [`applications/core/openfga`](../applications/core/openfga/); the partitioning strategy is a genuine architecture decision, not an implementation detail |
+| Airflow DAG ownership undecided, and it is not an isolation boundary | Airflow cannot be adopted. Separately: a shared installation executes DAG code with its own credentials, so a per-client partition inside one installation would be convention rather than a boundary | [`applications/catalogue/airflow`](../applications/catalogue/airflow/) |
+| Superset's client partitioning is unassessed | It remains a platform service candidate, but must not be offered as a client capability until the isolation checklist has actually been worked through. The bundled PostgreSQL is a separate, implementation-level blocker | [`applications/catalogue/superset`](../applications/catalogue/superset/); [the checklist](platform-services.md#assessing-tenancy) |
+| Grafana client organisations are intended, not built | The platform-management use is real today; client organisations are a candidate. Datasource scoping and administrator escape paths between organisations are unproven, so no client capability may be declared yet | [`applications/catalogue/grafana`](../applications/catalogue/grafana/) |
+| Telemetry carries no per-client attribute | Client separation of telemetry would rest on convention rather than a boundary, so OpenTelemetry's tenancy status is `unresolved` | [`applications/core/observability`](../applications/core/observability/) |
 | OpenBao's `initialize` stanza runs once, upstream-by-design | Editing it changes nothing on a running instance, while Argo CD still reports `Synced`/`Healthy` — the manifest matches and the state inside OpenBao does not. The only place in the platform where reconciled does not mean matches Git | On LucentRoot, rebuild: storage is disposable and its policies are immutable-by-rebuild. Production needs continuous reconciliation instead — the same OpenTofu route the client layer already uses for per-client policies. See [`applications/core/openbao`](../applications/core/openbao/README.md) |
 | Keycloak's admin console is unavailable on LucentRoot | `KC_HOSTNAME` is `http` (product plane, no CA for `*.lucentroot.internal`) while the console is served over `https` on the tailnet. Keycloak loads realm resources from the *frontend* hostname regardless of `KC_HOSTNAME_ADMIN`, so the browser blocks the third-party-cookie iframe as mixed content and login fails outright, not partially | TLS on the LucentRoot product listener — a real subdomain with ACME DNS-01 is the cheapest path that browsers trust and it makes LucentRoot exercise the same TLS path as production. Blocked on the same gap as the first row |

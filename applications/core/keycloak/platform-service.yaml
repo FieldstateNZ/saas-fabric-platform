@@ -1,0 +1,21 @@
+# Platform service contract. See docs/platform-services.md.
+#
+# The reference pattern for every shared service: one runtime, a platform
+# administrative context, and one partition per client.
+service: keycloak
+deployment: adopted
+required: true
+operatorUsage: true     # the administration console, on the operator plane
+clientPartitioning:
+  mode: strong
+  unit: realm
+  provisioning: supported
+  owner: saas-fabric-clients
+clientCapability:
+  available: false      # every client has identity; it is not selectable
+tenancy:
+  status: accepted
+  rationale: |
+    A realm is Keycloak's own isolation boundary: separate users, clients,
+    roles, tokens, signing keys and administrative delegation. Cross-realm
+    access requires deliberate federation.

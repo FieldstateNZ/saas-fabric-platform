@@ -9,7 +9,8 @@
 | Application version | `v1.102.3` |
 | Licence | BSD-3-Clause |
 | Namespace | `tailscale` |
-| Class | core |
+| Grouping | `core` — a deployment tier, not a classification |
+| Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `0` |
 | Plane | **operator** |
 

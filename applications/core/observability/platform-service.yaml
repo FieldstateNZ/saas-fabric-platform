@@ -1,0 +1,17 @@
+# Platform service contract. See docs/platform-services.md.
+service: opentelemetry
+deployment: adopted
+required: true          # the telemetry boundary every service reports through
+operatorUsage: false    # a pipeline, not a console -- Grafana is the surface
+clientPartitioning:
+  mode: none
+  provisioning: unsupported
+clientCapability:
+  available: false
+tenancy:
+  status: unresolved
+  unknowns:
+    - No per-client attribute is enforced on emitted telemetry, so client
+      separation would today rest on convention rather than on a boundary.
+    - The pipeline terminates in a debug exporter, so no backend's tenancy
+      model has been assessed.
