@@ -1,17 +1,14 @@
 # Production: two replicas, public hostname, TLS terminated at the Gateway's
 # https listener rather than by a certificate attached to this service.
 #
-# Product plane only. Production has no operator plane yet, so Keycloak's admin
-# console is reachable by port-forward and nothing else. When a tailnet exists,
-# an `ingress` block with ingressClassName: tailscale belongs here — see
-# environments/lucentroot/config/keycloak.yaml.
+# Product plane only, permanently. Keycloak's admin console is not published on
+# any plane in any environment: SaaS Fabric is the administrative control plane
+# and reaches Keycloak over its Admin REST API. Production therefore needs no
+# Keycloak admin hostname, now or when a tailnet exists.
 replicas: 2
 
-# Production runs no operator plane yet, so the console answers on the same
-# hostname as everything else. When a tailnet exists, admin moves to it.
 hostnames:
   public: https://auth.fieldstate.nz
-  admin: https://auth.fieldstate.nz
 
 httpRoute:
   enabled: true

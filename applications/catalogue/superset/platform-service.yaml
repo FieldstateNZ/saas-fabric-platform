@@ -3,6 +3,10 @@ service: superset
 deployment: assessed          # not adopted; see README.md
 required: false
 operatorUsage: true           # intended: platform and operator analytics
+controlPlane:
+  # Analytics UI is the capability, as with Grafana.
+  managed: false
+  upstreamAdminSurface: exposed
 clientPartitioning:
   mode: unknown               # partitioning is intended; the mechanism is not settled
   provisioning: unsupported

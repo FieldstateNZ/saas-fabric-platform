@@ -9,6 +9,12 @@ service: grafana
 deployment: adopted
 required: false         # SaaS Fabric operates without it
 operatorUsage: true     # platform dashboards and operational visibility
+controlPlane:
+  # The counter-example, and the reason this is not one flag. Grafana's UI *is*
+  # the capability -- dashboards are the thing operators want, not a vendor
+  # administration surface wrapped around it. It stays published.
+  managed: partial
+  upstreamAdminSurface: exposed
 clientPartitioning:
   # `unknown`, not `logical`. Organisations look like the right mechanism and
   # that is a hypothesis, not a finding -- claiming a strength here would assert

@@ -71,8 +71,13 @@ Three rules:
    and the OpenTelemetry collector are reached by service DNS. A plane is
    something a service earns, not a default.
 2. **A service can be on both, and then the split must be exact.** Keycloak's
-   OIDC endpoints are product; its admin console is operator-only. A bare `/`
-   PathPrefix on the product plane silently undoes that.
+   OIDC endpoints are product-plane; a bare `/` PathPrefix silently puts `/admin`
+   there too.
+   Publishing an upstream admin console on the operator plane needs its own
+   justification — SaaS Fabric is the administrative control plane, and
+   *"upstream ships an admin UI"* is not an operational need. Keycloak's console
+   is on neither plane. See
+   [the control-plane rule](architecture.md#the-administrative-control-plane).
 3. **Client traffic is product-plane only.** Never route a client through
    Tailscale.
 

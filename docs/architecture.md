@@ -202,8 +202,8 @@ hostname belongs to a plane for a stated reason.
              │                             │
   client and platform HTTP        direct internal / admin
              │                             │
-  fabric / applications           Argo CD / OpenBao UI /
-  client hostnames                Keycloak admin / Grafana
+  fabric / applications           Argo CD / Grafana /
+  client hostnames                OpenBao UI (break-glass)
 ```
 
 | | Product plane | Operator plane |
@@ -225,9 +225,9 @@ the Tailscale operator owns.
 |---|---|---|
 | SaaS Fabric runtime endpoint | ✅ | — |
 | Keycloak OIDC endpoints (`/realms`, `/resources`, `/.well-known`) | ✅ | — |
-| Keycloak administration (`/admin`) | ❌ | ✅ |
+| Keycloak administration (`/admin`) | ❌ | ❌ — see below |
 | OpenBao API used by workloads | cluster-local, neither plane | — |
-| OpenBao operator UI and API | ❌ | ✅ |
+| OpenBao operator UI and API | ❌ | ✅, break-glass |
 | Grafana | ❌ | ✅ |
 | Argo CD | ❌ | ✅ |
 | Airflow UI, when adopted | ❌ | ✅ |
@@ -235,10 +235,13 @@ the Tailscale operator owns.
 
 **Keycloak is the case worth understanding.** It is not an internal service:
 applications genuinely need its authentication endpoints on the product edge.
-It is the *administrative* surface that has no reason to be there. So its
-product-plane route matches only the OIDC paths, and the whole application —
-admin console included — is exposed on the operator plane where only the tailnet
-can reach it.
+Its *administrative* surface has no reason to be there — and, since SaaS Fabric
+became the administrative control plane, no reason to be on the operator plane
+either. Its product-plane route matches only the OIDC paths, and its admin
+console is published nowhere at all.
+
+That is a deliberate permanent absence rather than a hostname waiting to be
+assigned. See [The administrative control plane](#the-administrative-control-plane).
 
 A bare `/` PathPrefix on the product plane would quietly undo that, so
 `scripts/check.py` rejects it for any route whose backend carries an admin
@@ -278,6 +281,116 @@ It is core, and it is enabled per environment:
 listed by each environment that runs one. LucentRoot does. Production does not
 yet — it has no tailnet — so its administrative surfaces are reachable by
 `kubectl port-forward` and nothing else.
+
+## The administrative control plane
+
+> **SaaS Fabric is the administrative control plane for the services it manages.
+> A shared platform service may expose the runtime endpoints applications and
+> clients need. It should not expose its upstream administrative UI as part of
+> normal platform operation.**
+
+Operators manage tenants and platform capability through SaaS Fabric:
+
+```text
+operator → SaaS Fabric UI → SaaS Fabric API → platform service API
+```
+
+and not by logging in to each upstream product in turn:
+
+```text
+operator ─┬─ Keycloak console
+          ├─ OpenBao UI
+          ├─ Grafana admin
+          └─ service-specific consoles
+```
+
+The second shape is what a platform accretes by default, because every upstream
+project ships a console and publishing it is one line of YAML. **"Upstream
+software ships an admin UI" is not an operational need.** Operator-plane
+exposure requires a reason of its own.
+
+### Not every upstream UI is the same kind of thing
+
+The distinction that makes this tractable: some upstream UIs *are* the
+capability operators want; others are vendor administration surfaces that SaaS
+Fabric replaces. `operatorUsage` says operators use the service. It does not
+say they should use *its* UI, so the service contract states both.
+
+| Service | Managed by Fabric | Upstream admin UI |
+|---|---|---|
+| Keycloak | yes | **not exposed** — Fabric owns identity management |
+| OpenFGA | yes | none — API only |
+| Grafana | partial | **exposed** — dashboards *are* the capability |
+| OpenBao | partial | break-glass only |
+
+### Keycloak
+
+The first service to adopt the rule fully. Its runtime role is unchanged:
+client-facing authentication is served through each client's own canonical
+hostname by Envoy, and Keycloak needs no public hostname of its own.
+
+```text
+Client browser → https://www.example.com → Envoy → Acme realm endpoints
+```
+
+What changed is that the admin console is published on **no** plane. `/admin/*`
+stays off the product plane — now a permanent rule rather than a gap awaiting an
+admin hostname — and its operator-plane `Ingress` has been removed. `check.py`
+rejects both a product-plane route reaching `/admin` and any `Ingress`
+publishing a service a contract names as a withheld administrative surface, so
+this cannot return by accident.
+
+Administration happens server-side, through the Keycloak Admin REST API, reached
+cluster-locally. Privileged credentials never reach a browser:
+
+```text
+browser → Fabric API → Keycloak Admin API          correct
+browser → Keycloak Admin API                       never
+```
+
+### Authority stays with the declarative source
+
+The control plane must not become a second source of truth. Where client
+configuration is Git-owned, the UI mutates that source and reconciliation
+applies it:
+
+```text
+human intent → Fabric UI/API → declarative client state → reconciliation → Keycloak
+```
+
+What this must never become is Git saying one thing while the UI changes
+Keycloak to another. The reconciliation implementation is future work; the
+authority boundary is not negotiable.
+
+### Administrative identity
+
+SaaS Fabric needs a machine identity for the operations it owns — not a human
+account, not a persistent browser login, and not the master admin account driven
+from a UI. It should hold the least privilege that satisfies the client
+composition contract: realms, realm roles, application clients, protocol
+settings, and client-scoped groups or users where Fabric defines them.
+Unrestricted master-realm administration is a last resort, and LucentRoot may be
+broader than production only where justified.
+
+That credential is a platform runtime secret at `secret/platform/*`, delivered
+by External Secrets, and never committed. It does not exist yet — see
+[Known gaps](#known-gaps).
+
+### Break-glass
+
+Direct administration remains technically possible and is deliberately awkward:
+
+```text
+operator → kubectl port-forward → Keycloak
+```
+
+No permanent ingress exists to make that convenient, because convenience is how
+the exception becomes the norm. Using it bypasses the control plane, so it is
+for diagnostics and recovery, not operation.
+
+The operator plane itself stays — the Kubernetes API, Argo CD, Grafana and
+OpenBao diagnostics all genuinely need it. Removing a console is not the same as
+removing the plane.
 
 ## Argo CD runtime contract
 
@@ -612,14 +725,14 @@ Recorded rather than hidden. None blocks a cluster from converging.
 | No certificate automation | The production Gateway listener references a TLS secret that must be injected by hand | a `cert-manager` core application; it has a genuine platform requirement once public hostnames are served |
 | No telemetry backend | All three OTLP pipelines terminate in the `debug` exporter | an exporter in `environments/<env>/config/observability.yaml` |
 | No OpenBao auto-unseal **in production** | A restarted production pod must be unsealed by an operator. LucentRoot auto-unseals against a disposable static seal | an `azurekeyvault` seal stanza in `environments/production/config/openbao.yaml`, once `saas-fabric-hosting` supplies a vault and identity |
-| No operator plane in production | Production administrative surfaces are reachable only by `kubectl port-forward`. Keycloak is worse than that: `KC_HOSTNAME_ADMIN` is the public hostname, whose HTTPRoute deliberately excludes `/admin`, so the admin console has no route at all | a tailnet for production, then the same two lines LucentRoot uses |
+| No operator plane in production | Argo CD, Grafana and OpenBao diagnostics are reachable only by `kubectl port-forward`. Keycloak is no longer among them — its console is deliberately published nowhere, so production needs no Keycloak admin hostname | a tailnet for production, then the same two lines LucentRoot uses |
 | Secret injection runs as cluster-admin | The bootstrap workflow uses the node kubeconfig, which can do anything, to write one Secret in one namespace | a platform-owned ServiceAccount with a Role permitting `create`/`patch` on `operator-oauth` in `tailscale` and nothing else |
 | No database backups | The Keycloak `Cluster` has no `barmanObjectStore` | `applications/core/keycloak-database`, against storage from `saas-fabric-hosting` |
 | SaaS Fabric has no image | The Deployment ships with `replicas: 0`, so the platform substrate converges but SaaS Fabric does not run — see [First milestone](#first-milestone) | a real tag in each environment overlay, once the application repository publishes one |
+| **SaaS Fabric has no Keycloak service identity** | The control-plane model depends on Fabric holding a machine identity for the Keycloak Admin API, and none exists. Nothing is broken today because Fabric runs at zero replicas, but the administrative path is declared and unimplemented | a Keycloak service-account client with least-privilege realm-management roles, its credential at `secret/platform/*` via External Secrets. Creating it needs a declarative path into Keycloak's own configuration, which the platform does not yet have |
 | **OpenFGA is required and not deployed** | SaaS Fabric's intended runtime needs fine-grained authorization — *may this subject act on this object* — which neither Keycloak nor OpenBao answers. The platform is incomplete until it exists, and its contract says `required: true, deployment: planned` so this reads as a gap rather than an omission | [`applications/core/openfga`](../applications/core/openfga/); the partitioning strategy is a genuine architecture decision, not an implementation detail |
 | Airflow DAG ownership undecided, and it is not an isolation boundary | Airflow cannot be adopted. Separately: a shared installation executes DAG code with its own credentials, so a per-client partition inside one installation would be convention rather than a boundary | [`applications/catalogue/airflow`](../applications/catalogue/airflow/) |
 | Superset's client partitioning is unassessed | It remains a platform service candidate, but must not be offered as a client capability until the isolation checklist has actually been worked through. The bundled PostgreSQL is a separate, implementation-level blocker | [`applications/catalogue/superset`](../applications/catalogue/superset/); [the checklist](platform-services.md#assessing-tenancy) |
 | Grafana client organisations are intended, not built | The platform-management use is real today; client organisations are a candidate. Datasource scoping and administrator escape paths between organisations are unproven, so no client capability may be declared yet | [`applications/catalogue/grafana`](../applications/catalogue/grafana/) |
 | Telemetry carries no per-client attribute | The collector is a transport boundary today, so its tenancy is `not-applicable` rather than unresolved. The moment per-client telemetry is wanted this becomes a real partitioning question: it needs a client attribute enforced at ingest, and a backend whose own tenancy model has been assessed | [`applications/core/observability`](../applications/core/observability/) |
 | OpenBao's `initialize` stanza runs once, upstream-by-design | Editing it changes nothing on a running instance, while Argo CD still reports `Synced`/`Healthy` — the manifest matches and the state inside OpenBao does not. The only place in the platform where reconciled does not mean matches Git | On LucentRoot, rebuild: storage is disposable and its policies are immutable-by-rebuild. Production needs continuous reconciliation instead — the same OpenTofu route the client layer already uses for per-client policies. See [`applications/core/openbao`](../applications/core/openbao/README.md) |
-| Keycloak's admin console is unavailable on LucentRoot | `KC_HOSTNAME` is `http` (product plane, no CA for `*.lucentroot.internal`) while the console is served over `https` on the tailnet. Keycloak loads realm resources from the *frontend* hostname regardless of `KC_HOSTNAME_ADMIN`, so the browser blocks the third-party-cookie iframe as mixed content and login fails outright, not partially | TLS on the LucentRoot product listener — a real subdomain with ACME DNS-01 is the cheapest path that browsers trust and it makes LucentRoot exercise the same TLS path as production. Blocked on the same gap as the first row |

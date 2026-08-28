@@ -3,6 +3,11 @@ service: openbao
 deployment: adopted
 required: true
 operatorUsage: true     # UI and CLI on the operator plane
+controlPlane:
+  # Increasingly managed by Fabric, but the UI stays reachable on the operator
+  # plane for diagnostics and break-glass. See docs/architecture.md#break-glass.
+  managed: partial
+  upstreamAdminSurface: break-glass
 clientPartitioning:
   mode: strong          # a path prefix plus a policy that cannot escape it
   unit: secret/clients/<client>/*

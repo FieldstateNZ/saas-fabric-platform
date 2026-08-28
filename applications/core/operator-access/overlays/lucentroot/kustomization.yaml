@@ -20,16 +20,6 @@ patches:
         value: argocd-lucentroot
   - target:
       kind: Ingress
-      name: keycloak-admin
-    patch: |-
-      - op: replace
-        path: /spec/rules/0/host
-        value: auth-lucentroot
-      - op: replace
-        path: /spec/tls/0/hosts/0
-        value: auth-lucentroot
-  - target:
-      kind: Ingress
       name: openbao-admin
     patch: |-
       - op: replace

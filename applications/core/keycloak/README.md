@@ -85,7 +85,6 @@ default:
 | | LucentRoot | Production |
 |---|---|---|
 | `hostnames.public` | `http://auth.lucentroot.internal` | `https://auth.fieldstate.nz` |
-| `hostnames.admin` | `https://auth-lucentroot.tail5a7546.ts.net` | same as public |
 
 **The scheme must match the listener that serves it.** LucentRoot's shared
 Gateway has one listener — `http` on 80 — and Keycloak's `HTTPRoute` attaches to
@@ -130,7 +129,7 @@ planes, and the split is not "Keycloak is internal".
 | Plane | Carries | Paths |
 |---|---|---|
 | Product (Envoy) | what applications call | `/realms`, `/resources`, `/.well-known` |
-| Operator (Tailscale) | administration | everything, including `/admin` |
+| Operator (Tailscale) | — | **nothing**; the admin console is published on no plane |
 
 Applications genuinely need the authentication endpoints on the product edge.
 The admin console and admin API do not belong there, so the product-plane route
@@ -138,9 +137,16 @@ lists its path matches explicitly rather than taking the chart's default of a
 single `/` prefix — which would put `/admin` back on the public edge.
 
 `scripts/check.py` rejects a `/` or `/admin` match on the product plane for this
-service. Production currently has no operator plane, so its admin console is
-reachable by `kubectl port-forward` and nothing else. See
-[docs/architecture.md](../../../docs/architecture.md#exposure-planes).
+service, and separately rejects any `Ingress` publishing `keycloak-http` — the
+service that would front the console.
+
+**The console is deliberately unreachable in every environment.** SaaS Fabric is
+the administrative control plane for Keycloak and drives it server-side through
+the Admin REST API; the upstream console is a vendor administration surface, not
+the capability. This also makes the old LucentRoot mixed-content problem moot
+rather than fixed: the affected UI is no longer part of the operator experience.
+Break-glass access is `kubectl port-forward`, deliberately inconvenient. See
+[docs/architecture.md](../../../docs/architecture.md#the-administrative-control-plane).
 
 ## Dependencies
 

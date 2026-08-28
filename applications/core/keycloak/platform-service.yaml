@@ -6,6 +6,16 @@ service: keycloak
 deployment: adopted
 required: true
 operatorUsage: true     # the administration console, on the operator plane
+controlPlane:
+  # The first service to adopt the rule fully. SaaS Fabric administers Keycloak
+  # through its Admin REST API, server-side and cluster-locally. The upstream
+  # console is a vendor administration surface, not the capability itself, so it
+  # is published on no plane -- and `adminBackends` is what check.py uses to
+  # prove no Ingress quietly puts it back.
+  managed: true
+  upstreamAdminSurface: not-exposed
+  adminBackends:
+    - keycloak-http
 clientPartitioning:
   mode: strong
   unit: realm

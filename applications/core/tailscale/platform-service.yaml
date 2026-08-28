@@ -3,6 +3,10 @@ service: tailscale
 deployment: adopted
 required: false         # environments without an operator plane are complete
 operatorUsage: true     # it is the operator plane
+controlPlane:
+  # Infrastructure reconciled by Argo CD, with no operator-facing console.
+  managed: false
+  upstreamAdminSurface: none
 clientPartitioning:
   mode: none
   provisioning: unsupported

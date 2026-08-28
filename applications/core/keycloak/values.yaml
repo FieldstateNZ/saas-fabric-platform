@@ -54,18 +54,11 @@ dbchecker:
 # the OIDC issuer, so it must be the product-plane URL.
 hostnames:
   public: https://auth.invalid
-  admin: https://auth-admin.invalid
 
 # The admin credential is generated in-cluster; see ../keycloak-credentials.
 extraEnv: |
   - name: KC_HOSTNAME
     value: {{ .Values.hostnames.public }}
-  # The two planes stated in Keycloak's own configuration: tokens and redirects
-  # use the product hostname, the administration console answers on the
-  # operator-plane one. Without this, reaching the console over the tailnet is a
-  # hostname mismatch against the issuer.
-  - name: KC_HOSTNAME_ADMIN
-    value: {{ .Values.hostnames.admin }}
   - name: KC_BOOTSTRAP_ADMIN_USERNAME
     valueFrom:
       secretKeyRef:

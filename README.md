@@ -72,15 +72,16 @@ Not one routing layer with exceptions — two, with disjoint jobs.
              │                             │
   client and platform HTTP        direct internal / admin
              │                             │
-  fabric / applications           Argo CD / OpenBao UI /
-  client hostnames                Keycloak admin / Grafana
+  fabric / applications           Argo CD / Grafana /
+  client hostnames                OpenBao UI (break-glass)
 ```
 
 Envoy carries product and client traffic. Tailscale carries private operational
 access and **never** client traffic. A hostname is on a plane for a stated
-reason, and some services are on both: Keycloak's OIDC endpoints are product,
-its admin console is operator-only. Full contract in
-[docs/architecture.md](docs/architecture.md#exposure-planes).
+reason. Keycloak's OIDC endpoints are product-plane; its admin console is on
+neither plane, because SaaS Fabric is the administrative control plane and
+reaches Keycloak through its Admin API. Full contract in
+[docs/architecture.md](docs/architecture.md#the-administrative-control-plane).
 
 ## Environments
 

@@ -3,6 +3,11 @@ service: saas-fabric
 deployment: adopted
 required: true          # it is the product this platform exists to run
 operatorUsage: false
+controlPlane:
+  # It is the control plane. Its own surface is the one operators are meant to
+  # use, which is why `exposed` here means the opposite of a vendor console.
+  managed: false
+  upstreamAdminSurface: exposed
 clientPartitioning:
   mode: none
   provisioning: unsupported

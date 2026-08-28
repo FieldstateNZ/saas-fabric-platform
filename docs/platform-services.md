@@ -39,6 +39,7 @@ Independent. Do not infer any one from any other.
 | `operatorUsage` | do the people running the platform use it? |
 | `clientPartitioning` | can one runtime hold separated client partitions? |
 | `clientCapability` | is it offered to a client as a selectable capability? |
+| `controlPlane` | does SaaS Fabric administer it, and is its own admin UI published? |
 
 Two inferences that look reasonable and are not:
 
@@ -47,6 +48,35 @@ Two inferences that look reasonable and are not:
 - **Partitionable does not mean offered.** Keycloak partitions strongly per
   client, and no client selects it — every client has identity by virtue of
   being a client.
+
+### `operatorUsage` does not mean "use its UI"
+
+A fifth property, separate on purpose. `operatorUsage: true` says operators use
+the service. It does not say they should use *that service's own console*.
+
+> **SaaS Fabric is the administrative control plane for the services it
+> manages.** A shared service may expose the runtime endpoints applications
+> need; it should not expose its upstream administrative UI as part of normal
+> operation.
+
+The distinction that makes this workable: **some upstream UIs are themselves the
+capability; others are merely vendor administration surfaces.**
+
+| Service | `managed` | `upstreamAdminSurface` | Why |
+|---|---|---|---|
+| Keycloak | true | `not-exposed` | Fabric owns identity management; the console is vendor administration |
+| OpenFGA | true | `none` | API-only upstream, nothing to withhold |
+| Grafana | partial | `exposed` | dashboards **are** the capability operators want |
+| OpenBao | partial | `break-glass` | published for diagnostics, outside the normal contract |
+
+Grafana is the case that stops this becoming a blanket ban. Hiding its UI would
+remove the thing operators came for. Hiding Keycloak's removes a login screen
+they should not have needed.
+
+`not-exposed` names the Kubernetes Services that would front the console in
+`adminBackends`, and `check.py` proves no `Ingress` publishes them — so the rule
+survives someone adding four convenient lines of YAML later. See
+[architecture.md](architecture.md#the-administrative-control-plane).
 
 ## The reference pattern
 
@@ -101,6 +131,10 @@ service: keycloak
 deployment: adopted          # adopted | planned | assessed
 required: true
 operatorUsage: true
+controlPlane:
+  managed: true              # true | partial | false
+  upstreamAdminSurface: not-exposed   # none | not-exposed | break-glass | exposed
+  adminBackends: [keycloak-http]      # required when not-exposed
 clientPartitioning:
   mode: strong               # unknown | none | logical | strong
   unit: realm                # named only once the mechanism is settled
