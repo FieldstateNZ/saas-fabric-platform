@@ -17,4 +17,3 @@ configMapGenerator:
     behavior: replace
     files:
       - control-plane.toml
-
