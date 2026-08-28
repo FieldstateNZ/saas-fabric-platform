@@ -1,0 +1,25 @@
+# Platform service contract. See docs/platform-services.md.
+service: saas-fabric-control-plane
+deployment: adopted
+required: true          # without it, no client definition can be administered
+# The one service in the platform where this is unambiguously true: it exists
+# to be used by operators, and its surface is the one they are meant to use.
+operatorUsage: true
+controlPlane:
+  # It is not managed by something else — it is the thing that manages. And its
+  # own administrative surface is the intended one, which is why `exposed` here
+  # means the opposite of a vendor console left published out of habit.
+  managed: false
+  upstreamAdminSurface: exposed
+clientPartitioning:
+  mode: none
+  provisioning: unsupported
+clientCapability:
+  available: false
+tenancy:
+  status: not-applicable
+  rationale: |
+    The same inversion its runtime half has. This is the component that owns
+    the definition of a client and reconciles the partitions in the services
+    below it; asking whether clients hold partitions inside it has the
+    relationship the wrong way round.

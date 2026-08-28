@@ -1,0 +1,53 @@
+# The control plane's configuration, as a file rather than environment
+# variables.
+#
+# The application reads TOML from the path in `FABRIC_CP_CONFIG` and refuses to
+# start if it is missing — deliberately, because a mis-mounted ConfigMap that
+# silently produced defaults would revert the operator posture to whatever the
+# code happened to default to.
+#
+# This base file is not deployable: its operator allowlist and GitHub App
+# identifiers are placeholders, and each environment replaces the whole file.
+# Replacing rather than patching, because a partial patch of a config file is
+# how one ends up half from one environment and half from another.
+listen = "0.0.0.0:8081"
+request_timeout_seconds = 30
+
+# The control plane consumes an operator identity the operator-plane proxy
+# has already established. That is only sound because this service is
+# reachable from the tailnet and nowhere else — it has no gateway-access
+# label, so it cannot attach to the product Gateway.
+[control_plane.operator]
+mode = "trusted_header"
+header = "Tailscale-User-Login"
+allowlist = ["PLACEHOLDER"]
+
+[control_plane.reconciliation]
+# Bounds how long a change outside SaaS Fabric goes unnoticed, which is what
+# sets the value; a lost trigger is the lesser concern.
+interval_seconds = 60
+
+[desired_state]
+mode = "git"
+api_base_url = "https://api.github.com"
+owner = "FieldstateNZ"
+repository = "saas-fabric-clients"
+branch = "main"
+path_prefix = "clients"
+document_file = "client.yaml"
+
+[desired_state.auth]
+mode = "github_app"
+app_id = "PLACEHOLDER"
+installation_id = "PLACEHOLDER"
+private_key_ref = "git/saas-fabric-clients-app-key"
+
+[identity_provider]
+mode = "keycloak"
+# Cluster-local. Keycloak's administrative API is not published on any
+# plane, and this is the path that replaces having published it.
+base_url = "http://keycloak-http.identity.svc.cluster.local"
+admin_realm = "master"
+client_id = "saas-fabric"
+client_secret_ref = "keycloak/saas-fabric"
+http_timeout_seconds = 10

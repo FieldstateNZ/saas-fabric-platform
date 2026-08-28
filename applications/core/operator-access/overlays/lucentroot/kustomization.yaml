@@ -28,3 +28,13 @@ patches:
       - op: replace
         path: /spec/tls/0/hosts/0
         value: bao-lucentroot
+  - target:
+      kind: Ingress
+      name: saas-fabric-control-plane
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: fabric-lucentroot
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: fabric-lucentroot

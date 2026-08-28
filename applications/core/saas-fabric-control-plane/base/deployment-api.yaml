@@ -1,0 +1,88 @@
+# The control-plane API.
+#
+# Separate from the runtime plane's Deployment, and separate from the console's,
+# because the three fail independently and belong on different networks. The
+# runtime plane must keep serving tenants when this is down; that is only true
+# if it is not this.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-fabric-control-plane
+spec:
+  # One. The reconciliation loop is idempotent and a second replica would sweep
+  # the same clients concurrently — harmless, because every operation is
+  # idempotent, but it doubles the load on Keycloak and GitHub to no end. A
+  # second replica is a leader-election decision, not a replica-count one.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: saas-fabric-control-plane
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: saas-fabric-control-plane
+    spec:
+      serviceAccountName: saas-fabric-control-plane
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: control-plane
+          image: ghcr.io/fieldstatenz/saas-fabric-control-plane:placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: FABRIC_CP_CONFIG
+              value: /etc/fabric/control-plane.toml
+            - name: RUST_LOG
+              value: info
+          envFrom:
+            # The two administrative credentials, delivered by External Secrets
+            # from OpenBao. Not optional: a control plane that starts without
+            # them cannot read desired state or reconcile anything, and would
+            # report every client as failed rather than saying why.
+            - secretRef:
+                name: saas-fabric-control-plane-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /etc/fabric
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            # Deliberately the same endpoint, and deliberately not a check of
+            # Git or Keycloak. An operator needs this API *most* when a backend
+            # is failing — to see which clients are affected and why — so
+            # tying readiness to a backend would remove the surface that
+            # explains the outage. Per-client reconciliation status is the
+            # signal for backend health, and it is in the API.
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: saas-fabric-control-plane-config

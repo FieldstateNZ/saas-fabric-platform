@@ -4,20 +4,11 @@ kind: Kustomization
 resources:
   - ../../base
 
-# Pin a published tag here to go live. See ../../README.md.
+# Pinned. The replica count in the base is what still holds this at zero, and
+# for a reason that is no longer about the image — see ../../README.md.
 images:
   - name: ghcr.io/fieldstatenz/saas-fabric
-    newTag: placeholder
-
-configMapGenerator:
-  - name: saas-fabric-config
-    behavior: merge
-    literals:
-      - SAAS_FABRIC__ENVIRONMENT=lucentroot
-      - SAAS_FABRIC__PLATFORM_DOMAIN=lucentroot.internal
-
-generatorOptions:
-  disableNameSuffixHash: true
+    newTag: 0.1.0
 
 patches:
   - target:

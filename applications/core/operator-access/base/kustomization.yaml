@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - argocd.yaml
   - openbao.yaml
+  - saas-fabric-control-plane.yaml
 
 labels:
   - includeSelectors: false

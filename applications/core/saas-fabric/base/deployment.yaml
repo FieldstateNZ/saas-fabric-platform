@@ -3,11 +3,15 @@
 # This repository owns how SaaS Fabric is deployed, never what it does. No
 # application source code, and no client state, belongs here.
 #
-# replicas is 0 because ghcr.io/fieldstatenz/saas-fabric does not publish a tag
-# yet. Going live is two changes: pin a real tag in each environment overlay's
-# `images:` block, and set the replica count there. Until then this Application
-# reconciles cleanly and reports Healthy rather than crash-looping on an image
-# that cannot be pulled.
+# replicas is 0, and the reason has changed. The image exists now — 0.1.0 is
+# published and pinned below. What does not exist is anything for the runtime
+# plane to serve: it resolves tenants against reconciled bindings, DataSources
+# and a resource catalogue, and executes through an NDC connector process. None
+# of those is on LucentRoot, and nothing yet writes them.
+#
+# So this stays at zero deliberately rather than for want of an image, and
+# activating it is its own vertical slice: publish runtime bindings, stand up a
+# connector, then set the replica count here. See README.md.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,23 +39,38 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          env:
+            # The application reads TOML from this path and refuses to start if
+            # it is missing. `SAAS_FABRIC__*` environment variables, which this
+            # Deployment previously supplied, are not a contract the
+            # application has ever had — it namespaces its own settings
+            # `FABRIC_SETTING_*` and takes everything else from the file.
+            - name: FABRIC_CONFIG
+              value: /etc/fabric/config.toml
+            - name: RUST_LOG
+              value: info
           envFrom:
-            - configMapRef:
-                name: saas-fabric-config
-            # Injected externally; see README.md. Optional so that the platform
-            # still converges before the secret exists.
+            # Secret references resolve to `FABRIC_SECRET_*` variables. Optional
+            # so the platform converges before any exist.
             - secretRef:
                 name: saas-fabric-secrets
                 optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/fabric
+              readOnly: true
           livenessProbe:
             httpGet:
-              path: /healthz/live
+              # `/health` and `/ready`, which is what the application serves.
+              # The previous `/healthz/live` and `/healthz/ready` were never
+              # endpoints; at one replica they would have failed every probe.
+              path: /health
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /healthz/ready
+              path: /ready
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -67,3 +86,7 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: saas-fabric-config

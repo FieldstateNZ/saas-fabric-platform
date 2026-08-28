@@ -1,0 +1,66 @@
+# The operator console.
+#
+# Static files and nothing else. It holds no credential, calls no platform
+# service, and knows no address — it talks to the control-plane API on the same
+# origin, which the operator Ingress arranges.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-fabric-control-plane-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: saas-fabric-control-plane-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: saas-fabric-control-plane-ui
+    spec:
+      serviceAccountName: saas-fabric-control-plane
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: console
+          image: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui:placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            # nginx writes its temporary and cache directories. The
+            # unprivileged image puts them under /tmp, so an emptyDir there is
+            # all it needs to keep the image itself read-only.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}

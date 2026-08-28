@@ -1,0 +1,45 @@
+# LucentRoot's control-plane configuration.
+#
+# Nothing here is secret. The GitHub App's id and installation id are public
+# identifiers; only its private key and Keycloak's client secret come from
+# OpenBao, and both arrive as environment variables the application resolves by
+# reference.
+listen = "0.0.0.0:8081"
+request_timeout_seconds = 30
+
+[control_plane.operator]
+mode = "trusted_header"
+header = "Tailscale-User-Login"
+# The tailnet establishes who someone is; this establishes that they administer
+# this platform. It may not be empty, and the application refuses to start if it
+# is.
+allowlist = ["brett@pukekos.co.nz"]
+
+[control_plane.reconciliation]
+interval_seconds = 60
+
+[desired_state]
+mode = "git"
+api_base_url = "https://api.github.com"
+owner = "FieldstateNZ"
+repository = "saas-fabric-clients"
+branch = "main"
+path_prefix = "clients"
+document_file = "client.yaml"
+
+[desired_state.auth]
+mode = "github_app"
+# Both replaced when the App exists. Until then the control plane starts,
+# serves, and reports every client as failing to read — the honest state, and
+# visible in the console rather than only in a log.
+app_id = "PLACEHOLDER"
+installation_id = "PLACEHOLDER"
+private_key_ref = "git/saas-fabric-clients-app-key"
+
+[identity_provider]
+mode = "keycloak"
+base_url = "http://keycloak-http.identity.svc.cluster.local"
+admin_realm = "master"
+client_id = "saas-fabric"
+client_secret_ref = "keycloak/saas-fabric"
+http_timeout_seconds = 10
