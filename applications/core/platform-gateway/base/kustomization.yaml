@@ -6,6 +6,7 @@ namespace: platform-system
 resources:
   - gatewayclass.yaml
   - gateway.yaml
+  - operator-edge.yaml
 
 labels:
   - includeSelectors: false

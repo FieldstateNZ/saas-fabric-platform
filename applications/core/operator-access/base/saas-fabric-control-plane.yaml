@@ -1,20 +1,17 @@
 # Operator-plane access to the SaaS Fabric control plane.
 #
-# This is the surface that replaces the vendor consoles the platform no longer
-# publishes. Here rather than in the control plane's own Application for the
-# reason given in argocd.yaml: an Ingress without a load-balancer address is
-# Progressing, and rendering one from a service's own Application makes that
-# service's health depend on the Tailscale operator.
+# The Tailscale proxy is the only thing that reaches the operator listener, and
+# this Ingress is what puts it there. It no longer names the two backing
+# services: it points at the operator edge, and Envoy routes.
 #
-# # The two backends are one origin on purpose
+# # Why the routing moved to Envoy
 #
-# The console calls the API on the same origin, so this Ingress is where `/api`
-# and everything else are joined. The alternative — the console proxying `/api`
-# itself — would mean the console's container holding the API's address, and the
-# browser's same-origin guarantee resting on a proxy hop rather than on routing.
-#
-# Order matters: `/api` is listed first because the Tailscale operator programs
-# these as an ordered match, and a `/` prefix first would swallow it.
+# Because the identity provider has to be on the same origin. Operators sign in
+# to Keycloak, and Keycloak builds its login form's action from the host the
+# request arrived on — so the console, the API and the realm endpoints all have
+# to answer on one hostname or the form posts somewhere the browser cannot
+# reach. That is the same shape a client instance has: one front door, the
+# identity provider behind it.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -29,17 +26,10 @@ spec:
     - host: fabric.invalid
       http:
         paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: saas-fabric-control-plane
-                port:
-                  number: 80
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: saas-fabric-control-plane-ui
+                name: platform-operator-edge
                 port:
                   number: 80

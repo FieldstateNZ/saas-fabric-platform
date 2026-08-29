@@ -1,0 +1,28 @@
+# A stable name for the operator listener.
+#
+# Envoy Gateway provisions its own Service for the Gateway, named with a hash
+# that nothing in Git can reference. This selects the same pods under a name a
+# manifest can point at — which is what the Tailscale proxy needs as a backend.
+#
+# It carries no `loadBalancerClass` and is not exposed itself: it is a
+# ClusterIP, reached only by the Tailscale proxy in front of it, and it targets
+# the operator listener's port rather than the product edge's.
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-operator-edge
+  namespace: platform-system
+  labels:
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+    fieldstate.nz/plane: operator
+spec:
+  type: ClusterIP
+  selector:
+    gateway.envoyproxy.io/owning-gateway-name: platform
+    gateway.envoyproxy.io/owning-gateway-namespace: platform-system
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8081
+      protocol: TCP
