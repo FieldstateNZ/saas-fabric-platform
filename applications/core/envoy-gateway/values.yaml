@@ -25,19 +25,3 @@ config:
     logging:
       level:
         default: info
-
-    # Off by default, and turned on for exactly one thing.
-    #
-    # `EnvoyPatchPolicy` rewrites generated xDS directly. It is the escape
-    # hatch for settings the Gateway API does not model, and the operator
-    # plane needs one: Envoy discards the `X-Forwarded-Proto` the Tailscale
-    # proxy sets, because it does not consider that proxy a trusted downstream,
-    # and no supported field changes that decision.
-    #
-    # It is a real widening. Anything that can write a manifest can now patch
-    # any generated resource, in a CRD rather than in the Gateway everybody
-    # reads. `scripts/check.py` therefore asserts that exactly one patch policy
-    # exists, that it names the operator listener, and that it trusts only the
-    # pod network -- so the hatch cannot be widened without the check failing.
-    extensionApis:
-      enableEnvoyPatchPolicy: true

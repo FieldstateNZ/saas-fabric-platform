@@ -10,6 +10,33 @@
 # published on no plane in any environment; SaaS Fabric administers Keycloak
 # through the Admin REST API, cluster-locally. `scripts/check.py` rejects a `/`
 # or `/admin` match for this service.
+#
+# # Why this route restates the scheme
+#
+#   {"error":"invalid_request","error_description":"HTTPS required"}
+#
+# Keycloak's realms refuse plain HTTP from a client they consider external, and
+# a tailnet address (100.64/10) is external. The operator *did* arrive over
+# HTTPS — the operator ingress terminates it — but Envoy is an edge proxy here:
+# with `use_remote_address`, it appends its downstream to `X-Forwarded-For` and
+# overwrites `X-Forwarded-Proto` with the protocol of its own hop, which is
+# plain. Measured on the running gateway: the proxy arrives from inside the pod
+# network and Envoy still rewrote both headers.
+#
+# A route filter runs in the router, *after* the connection manager has done
+# that. So this is the first point in the pipeline where the value survives —
+# `ClientTrafficPolicy.headers` mutates earlier and is overwritten.
+#
+# **Envoy sets this; it does not believe a caller.** Whatever
+# `X-Forwarded-Proto` a client sends is replaced with `http` by the connection
+# manager before this filter runs, and replaced again here. The assertion is
+# the gateway's statement about a listener that only serves the operator
+# hostname behind a TLS-terminating ingress — not the request's claim about
+# itself. Keycloak's `sslRequired: external` is untouched.
+#
+# It is on this route alone. The same filter on a product-plane route would let
+# a LAN client on plain HTTP be labelled `https`, which is the check this
+# exists to preserve; `scripts/check.py` asserts no other route sets it.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -30,6 +57,12 @@ spec:
         - path:
             type: PathPrefix
             value: /resources
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Forwarded-Proto
+                value: https
       backendRefs:
         - name: keycloak-http
           port: 80

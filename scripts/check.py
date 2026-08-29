@@ -82,17 +82,6 @@ CLUSTER_DNS = re.compile(r"\b([a-z0-9][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)\.svc\.cl
 # CloudNativePG creates <cluster>-rw, -ro and -r Services for each Cluster it
 # reconciles, so those names are legitimate without appearing in rendered output.
 CNPG_SERVICE = re.compile(r"^(?P<cluster>.+)-(rw|ro|r)$")
-# The downstream range each environment trusts to have already set
-# `X-Forwarded-Proto`, for the one listener an `EnvoyPatchPolicy` may touch.
-#
-# Per environment because it is topology, not policy. LucentRoot is a k3s box
-# whose operator listener sits behind a Tailscale proxy, so the pod network is
-# what can be the downstream; production runs a different ingress on a
-# different network and is deliberately absent, which makes any patch policy
-# there a failure until somebody states its range on purpose.
-TRUSTED_DOWNSTREAM = {
-    "lucentroot": "10.42.0.0",
-}
 # The operator plane's only ingress class. Anything else is a third routing
 # authority; see docs/architecture.md#exposure-planes.
 OPERATOR_INGRESS_CLASS = "tailscale"
@@ -635,84 +624,80 @@ def check_control_plane_is_operator_only(render: Path, problems: list[str]) -> N
             )
 
 
-def check_the_patch_hatch_stays_narrow(render: Path, problems: list[str]) -> None:
-    """`EnvoyPatchPolicy` rewrites generated xDS, so it is checked like a grant.
+def check_forwarded_proto_is_asserted_once(render: Path, problems: list[str]) -> None:
+    """Only Keycloak's operator route may restate the scheme.
 
-    Enabling it was a real widening: anything that can write a manifest can now
-    patch any generated resource, in a CRD rather than in the Gateway everybody
-    reads. It was turned on for one setting the Gateway API does not model --
-    trusting the `X-Forwarded-Proto` the Tailscale proxy sets -- and this keeps
-    it to that.
+    That route sets `X-Forwarded-Proto: https` because Envoy is an edge proxy
+    and overwrites the header the operator ingress set, leaving Keycloak told
+    `http` and answering `HTTPS required`. The value is the gateway's statement
+    about a listener that only serves the operator hostname behind a
+    TLS-terminating ingress -- not the request's claim about itself.
 
-    Three assertions, and the second is the one that matters. The operator and
-    product listeners are separate xDS resources; a patch that named the
-    product one, or named the Gateway without a listener, would apply to an
-    edge whose downstream is a LAN client on an RFC1918 address. Trusting
-    private addresses there would let anything on the LAN assert
-    `X-Forwarded-Proto: https` and satisfy Keycloak's HTTPS requirement over
-    plain HTTP -- the check the patch exists to preserve, removed by the patch
-    meant to preserve it.
-
-    The trusted range is **per environment**, because it is topology rather
-    than policy: a pod CIDR belongs to a cluster, and the premise that a proxy
-    hop exists at all belongs to an ingress design. An environment with no
-    entry here may have no patch policy, which is how production opts in
-    deliberately rather than inheriting a single-node k3s box's network.
+    That premise is false anywhere else. The product listener's downstream is a
+    LAN client that may genuinely be on plain HTTP, and the same filter there
+    would label it `https` -- satisfying Keycloak's HTTPS requirement over
+    plaintext, which is the check the header exists to preserve. So this
+    asserts both halves: nothing else sets it, and this route still does.
+    Losing it is silent until an operator cannot sign in.
     """
-    allowed_listener = "platform-system/platform/operator"
-
     for environment in ENVIRONMENTS:
-        allowed_prefix = TRUSTED_DOWNSTREAM.get(environment)
-        policies = []
+        asserted = []
+        present = False
+
         for path in sorted((render / environment).rglob("*.yaml")):
             for document in load_all(path, problems):
-                if document.get("kind") == "EnvoyPatchPolicy":
-                    policies.append((path, document))
+                if document.get("kind") != "HTTPRoute":
+                    continue
+                metadata = document["metadata"]
+                if (metadata["name"], metadata["namespace"]) == ("keycloak-operator", "identity"):
+                    present = True
+                for rule in document["spec"].get("rules", []):
+                    for filter_ in rule.get("filters", []):
+                        modifier = filter_.get("requestHeaderModifier") or {}
+                        for header in (modifier.get("set") or []) + (modifier.get("add") or []):
+                            if header.get("name", "").lower() == "x-forwarded-proto":
+                                asserted.append((path, document, header.get("value")))
 
-        if policies and allowed_prefix is None:
+        for path, route, value in asserted:
+            metadata = route["metadata"]
+            where = f"{environment}/{path.name}: HTTPRoute/{metadata['name']}"
+
+            if (metadata["name"], metadata["namespace"]) != ("keycloak-operator", "identity"):
+                fail(
+                    problems,
+                    f"{where} sets X-Forwarded-Proto; only keycloak-operator"
+                    " may, because only its listener is reached through an"
+                    " ingress that has already terminated TLS",
+                )
+                continue
+
+            sections = {
+                parent.get("sectionName")
+                for parent in route["spec"].get("parentRefs", [])
+            }
+            if sections != {OPERATOR_LISTENER}:
+                fail(
+                    problems,
+                    f"{where} sets X-Forwarded-Proto but attaches to"
+                    f" {sorted(str(s) for s in sections)}; on any listener but"
+                    f" '{OPERATOR_LISTENER}' that labels a plaintext client"
+                    " https",
+                )
+
+            if value != "https":
+                fail(problems, f"{where} sets X-Forwarded-Proto to '{value}', not https")
+
+        # Conditional on the route existing, not decreed for every
+        # environment: production publishes no operator plane yet, so it has no
+        # Keycloak route and nothing here to assert. An environment that grows
+        # one is held to this from its first render.
+        if present and not asserted:
             fail(
                 problems,
-                f"{environment}: has an EnvoyPatchPolicy but no trusted"
-                " downstream range recorded in TRUSTED_DOWNSTREAM; an"
-                " environment states its own topology rather than inheriting"
-                " another's",
+                f"{environment}: keycloak-operator sets no X-Forwarded-Proto;"
+                " Keycloak answers 'HTTPS required' to every operator sign-in"
+                " without it, and nothing else reports that",
             )
-            continue
-
-        if len(policies) > 1:
-            named = ", ".join(sorted(d["metadata"]["name"] for _, d in policies))
-            fail(
-                problems,
-                f"{environment}: {len(policies)} EnvoyPatchPolicy resources"
-                f" ({named}); the escape hatch is open for one setting and each"
-                " further use needs its own argument",
-            )
-
-        for path, document in policies:
-            name = document["metadata"]["name"]
-            where = f"{environment}/{path.name}: EnvoyPatchPolicy/{name}"
-
-            for patch in document["spec"].get("jsonPatches", []):
-                target = patch.get("name")
-                if target != allowed_listener:
-                    fail(
-                        problems,
-                        f"{where} patches '{target}', not {allowed_listener};"
-                        " a patch reaching the product listener would let a LAN"
-                        " client assert its own X-Forwarded-Proto",
-                    )
-
-                value = patch.get("operation", {}).get("value") or {}
-                for cidr in value.get("cidr_ranges") or []:
-                    if cidr.get("address_prefix") != allowed_prefix:
-                        fail(
-                            problems,
-                            f"{where} trusts {cidr.get('address_prefix')}/"
-                            f"{cidr.get('prefix_len')}; only the pod network"
-                            f" ({allowed_prefix}) may be trusted here, because"
-                            " a pod is the only thing that can be the"
-                            " downstream on this listener",
-                        )
 
 
 def check_argocd_runtime_configuration(render: Path, problems: list[str]) -> None:
@@ -1448,7 +1433,7 @@ def main() -> int:
     check_admin_off_the_product_plane(render, problems)
     check_routes_attach(render, problems)
     check_control_plane_is_operator_only(render, problems)
-    check_the_patch_hatch_stays_narrow(render, problems)
+    check_forwarded_proto_is_asserted_once(render, problems)
     check_argocd_runtime_configuration(render, problems)
     check_secret_store_is_bounded(render, problems)
     check_projects_permit_what_apps_deploy(render, problems)
