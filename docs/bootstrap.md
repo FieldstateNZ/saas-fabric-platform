@@ -142,8 +142,13 @@ NAME:.metadata.name,NS:.metadata.namespace,CLASS:.spec.ingressClassName,HOST:.sp
 ```
 
 On LucentRoot that is `argocd-lucentroot`, `bao-lucentroot`,
-`fabric-lucentroot`, `auth-lucentroot` and `perses-lucentroot`. Who can reach
-them is decided by the tailnet ACL, not by this repository.
+`fabric-lucentroot` and `perses-lucentroot`. Who can reach them is decided by
+the tailnet ACL, not by this repository.
+
+Keycloak is deliberately absent, and its absence is the operator plane working
+rather than a gap: operators reach it *through* `fabric-lucentroot`, on the same
+origin as the console they signed in from, so it needs no tailnet device of its
+own.
 
 ---
 
