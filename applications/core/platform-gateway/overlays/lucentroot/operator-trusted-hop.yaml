@@ -1,0 +1,72 @@
+# Letting Envoy believe the Tailscale proxy about how the operator arrived.
+#
+# # The failure
+#
+#   {"error":"invalid_request","error_description":"HTTPS required"}
+#
+# Keycloak's realms refuse plain HTTP from a client it considers external, and
+# a tailnet address (100.64/10) is external. The operator *did* arrive over
+# HTTPS: the Tailscale proxy terminated it and sets `X-Forwarded-Proto: https`
+# correctly -- measured, by pointing an Ingress straight at Keycloak and
+# watching the issuer come back `https://`.
+#
+# Envoy then discards it. With `use_remote_address`, Envoy preserves an
+# incoming `X-Forwarded-Proto` only when the immediate downstream is an
+# *internal* address, and recent Envoy counts only loopback as internal. So it
+# overwrites the header with the protocol of its own hop, which is plain, and
+# Keycloak is told `http`.
+#
+# No supported field changes that decision. `ClientTrafficPolicy.headers`
+# mutates too early and is overwritten; `scheme` governs the `:scheme`
+# pseudo-header sent to backends; `trustedCIDRs` governs which XFF entry is
+# taken as the client address. All three were tried against the cluster.
+#
+# # Why this is narrow rather than convenient
+#
+# It names **one listener**. `platform-system/platform/operator` and
+# `platform-system/platform/http` are separate xDS resources on separate ports,
+# so this cannot reach the product edge. That matters: the product listener's
+# downstream is a LAN client on an RFC1918 address, and a patch written as
+# "trust private addresses" would let anything on the LAN assert
+# `X-Forwarded-Proto: https` and satisfy Keycloak's HTTPS requirement over
+# plain HTTP -- the very check this exists to keep.
+#
+# It trusts **the pod network**, not private addresses generally. A pod is the
+# only thing that can be the downstream here: the operator listener is reached
+# through a ClusterIP that only the Tailscale proxy is routed to.
+#
+# # Why this is an overlay and not the base
+#
+# `10.42.0.0/24` is this cluster's k3s pod CIDR, allocated to its one node.
+# Every premise here is environment-specific -- the pod network, the Tailscale
+# proxy in front of the listener, the fact that a proxy hop exists at all -- so
+# putting it in the base would make one box's topology the contract for every
+# environment. Production runs a different ingress and a different pod range,
+# and opts in with its own or not at all.
+#
+# And it grants an in-cluster attacker nothing new. A pod can already reach
+# `keycloak-http` directly, where its own 10.x address makes Keycloak treat the
+# request as internal and permit plain HTTP without any of this.
+#
+# `scripts/check.py` asserts all of that, so the hatch cannot widen quietly.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyPatchPolicy
+metadata:
+  name: operator-trusted-hop
+  namespace: platform-system
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: platform
+  type: JSONPatch
+  jsonPatches:
+    - type: "type.googleapis.com/envoy.config.listener.v3.Listener"
+      name: platform-system/platform/operator
+      operation:
+        op: add
+        path: /default_filter_chain/filters/0/typed_config/internal_address_config
+        value:
+          cidr_ranges:
+            - address_prefix: 10.42.0.0
+              prefix_len: 24

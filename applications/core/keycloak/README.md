@@ -132,26 +132,15 @@ Production has no operator plane yet, so both are the same there.
 Keycloak is the clearest case in the platform of a service that belongs on both
 planes, and the split is not "Keycloak is internal".
 
-| Plane | Reached via | Carries | Paths |
-|---|---|---|---|
-| Product | Envoy `HTTPRoute` | what applications call | `/realms`, `/resources`, `/.well-known` |
-| Operator | its own Tailscale `Ingress` | operator sign-in | `/realms`, `/resources` |
+| Plane | Carries | Paths |
+|---|---|---|
+| Product (Envoy, port 80) | what applications call | `/realms`, `/resources`, `/.well-known` |
+| Operator (Envoy, port 8081, behind Tailscale) | operator sign-in | `/realms`, `/resources` |
 
 **The operator plane carries authentication now, and still not the console.**
-Both list their paths explicitly and neither includes `/admin`;
-`scripts/check.py` refuses a `/` prefix to this Service on either.
-
-The operator plane does **not** go through Envoy, and that is not an
-inconsistency. Keycloak's realms refuse plain HTTP from outside the cluster;
-the operator arrives over HTTPS, but Envoy rewrites `X-Forwarded-Proto` from
-the protocol of *its own* downstream hop — the plain one from the Tailscale
-proxy — so Keycloak was told `http` and answered `HTTPS required`. Envoy is not
-lying; it describes the hop it can see and cannot describe the one before it,
-and neither an early header mutation nor a client-supplied header survives the
-rewrite.
-
-Pointed straight at the Service, the Tailscale proxy sets the header correctly
-and the issuer comes back `https://…`. That was measured, not assumed.
+That changed when operators began signing in to Keycloak: an operator's browser
+has to reach the realm endpoints, and it reaches nothing on the product edge.
+Both routes list their paths explicitly and neither includes `/admin`.
 
 Applications genuinely need the authentication endpoints on the product edge.
 The admin console and admin API do not belong there, so the product-plane route

@@ -81,6 +81,17 @@ CLUSTER_DNS = re.compile(r"\b([a-z0-9][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)\.svc\.cl
 # CloudNativePG creates <cluster>-rw, -ro and -r Services for each Cluster it
 # reconciles, so those names are legitimate without appearing in rendered output.
 CNPG_SERVICE = re.compile(r"^(?P<cluster>.+)-(rw|ro|r)$")
+# The downstream range each environment trusts to have already set
+# `X-Forwarded-Proto`, for the one listener an `EnvoyPatchPolicy` may touch.
+#
+# Per environment because it is topology, not policy. LucentRoot is a k3s box
+# whose operator listener sits behind a Tailscale proxy, so the pod network is
+# what can be the downstream; production runs a different ingress on a
+# different network and is deliberately absent, which makes any patch policy
+# there a failure until somebody states its range on purpose.
+TRUSTED_DOWNSTREAM = {
+    "lucentroot": "10.42.0.0",
+}
 # The operator plane's only ingress class. Anything else is a third routing
 # authority; see docs/architecture.md#exposure-planes.
 OPERATOR_INGRESS_CLASS = "tailscale"
@@ -611,6 +622,86 @@ def check_control_plane_is_operator_only(render: Path, problems: list[str]) -> N
                 " for either listener, so operator-only is a convention rather"
                 " than a boundary",
             )
+
+
+def check_the_patch_hatch_stays_narrow(render: Path, problems: list[str]) -> None:
+    """`EnvoyPatchPolicy` rewrites generated xDS, so it is checked like a grant.
+
+    Enabling it was a real widening: anything that can write a manifest can now
+    patch any generated resource, in a CRD rather than in the Gateway everybody
+    reads. It was turned on for one setting the Gateway API does not model --
+    trusting the `X-Forwarded-Proto` the Tailscale proxy sets -- and this keeps
+    it to that.
+
+    Three assertions, and the second is the one that matters. The operator and
+    product listeners are separate xDS resources; a patch that named the
+    product one, or named the Gateway without a listener, would apply to an
+    edge whose downstream is a LAN client on an RFC1918 address. Trusting
+    private addresses there would let anything on the LAN assert
+    `X-Forwarded-Proto: https` and satisfy Keycloak's HTTPS requirement over
+    plain HTTP -- the check the patch exists to preserve, removed by the patch
+    meant to preserve it.
+
+    The trusted range is **per environment**, because it is topology rather
+    than policy: a pod CIDR belongs to a cluster, and the premise that a proxy
+    hop exists at all belongs to an ingress design. An environment with no
+    entry here may have no patch policy, which is how production opts in
+    deliberately rather than inheriting a single-node k3s box's network.
+    """
+    allowed_listener = "platform-system/platform/operator"
+
+    for environment in ENVIRONMENTS:
+        allowed_prefix = TRUSTED_DOWNSTREAM.get(environment)
+        policies = []
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") == "EnvoyPatchPolicy":
+                    policies.append((path, document))
+
+        if policies and allowed_prefix is None:
+            fail(
+                problems,
+                f"{environment}: has an EnvoyPatchPolicy but no trusted"
+                " downstream range recorded in TRUSTED_DOWNSTREAM; an"
+                " environment states its own topology rather than inheriting"
+                " another's",
+            )
+            continue
+
+        if len(policies) > 1:
+            named = ", ".join(sorted(d["metadata"]["name"] for _, d in policies))
+            fail(
+                problems,
+                f"{environment}: {len(policies)} EnvoyPatchPolicy resources"
+                f" ({named}); the escape hatch is open for one setting and each"
+                " further use needs its own argument",
+            )
+
+        for path, document in policies:
+            name = document["metadata"]["name"]
+            where = f"{environment}/{path.name}: EnvoyPatchPolicy/{name}"
+
+            for patch in document["spec"].get("jsonPatches", []):
+                target = patch.get("name")
+                if target != allowed_listener:
+                    fail(
+                        problems,
+                        f"{where} patches '{target}', not {allowed_listener};"
+                        " a patch reaching the product listener would let a LAN"
+                        " client assert its own X-Forwarded-Proto",
+                    )
+
+                value = patch.get("operation", {}).get("value") or {}
+                for cidr in value.get("cidr_ranges") or []:
+                    if cidr.get("address_prefix") != allowed_prefix:
+                        fail(
+                            problems,
+                            f"{where} trusts {cidr.get('address_prefix')}/"
+                            f"{cidr.get('prefix_len')}; only the pod network"
+                            f" ({allowed_prefix}) may be trusted here, because"
+                            " a pod is the only thing that can be the"
+                            " downstream on this listener",
+                        )
 
 
 def check_argocd_runtime_configuration(render: Path, problems: list[str]) -> None:
@@ -1173,29 +1264,14 @@ def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) 
                 for rule in document["spec"].get("rules", []):
                     for entry in (rule.get("http") or {}).get("paths", []):
                         backend = entry.get("backend", {}).get("service", {}).get("name")
-                        if backend not in withheld:
-                            continue
-
-                        # The *service* is not the surface; some of its paths
-                        # are. Operators have to reach the realm endpoints to
-                        # sign in, and those are served by the same Service as
-                        # the console nobody may reach. So the rule is about
-                        # which paths are published, and a route that names
-                        # them narrowly is allowed.
-                        #
-                        # `/` is refused precisely because it is not narrow: it
-                        # reaches `/admin` without ever saying so.
-                        published = entry.get("path", "/")
-                        if published != "/" and not published.startswith("/admin"):
-                            continue
-
-                        fail(
-                            problems,
-                            f"{environment}/{path.name}: Ingress/{name} publishes"
-                            f" '{published}' of '{backend}', the upstream administrative"
-                            f" surface of {withheld[backend]}, which SaaS Fabric"
-                            " administers through its API instead",
-                        )
+                        if backend in withheld:
+                            fail(
+                                problems,
+                                f"{environment}/{path.name}: Ingress/{name} publishes"
+                                f" '{backend}', the upstream administrative surface of"
+                                f" {withheld[backend]}, which SaaS Fabric administers"
+                                " through its API instead",
+                            )
 
 
 def main() -> int:
@@ -1217,6 +1293,7 @@ def main() -> int:
     check_admin_off_the_product_plane(render, problems)
     check_routes_attach(render, problems)
     check_control_plane_is_operator_only(render, problems)
+    check_the_patch_hatch_stays_narrow(render, problems)
     check_argocd_runtime_configuration(render, problems)
     check_secret_store_is_bounded(render, problems)
     check_projects_permit_what_apps_deploy(render, problems)
