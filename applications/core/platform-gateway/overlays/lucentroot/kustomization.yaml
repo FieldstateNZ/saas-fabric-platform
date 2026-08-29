@@ -3,13 +3,5 @@ kind: Kustomization
 
 # LucentRoot terminates plain HTTP only; the base listener is all it needs.
 # There is no certificate authority for *.lucentroot.internal.
-#
-# The trusted-hop patch is here rather than in the base because every reason
-# for it is this environment's: a k3s pod network, a Tailscale proxy in front
-# of the operator listener, and the CIDR that proxy's pods actually sit in.
-# Production has a different ingress topology and a different pod range, and
-# must decide its own -- inheriting a CIDR from a single-node k3s box is not a
-# decision anybody would make on purpose.
 resources:
   - ../../base
-  - operator-trusted-hop.yaml
