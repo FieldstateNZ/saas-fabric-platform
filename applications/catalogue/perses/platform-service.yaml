@@ -36,15 +36,22 @@ exposure:
   # So this is enforced rather than remembered. `backends` names the Services
   # validation has to prove stay off the product plane, for the same reason
   # controlPlane.adminBackends does: a claim about the cluster needs something
-  # to be checked against. check.py refuses an HTTPRoute that backends any of
-  # them.
+  # to be checked against. check.py refuses any route that could reach one of
+  # them from the product plane.
+  #
+  # Namespaced, and written in the shape Gateway API uses, because a backendRef
+  # resolves to (namespace, name) and not to a name. A bare name would make this
+  # invariant quietly depend on nobody ever reusing the word `perses` in another
+  # namespace -- which is a convention, and the point of the check is to encode
+  # something stronger than one.
   #
   # Lifting it is not a routing change. It requires user authentication,
   # authorization, and a tenancy model that has actually been established --
   # at which point this section changes with them, deliberately.
   plane: operator
   backends:
-    - perses
+    - name: perses
+      namespace: catalogue
   rationale: |
     Perses is unauthenticated. The operator plane is what makes that
     acceptable, so publishing it anywhere else is not a configuration choice

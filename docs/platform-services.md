@@ -143,7 +143,9 @@ controlPlane:
   adminBackends: [keycloak-http]      # required when not-exposed
 exposure:                    # optional; declared where it is a constraint
   plane: operator            # operator | product | both
-  backends: [perses]         # required when operator
+  backends:                  # required when operator
+    - name: perses           # a backendRef resolves to (namespace, name),
+      namespace: catalogue   # so both are named
   rationale: |               # required when operator
     ...
 clientPartitioning:
@@ -181,12 +183,18 @@ So `plane: operator` names, in `backends`, the Services validation must prove
 stay off the product plane — for exactly the reason `not-exposed` names
 `adminBackends`. A claim about a cluster needs something to be checked against,
 and `check_operator_only_services` fails the build on a route that could reach
-one of them from the product plane. The plane is resolved as the Gateway
-resolves it — the listener the route names, or the grant its namespace carries —
-so an operator-plane route to the same Service is permitted, which is the whole
-point. The namespace happening not to carry `gateway-access` is what stops it
-today; this repository has twice been wrong about an absent label being a
-guarantee.
+one of them from the product plane. The namespace happening not to carry
+`gateway-access` is what stops it today; this repository has twice been wrong
+about an absent label being a guarantee.
+
+The check resolves two things the way Kubernetes resolves them rather than the
+way a string comparison would, because an invariant that encodes an
+architectural truth should not rest on a naming convention:
+
+| | |
+|---|---|
+| **Identity** | a `backendRef` addresses `(namespace, name)`, and its namespace defaults to the route's own. Matching on the name alone would depend on nobody reusing a Service name in another namespace, and would misfire on a cross-namespace `backendRef`. A ref to any other kind or group is not a Service and is not matched against one |
+| **Plane** | what is refused is the *product* plane, not routing. The listener the route names decides it, or — when it names none — the grant its namespace carries. An operator-plane route to the same Service is permitted, which is the whole point |
 
 `rationale` is required for the same reason a tenancy position is: a constraint
 nobody can read the reason for is one somebody will lift.

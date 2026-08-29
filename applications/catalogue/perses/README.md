@@ -192,15 +192,21 @@ So it is declared and checked rather than remembered. The contract carries:
 ```yaml
 exposure:
   plane: operator
-  backends: [perses]
+  backends:
+    - name: perses
+      namespace: catalogue
 ```
 
 and `check_operator_only_services` in [`scripts/check.py`](../../../scripts/check.py)
-fails the build on any route that could reach a named Service **from the product
-plane** — resolved the way the Gateway resolves it, by the listener the route
-names or, when it names none, by the grant its namespace carries. An
-operator-plane route is exactly what the constraint permits, so it passes; that
-distinction is verified in both directions rather than assumed.
+fails the build on any route that could reach that Service **from the product
+plane**. Both halves of that are resolved the way Kubernetes resolves them: the
+plane from the listener the route names — or, when it names none, the grant its
+namespace carries — and the Service from `(namespace, name)`, since that is what
+a `backendRef` addresses and its namespace defaults to the route's own.
+
+An operator-plane route is exactly what the constraint permits, so it passes.
+The distinction is verified rather than assumed, in both directions and against
+a same-named Service in another namespace.
 
 The `catalogue` namespace not carrying `gateway-access` is what stops it today —
 but this repository has twice been wrong about an absent label being a

@@ -1113,10 +1113,20 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
         if plane not in EXPOSURE_PLANES:
             bad(f"exposure.plane '{plane}' is not one of {', '.join(EXPOSURE_PLANES)}")
         if plane == "operator":
-            if not exposure.get("backends"):
+            backends = exposure.get("backends")
+            if not backends:
                 bad("exposure.plane is 'operator' but no backends are named -- name the "
                     "Services that must stay off the product plane so validation can prove "
                     "none is published there")
+            # Written the way Gateway API writes a backendRef, because that is
+            # what it has to be compared against. A bare name would make the
+            # invariant depend on Service names being globally unique, which is
+            # a convention rather than a property of the cluster.
+            for entry in backends or []:
+                if not isinstance(entry, dict) or not entry.get("name") or not entry.get("namespace"):
+                    bad("every exposure.backends entry needs a name and a namespace -- a "
+                        "backendRef resolves to (namespace, name), so a bare name cannot be "
+                        "compared against one")
             if not exposure.get("rationale"):
                 bad("exposure.plane is 'operator' but no rationale is recorded -- a constraint "
                     "nobody can read the reason for is one somebody will lift")
@@ -1186,24 +1196,40 @@ def check_operator_only_services(root: Path, render: Path, problems: list[str]) 
     label being a guarantee, and an absent label is not a decision anybody made
     on purpose. This is the decision, written where it can fail a build.
 
-    What is refused is the *product* plane specifically, not routing as such.
-    An operator-plane route to one of these services is exactly what the
-    constraint permits, so the plane is resolved the same way
-    `check_routes_attach` resolves it: the listener the route names, or -- when
-    it names none -- the grant its namespace carries.
+    Two things this resolves the way Kubernetes resolves them, rather than the
+    way a string comparison would:
+
+    *Identity.* A `backendRef` addresses `(namespace, name)`, and its namespace
+    defaults to the route's own. Matching on the name alone would make the
+    invariant depend on nobody ever reusing a Service name in another
+    namespace, which is a convention rather than a property of the cluster --
+    and it would misfire the day a cross-namespace `backendRef` appears.
+
+    *Plane.* What is refused is the product plane specifically, not routing as
+    such. An operator-plane route to one of these services is exactly what the
+    constraint permits, so the plane is resolved as `check_routes_attach`
+    resolves it: the listener the route names, or -- when it names none -- the
+    grant its namespace carries.
 
     Lifting the constraint means authentication, authorization and an
     established tenancy model. It does not mean editing the contract until
     validation stops complaining.
     """
-    operator_only: dict[str, str] = {}
+    # (namespace, name) -> the service that declared it off the product plane.
+    operator_only: dict[tuple[str, str], str] = {}
     for contract in sorted(root.glob("applications/*/*/platform-service.yaml")):
         declared = yaml.safe_load(contract.read_text()) or {}
         exposure = declared.get("exposure") or {}
         if exposure.get("plane") != OPERATOR_LISTENER:
             continue
-        for backend in exposure.get("backends") or []:
-            operator_only[backend] = declared.get("service", contract.parent.name)
+        for entry in exposure.get("backends") or []:
+            # Malformed entries are reported by the contract check; skipping
+            # them here keeps one bad field from masking every real violation.
+            if not isinstance(entry, dict):
+                continue
+            name, namespace = entry.get("name"), entry.get("namespace")
+            if name and namespace:
+                operator_only[(namespace, name)] = declared.get("service", contract.parent.name)
     if not operator_only:
         return
 
@@ -1229,7 +1255,7 @@ def check_operator_only_services(root: Path, render: Path, problems: list[str]) 
             namespace = route["metadata"]["namespace"]
             name = route["metadata"]["name"]
             reached = {
-                backend.get("name")
+                _backend_service(backend, namespace)
                 for rule in route["spec"].get("rules", [])
                 for backend in rule.get("backendRefs", [])
             } & set(operator_only)
@@ -1248,11 +1274,26 @@ def check_operator_only_services(root: Path, render: Path, problems: list[str]) 
                     fail(
                         problems,
                         f"{environment}/{path.name}: HTTPRoute/{name} can reach"
-                        f" '{service}' from the product plane, and"
+                        f" '{service[1]}.{service[0]}' from the product plane, and"
                         f" {operator_only[service]} is declared"
                         " operator-plane-only. Its contract says why, and the"
                         " answer is not to widen the route",
                     )
+
+
+def _backend_service(backend: dict, route_namespace: str) -> tuple[str, str]:
+    """A backendRef resolved to the Service it addresses, or a miss.
+
+    Gateway API defaults `kind` to Service in the core group, and `namespace` to
+    the route's own. A ref to something else -- a different kind, or an
+    implementation-specific group -- is not a Service and must not be matched
+    against one, so it resolves to a pair nothing can equal.
+    """
+    group = backend.get("group", "")
+    kind = backend.get("kind", "Service")
+    if group not in ("", None) or kind != "Service":
+        return ("", "")
+    return (backend.get("namespace") or route_namespace, backend.get("name") or "")
 
 
 def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) -> None:
