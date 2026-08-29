@@ -29,6 +29,20 @@ spec:
       serviceAccountName: saas-fabric
       securityContext:
         runAsNonRoot: true
+
+        # 65532 is `nonroot` in the distroless base, stated numerically because
+        # the kubelet cannot check a *name*. The image declares `USER nonroot`,
+        # and with `runAsNonRoot: true` and no UID here the kubelet refuses to
+        # start the container at all:
+        #
+        #   container has runAsNonRoot and image has non-numeric user
+        #   (nonroot), cannot verify user is non-root
+        #
+        # It is not a warning and not a fallback -- the pod never runs. The
+        # console beside this needs no such line because nginx-unprivileged
+        # declares a numeric UID of its own, which is the whole difference.
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
