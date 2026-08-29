@@ -82,7 +82,9 @@ the part no control plane replaces.
 `not-exposed` names the Kubernetes Services that would front the console in
 `adminBackends`, and `check.py` proves no `Ingress` publishes them — so the rule
 survives someone adding four convenient lines of YAML later. See
-[architecture.md](architecture.md#the-administrative-control-plane).
+[architecture.md](architecture.md#the-administrative-control-plane) and
+[naming a backend](#naming-a-backend) for why those four lines are `{name,
+namespace}` rather than a name.
 
 ## The reference pattern
 
@@ -140,12 +142,14 @@ operatorUsage: true
 controlPlane:
   managed: true              # true | partial | false
   upstreamAdminSurface: not-exposed   # none | not-exposed | break-glass | exposed
-  adminBackends: [keycloak-http]      # required when not-exposed
+  adminBackends:                      # required when not-exposed
+    - name: keycloak-http
+      namespace: identity
 exposure:                    # optional; declared where it is a constraint
   plane: operator            # operator | product | both
   backends:                  # required when operator
-    - name: perses           # a backendRef resolves to (namespace, name),
-      namespace: catalogue   # so both are named
+    - name: perses
+      namespace: catalogue
   rationale: |               # required when operator
     ...
 clientPartitioning:
@@ -160,6 +164,33 @@ tenancy:
   rationale: |
     ...
 ```
+
+### Naming a backend
+
+Two fields name Kubernetes Services that validation has to find in rendered
+output: `adminBackends`, for a console that must not be published, and
+`exposure.backends`, for a Service that must not leave the operator plane. Both
+use the same entry shape, and both are checked by the same rule:
+
+```yaml
+- name: keycloak-http
+  namespace: identity
+```
+
+**A Service is identified by `(namespace, name)`.** A bare name would make both
+invariants depend on nobody ever reusing a Service name in another namespace —
+a convention, and these checks exist precisely because conventions are what
+architectural truth should not rest on. It would also go ambiguous the day a
+cross-namespace Gateway API `backendRef` appears.
+
+The subtler half is finding the namespace of a *rendered* resource, and reading
+`metadata.namespace` is not it. Helm charts routinely omit it — the Perses
+chart's own `Ingress` does — and Argo CD then applies the resource into the
+Application's destination. A check that trusted the document would be blind to
+exactly the chart-rendered resources most likely to publish something nobody
+intended, which is a false negative traded for a false positive. So the
+namespace is resolved as Argo CD resolves it: the document's own, or its
+Application's destination.
 
 ### `exposure` is a constraint, not a description
 
@@ -181,19 +212,19 @@ Remove the first term and the other two stop reassuring anybody.
 
 So `plane: operator` names, in `backends`, the Services validation must prove
 stay off the product plane — for exactly the reason `not-exposed` names
-`adminBackends`. A claim about a cluster needs something to be checked against,
-and `check_operator_only_services` fails the build on a route that could reach
-one of them from the product plane. The namespace happening not to carry
-`gateway-access` is what stops it today; this repository has twice been wrong
-about an absent label being a guarantee.
+`adminBackends`, and in the same shape. A claim about a cluster needs something
+to be checked against, and `check_operator_only_services` fails the build on a
+route that could reach one of them from the product plane. The namespace
+happening not to carry `gateway-access` is what stops it today; this repository
+has twice been wrong about an absent label being a guarantee.
 
-The check resolves two things the way Kubernetes resolves them rather than the
-way a string comparison would, because an invariant that encodes an
-architectural truth should not rest on a naming convention:
+Identity is resolved as [above](#naming-a-backend), with one addition Gateway
+API brings and Ingress does not: a `backendRef` may name its own namespace, and
+defaults to the route's when it does not. The plane is resolved too:
 
 | | |
 |---|---|
-| **Identity** | a `backendRef` addresses `(namespace, name)`, and its namespace defaults to the route's own. Matching on the name alone would depend on nobody reusing a Service name in another namespace, and would misfire on a cross-namespace `backendRef`. A ref to any other kind or group is not a Service and is not matched against one |
+| **Identity** | `(namespace, name)`, taken from the `backendRef` or defaulted to the route's namespace. A ref to any other kind or group is not a Service and is not matched against one |
 | **Plane** | what is refused is the *product* plane, not routing. The listener the route names decides it, or — when it names none — the grant its namespace carries. An operator-plane route to the same Service is permitted, which is the whole point |
 
 `rationale` is required for the same reason a tenancy position is: a constraint

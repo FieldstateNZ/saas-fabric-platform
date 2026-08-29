@@ -12,10 +12,16 @@ controlPlane:
   # console is a vendor administration surface, not the capability itself, so it
   # is published on no plane -- and `adminBackends` is what check.py uses to
   # prove no Ingress quietly puts it back.
+  #
+  # Namespaced, because a Service is identified by (namespace, name). A bare
+  # name would make the invariant depend on nobody reusing `keycloak-http` in
+  # another namespace, which is a convention rather than a property of the
+  # cluster. Same shape as exposure.backends, and the same reason.
   managed: true
   upstreamAdminSurface: not-exposed
   adminBackends:
-    - keycloak-http
+    - name: keycloak-http
+      namespace: identity
 clientPartitioning:
   mode: strong
   unit: realm
