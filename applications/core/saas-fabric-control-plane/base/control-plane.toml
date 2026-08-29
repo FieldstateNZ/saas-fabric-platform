@@ -6,12 +6,17 @@
 # silently produced defaults would revert the operator posture to whatever the
 # code happened to default to.
 #
-# This base file is not deployable: its operator allowlist and GitHub App
-# identifiers are placeholders, and each environment replaces the whole file.
+# This base file is not deployable: its operator allowlist and public base URL
+# are placeholders, and each environment replaces the whole file.
 # Replacing rather than patching, because a partial patch of a config file is
 # how one ends up half from one environment and half from another.
 listen = "0.0.0.0:8081"
 request_timeout_seconds = 30
+
+[control_plane]
+# Replaced per environment. GitHub returns an operator's browser here after
+# each approval in the connection flow.
+public_base_url = "PLACEHOLDER"
 
 # The control plane consumes an operator identity the operator-plane proxy
 # has already established. That is only sound because this service is
@@ -28,19 +33,16 @@ allowlist = ["PLACEHOLDER"]
 interval_seconds = 60
 
 [desired_state]
-mode = "git"
-api_base_url = "https://api.github.com"
-owner = "FieldstateNZ"
-repository = "saas-fabric-clients"
-branch = "main"
-path_prefix = "clients"
-document_file = "client.yaml"
+# Established in the product by an operator, not stated here. Nothing about a
+# Git host belongs in a deployment any more.
+mode = "managed"
 
-[desired_state.auth]
-mode = "github_app"
-app_id = "PLACEHOLDER"
-installation_id = "PLACEHOLDER"
-private_key_ref = "git/saas-fabric-clients-app-key"
+[secret_store]
+# Where this instance keeps the application's private key and the record
+# describing it. The pod authenticates with its own Kubernetes identity.
+mode = "open_bao"
+address = "http://openbao.secrets.svc.cluster.local:8200"
+role = "saas-fabric-control-plane"
 
 [identity_provider]
 mode = "keycloak"

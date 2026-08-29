@@ -1,15 +1,41 @@
 # LucentRoot's control-plane configuration.
 #
-# Nothing here is secret. The GitHub App's id and installation id are public
-# identifiers; only its private key and Keycloak's client secret come from
-# OpenBao, and both arrive as environment variables the application resolves by
-# reference.
+# **Nothing here is a credential, and nothing here names a Git host.** The
+# platform creates its own GitHub application when an operator connects it, and
+# what it learns doing so — an application id, an installation, a private key —
+# is state the platform owns rather than configuration a human writes down.
+# That is the whole point of ADR 0011 in the application repository.
+#
+# One secret is still delivered by External Secrets: Keycloak's service-account
+# credential, which reconciliation authenticates with. It is issued elsewhere
+# and consumed here, so OpenBao remains the right delivery path for it.
 listen = "0.0.0.0:8081"
 request_timeout_seconds = 30
 
+[control_plane]
+# Where an operator's browser reaches this control plane. GitHub returns the
+# browser here after each approval in the connection flow, so it must be the
+# operator-plane hostname and it must be stated rather than taken from a
+# request — a redirect target read from a `Host` header is one the caller chose.
+public_base_url = "https://fabric-lucentroot.tail5a7546.ts.net"
+
 [control_plane.operator]
+# Still the trusted-header posture, deliberately. The OIDC posture is
+# implemented and is the production one, but it needs a public client and a
+# `fabric-operator` role in Keycloak's master realm, and nothing creates those
+# yet. Flipping this before they exist would lock every operator out of the
+# console — including the console that would be used to fix it.
+#
+# The replacement, once the realm has both:
+#
+#     mode = "oidc"
+#     issuer = "http://keycloak-http.identity.svc.cluster.local/realms/master"
+#     client_id = "saas-fabric-console"
+#     required_role = "fabric-operator"
+#     redirect_uri = "https://fabric-lucentroot.tail5a7546.ts.net/"
 mode = "trusted_header"
 header = "Tailscale-User-Login"
+
 # The tailnet establishes who someone is; this establishes that they administer
 # this platform. It may not be empty, and the application refuses to start if it
 # is.
@@ -19,25 +45,26 @@ allowlist = ["brett@pukekos.co.nz"]
 interval_seconds = 60
 
 [desired_state]
-mode = "git"
-api_base_url = "https://api.github.com"
-owner = "FieldstateNZ"
-repository = "saas-fabric-clients"
-branch = "main"
-path_prefix = "clients"
-document_file = "client.yaml"
+# Established in the product, not here. The control plane starts knowing only
+# that it has no client configuration repository, reports itself unconfigured,
+# and stays available so that an operator can connect one through the console.
+mode = "managed"
 
-[desired_state.auth]
-mode = "github_app"
-# Both replaced when the App exists. Until then the control plane starts,
-# serves, and reports every client as failing to read — the honest state, and
-# visible in the console rather than only in a log.
-app_id = "PLACEHOLDER"
-installation_id = "PLACEHOLDER"
-private_key_ref = "git/saas-fabric-clients-app-key"
+[secret_store]
+# Where this Fabric instance keeps what it must not lose — the private key of
+# the application it creates, and the record describing it.
+#
+# The pod authenticates with its own Kubernetes identity, so there is no static
+# credential for anybody to create, transport or rotate. The role and its
+# policy are a one-time OpenBao step; see this directory's README.
+mode = "open_bao"
+address = "http://openbao.secrets.svc.cluster.local:8200"
+role = "saas-fabric-control-plane"
 
 [identity_provider]
 mode = "keycloak"
+# Cluster-local. Keycloak's administrative API is not published on any plane,
+# and this is the path that replaces having published it.
 base_url = "http://keycloak-http.identity.svc.cluster.local"
 admin_realm = "master"
 client_id = "saas-fabric"

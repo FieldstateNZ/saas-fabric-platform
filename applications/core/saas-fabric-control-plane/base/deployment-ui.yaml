@@ -17,7 +17,7 @@ spec:
       labels:
         app.kubernetes.io/name: saas-fabric-control-plane-ui
     spec:
-      serviceAccountName: saas-fabric-control-plane
+      serviceAccountName: saas-fabric-control-plane-ui
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true

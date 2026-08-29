@@ -23,7 +23,18 @@ spec:
         app.kubernetes.io/name: saas-fabric-control-plane
     spec:
       serviceAccountName: saas-fabric-control-plane
-      automountServiceAccountToken: false
+
+      # Mounted, and this is a deliberate change from `false`.
+      #
+      # The control plane authenticates to OpenBao with the pod's own
+      # Kubernetes identity, which is what lets it hold no static credential
+      # for the secret store — nothing to create, transport or rotate. That
+      # identity is this token.
+      #
+      # It is the API's alone. The console container below keeps
+      # `automountServiceAccountToken: false`, because a static file server has
+      # no reason to hold an identity for anything.
+      automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -42,10 +53,13 @@ spec:
             - name: RUST_LOG
               value: info
           envFrom:
-            # The two administrative credentials, delivered by External Secrets
-            # from OpenBao. Not optional: a control plane that starts without
-            # them cannot read desired state or reconcile anything, and would
-            # report every client as failed rather than saying why.
+            # Keycloak's service-account credential, delivered by External
+            # Secrets from OpenBao. Not optional: reconciliation authenticates
+            # with it, and a control plane without it could converge nothing.
+            #
+            # The Git credential is deliberately absent. The platform creates
+            # its own application and writes its key into its own secret
+            # partition, so there is nothing for a deployment to supply.
             - secretRef:
                 name: saas-fabric-control-plane-secrets
           volumeMounts:
