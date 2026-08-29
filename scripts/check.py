@@ -190,6 +190,16 @@ ADMIN_SURFACES = (
     "exposed",      # the UI is itself the capability
 )
 
+# Both `controlPlane.adminBackends` and `exposure.backends` name Services that
+# validation has to find in rendered output, and a Service is identified by
+# (namespace, name). One message, because it is one rule.
+UNQUALIFIED_BACKEND = (
+    "every {field} entry needs a name and a namespace -- a Service is identified by "
+    "(namespace, name), so a bare name would make this invariant depend on Service "
+    "names being globally unique, which is a convention rather than a property of a "
+    "cluster"
+)
+
 MODES_PERMITTED_BY_TENANCY = {
     "accepted": ("logical", "strong"),      # established: name the strength
     "candidate": ("unknown",),              # a mechanism is in view, unproven
@@ -1178,6 +1188,8 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
     if surface == "none" and admin_backends:
         bad("controlPlane.upstreamAdminSurface is 'none' but adminBackends are named -- "
             "a service with no console has nothing to withhold")
+    if len(_qualified_backends(admin_backends)) != len(admin_backends):
+        bad(UNQUALIFIED_BACKEND.format(field="controlPlane.adminBackends"))
 
     # Optional, and declared only where exposure is a constraint rather than a
     # description. `operator` has to name the Services it is talking about, for
@@ -1194,15 +1206,9 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
                 bad("exposure.plane is 'operator' but no backends are named -- name the "
                     "Services that must stay off the product plane so validation can prove "
                     "none is published there")
-            # Written the way Gateway API writes a backendRef, because that is
-            # what it has to be compared against. A bare name would make the
-            # invariant depend on Service names being globally unique, which is
-            # a convention rather than a property of the cluster.
-            for entry in backends or []:
-                if not isinstance(entry, dict) or not entry.get("name") or not entry.get("namespace"):
-                    bad("every exposure.backends entry needs a name and a namespace -- a "
-                        "backendRef resolves to (namespace, name), so a bare name cannot be "
-                        "compared against one")
+            # The same shape `adminBackends` uses, and for the same reason.
+            if len(_qualified_backends(backends)) != len(backends or []):
+                bad(UNQUALIFIED_BACKEND.format(field="exposure.backends"))
             if not exposure.get("rationale"):
                 bad("exposure.plane is 'operator' but no rationale is recorded -- a constraint "
                     "nobody can read the reason for is one somebody will lift")
@@ -1298,18 +1304,13 @@ def check_operator_only_services(root: Path, render: Path, problems: list[str]) 
         exposure = declared.get("exposure") or {}
         if exposure.get("plane") != OPERATOR_LISTENER:
             continue
-        for entry in exposure.get("backends") or []:
-            # Malformed entries are reported by the contract check; skipping
-            # them here keeps one bad field from masking every real violation.
-            if not isinstance(entry, dict):
-                continue
-            name, namespace = entry.get("name"), entry.get("namespace")
-            if name and namespace:
-                operator_only[(namespace, name)] = declared.get("service", contract.parent.name)
+        for service in _qualified_backends(exposure.get("backends")):
+            operator_only[service] = declared.get("service", contract.parent.name)
     if not operator_only:
         return
 
     for environment in ENVIRONMENTS:
+        destinations = _destination_namespaces(render, environment, problems)
         product_namespaces: set[str] = set()
         routes = []
         for path in sorted((render / environment).rglob("*.yaml")):
@@ -1328,7 +1329,9 @@ def check_operator_only_services(root: Path, render: Path, problems: list[str]) 
                         product_namespaces.add(document["spec"]["destination"]["namespace"])
 
         for path, route in routes:
-            namespace = route["metadata"]["namespace"]
+            # Resolved rather than read, for the reason given in
+            # _destination_namespaces: a chart-rendered route need not carry one.
+            namespace = _resource_namespace(route, path, destinations)
             name = route["metadata"]["name"]
             reached = {
                 _backend_service(backend, namespace)
@@ -1372,6 +1375,51 @@ def _backend_service(backend: dict, route_namespace: str) -> tuple[str, str]:
     return (backend.get("namespace") or route_namespace, backend.get("name") or "")
 
 
+def _qualified_backends(entries: list) -> list[tuple[str, str]]:
+    """Declared backends as (namespace, name), skipping malformed entries.
+
+    Malformed entries are reported by the contract check, so skipping them here
+    keeps one bad field from masking every real violation the same pass would
+    otherwise have found.
+    """
+    resolved = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        name, namespace = entry.get("name"), entry.get("namespace")
+        if name and namespace:
+            resolved.append((namespace, name))
+    return resolved
+
+
+def _destination_namespaces(render: Path, environment: str, problems: list[str]) -> dict[str, str]:
+    """Where each Application's resources actually land, keyed by rendered file.
+
+    Necessary because `metadata.namespace` is not where a resource's namespace
+    reliably *is*. Helm charts routinely omit it -- the Perses chart's Ingress
+    does -- and Argo CD then applies the resource into the Application's
+    destination. A check that read only the document would be blind to exactly
+    the chart-rendered resources most likely to publish something by accident.
+
+    `render.py` names each rendered file after the Application that produced it,
+    which is what makes the two sides joinable.
+    """
+    destinations: dict[str, str] = {}
+    for name in ("bootstrap.yaml", "platform.yaml"):
+        source = render / environment / name
+        if not source.is_file():
+            continue
+        for document in load_all(source, problems):
+            if document.get("kind") == "Application":
+                destinations[document["metadata"]["name"]] = document["spec"]["destination"]["namespace"]
+    return destinations
+
+
+def _resource_namespace(document: dict, path: Path, destinations: dict[str, str]) -> str:
+    """The namespace a rendered resource will exist in, as Argo CD resolves it."""
+    return document.get("metadata", {}).get("namespace") or destinations.get(path.stem, "")
+
+
 def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) -> None:
     """Section 15: SaaS Fabric is the administrative control plane.
 
@@ -1383,34 +1431,42 @@ def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) 
     "Upstream software ships an admin UI" is not an operational need. Services
     whose UI is itself the capability (Perses) declare `exposed`, and diagnostic
     surfaces (OpenBao) declare `break-glass`; both are left alone.
+
+    A withheld backend is `(namespace, name)`, not a name. An Ingress backend is
+    always in the Ingress's own namespace -- no defaulting rule, unlike a Gateway
+    API `backendRef` -- but *which* namespace that is has to be resolved rather
+    than read, because a chart may not have written one down.
     """
-    withheld: dict[str, str] = {}
+    withheld: dict[tuple[str, str], str] = {}
     for contract in sorted(root.glob("applications/*/*/platform-service.yaml")):
         declared = yaml.safe_load(contract.read_text()) or {}
         control = declared.get("controlPlane") or {}
         if control.get("upstreamAdminSurface") != "not-exposed":
             continue
-        for backend in control.get("adminBackends") or []:
-            withheld[backend] = declared.get("service", contract.parent.name)
+        for service in _qualified_backends(control.get("adminBackends")):
+            withheld[service] = declared.get("service", contract.parent.name)
     if not withheld:
         return
 
     for environment in ENVIRONMENTS:
+        destinations = _destination_namespaces(render, environment, problems)
         for path in sorted((render / environment).rglob("*.yaml")):
             for document in load_all(path, problems):
                 if document.get("kind") != "Ingress":
                     continue
                 name = document["metadata"]["name"]
+                namespace = _resource_namespace(document, path, destinations)
                 for rule in document["spec"].get("rules", []):
                     for entry in (rule.get("http") or {}).get("paths", []):
                         backend = entry.get("backend", {}).get("service", {}).get("name")
-                        if backend in withheld:
+                        service = (namespace, backend)
+                        if service in withheld:
                             fail(
                                 problems,
                                 f"{environment}/{path.name}: Ingress/{name} publishes"
-                                f" '{backend}', the upstream administrative surface of"
-                                f" {withheld[backend]}, which SaaS Fabric administers"
-                                " through its API instead",
+                                f" '{backend}.{namespace}', the upstream administrative"
+                                f" surface of {withheld[service]}, which SaaS Fabric"
+                                " administers through its API instead",
                             )
 
 
