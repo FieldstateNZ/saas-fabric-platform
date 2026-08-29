@@ -1173,14 +1173,29 @@ def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) 
                 for rule in document["spec"].get("rules", []):
                     for entry in (rule.get("http") or {}).get("paths", []):
                         backend = entry.get("backend", {}).get("service", {}).get("name")
-                        if backend in withheld:
-                            fail(
-                                problems,
-                                f"{environment}/{path.name}: Ingress/{name} publishes"
-                                f" '{backend}', the upstream administrative surface of"
-                                f" {withheld[backend]}, which SaaS Fabric administers"
-                                " through its API instead",
-                            )
+                        if backend not in withheld:
+                            continue
+
+                        # The *service* is not the surface; some of its paths
+                        # are. Operators have to reach the realm endpoints to
+                        # sign in, and those are served by the same Service as
+                        # the console nobody may reach. So the rule is about
+                        # which paths are published, and a route that names
+                        # them narrowly is allowed.
+                        #
+                        # `/` is refused precisely because it is not narrow: it
+                        # reaches `/admin` without ever saying so.
+                        published = entry.get("path", "/")
+                        if published != "/" and not published.startswith("/admin"):
+                            continue
+
+                        fail(
+                            problems,
+                            f"{environment}/{path.name}: Ingress/{name} publishes"
+                            f" '{published}' of '{backend}', the upstream administrative"
+                            f" surface of {withheld[backend]}, which SaaS Fabric"
+                            " administers through its API instead",
+                        )
 
 
 def main() -> int:

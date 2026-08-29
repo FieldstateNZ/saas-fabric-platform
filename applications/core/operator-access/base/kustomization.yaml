@@ -5,7 +5,7 @@ resources:
   - argocd.yaml
   - openbao.yaml
   - saas-fabric-control-plane.yaml
-  - keycloak-routes.yaml
+  - keycloak.yaml
 
 labels:
   - includeSelectors: false
