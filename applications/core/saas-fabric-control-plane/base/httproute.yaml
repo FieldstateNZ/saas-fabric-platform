@@ -1,13 +1,18 @@
 # What answers on the operator hostname.
 #
-# Order matters: Gateway API matches the most specific path, but these are
-# written longest-first so a reader sees the same precedence the implementation
-# applies. `/` is last because it catches everything else.
+# In this directory rather than beside the Tailscale Ingress, and that is the
+# point: this route can only attach to the operator listener because the
+# namespace it lives in carries only `operator-gateway-access`. It is not
+# choosing to be operator-only by naming a `sectionName` -- a route that named
+# the product listener instead would simply not be accepted.
+#
+# The Ingress stays in `platform-system` with the Envoy edge it points at,
+# because an Ingress without a load-balancer address reports Progressing and
+# would otherwise make this service's health depend on the Tailscale operator.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: saas-fabric-control-plane
-  namespace: platform-system
 spec:
   parentRefs:
     - name: platform

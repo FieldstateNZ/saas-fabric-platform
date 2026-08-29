@@ -33,11 +33,6 @@ spec:
         fieldstate.nz/system: saas-fabric
         fieldstate.nz/layer: platform
         fieldstate.nz/gateway-access: "true"
-
-        # And to the operator listener, which is a separate grant on purpose:
-        # neither label implies the other, so a namespace reachable from the
-        # product edge is not thereby reachable from the operator plane.
-        fieldstate.nz/operator-gateway-access: "true"
     retry:
       limit: 10
       backoff:

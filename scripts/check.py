@@ -478,16 +478,24 @@ def check_routes_attach(render: Path, problems: list[str]) -> None:
     reports NotAllowedByListeners or NoMatchingParent in its status, and serves
     nothing. Nothing before this catches it.
 
-    The same applies to the namespace label. The platform Gateway admits routes
-    from namespaces carrying fieldstate.nz/gateway-access, which Applications
-    set through managedNamespaceMetadata; a route in a namespace no Application
-    labels will never attach.
+    The same applies to the namespace label, and there are now two of them.
+    Each listener admits routes from namespaces carrying its own label, which
+    Applications set through managedNamespaceMetadata; a route in a namespace
+    carrying the wrong one will never attach.
+
+    The two grants are deliberately independent. A namespace reachable from the
+    product edge is not thereby reachable from the operator plane, and the
+    reverse -- which is the only reason `check_control_plane_is_operator_only`
+    below can assert anything.
     """
-    label = "fieldstate.nz/gateway-access"
+    grants = {
+        "http": "fieldstate.nz/gateway-access",
+        "operator": "fieldstate.nz/operator-gateway-access",
+    }
     for environment in ENVIRONMENTS:
         listeners: dict[tuple[str, str], set[str]] = {}
         routes = []
-        labelled: set[str] = set()
+        labelled: dict[str, set[str]] = {}
 
         for path in sorted((render / environment).rglob("*.yaml")):
             for document in load_all(path, problems):
@@ -506,26 +514,23 @@ def check_routes_attach(render: Path, problems: list[str]) -> None:
                         .get("managedNamespaceMetadata", {})
                         .get("labels", {})
                     )
-                    if managed.get(label) == "true":
-                        labelled.add(document["spec"]["destination"]["namespace"])
+                    for granted in grants.values():
+                        if managed.get(granted) == "true":
+                            labelled.setdefault(granted, set()).add(
+                                document["spec"]["destination"]["namespace"]
+                            )
 
         for path, route in routes:
             metadata = route["metadata"]
             namespace = metadata["namespace"]
             where = f"{environment}/{path.name}: {route['kind']}/{metadata['name']}"
 
-            if namespace not in labelled:
-                fail(
-                    problems,
-                    f"{where} is in namespace {namespace}, which no Application"
-                    f" labels {label}; the route cannot attach",
-                )
-
             for parent in route["spec"].get("parentRefs", []):
                 key = (parent["name"], parent.get("namespace", namespace))
                 if key not in listeners:
                     fail(problems, f"{where} attaches to Gateway {key[0]}.{key[1]}, which does not exist")
                     continue
+
                 section = parent.get("sectionName")
                 if section and section not in listeners[key]:
                     fail(
@@ -533,6 +538,79 @@ def check_routes_attach(render: Path, problems: list[str]) -> None:
                         f"{where} attaches to listener '{section}' of"
                         f" {key[0]}.{key[1]}, which has no such listener",
                     )
+                    continue
+
+                # Which grant this route needs depends on the listener it named.
+                # A route naming none needs whichever the namespace has.
+                needed = [grants[section]] if section in grants else list(grants.values())
+                if not any(namespace in labelled.get(granted, set()) for granted in needed):
+                    fail(
+                        problems,
+                        f"{where} is in namespace {namespace}, which no Application"
+                        f" labels {' or '.join(needed)}; the route cannot attach",
+                    )
+
+
+def check_control_plane_is_operator_only(render: Path, problems: list[str]) -> None:
+    """The control plane's namespace carries one gateway grant, not both.
+
+    This is the invariant behind "operator plane only", and it needs asserting
+    because the obvious version of it was wrong twice.
+
+    First the control plane lived in `platform-system` with the label merely
+    omitted from its own Application -- which reads like a guarantee and is
+    not, because the namespace carries `gateway-access` from its other
+    tenants. Then both grants were put on that one namespace, which restored
+    the same problem in a new shape: a route there was eligible for either
+    listener, and only `sectionName` kept it off the product edge. That is a
+    choice a route makes about itself, and a boundary cannot be one of those.
+
+    A namespace holding one grant and not the other is enforced by the
+    Gateway's own selector. This check is what stops the other grant being
+    added back, in any Application, for any reason.
+    """
+    product = "fieldstate.nz/gateway-access"
+    operator = "fieldstate.nz/operator-gateway-access"
+
+    for environment in ENVIRONMENTS:
+        operator_namespaces: set[str] = set()
+        product_namespaces: dict[str, str] = {}
+
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "Application":
+                    continue
+
+                labels = (
+                    document["spec"]
+                    .get("syncPolicy", {})
+                    .get("managedNamespaceMetadata", {})
+                    .get("labels", {})
+                )
+                namespace = document["spec"]["destination"]["namespace"]
+                name = document["metadata"]["name"]
+
+                if labels.get(operator) == "true":
+                    operator_namespaces.add(namespace)
+                if labels.get(product) == "true":
+                    product_namespaces[namespace] = name
+
+        # Keycloak is the deliberate exception and is named rather than
+        # inferred: applications reach it on the product edge and operators on
+        # the operator plane, so `identity` genuinely holds both. Every other
+        # namespace holding both is the mistake this check exists for.
+        for namespace in sorted(operator_namespaces & set(product_namespaces)):
+            if namespace == "identity":
+                continue
+
+            fail(
+                problems,
+                f"{environment}: namespace {namespace} carries both"
+                f" {product} and {operator} (the second from"
+                f" {product_namespaces[namespace]}); a route in it is eligible"
+                " for either listener, so operator-only is a convention rather"
+                " than a boundary",
+            )
 
 
 def check_argocd_runtime_configuration(render: Path, problems: list[str]) -> None:
@@ -1123,6 +1201,7 @@ def main() -> int:
     check_exposure_planes(render, problems)
     check_admin_off_the_product_plane(render, problems)
     check_routes_attach(render, problems)
+    check_control_plane_is_operator_only(render, problems)
     check_argocd_runtime_configuration(render, problems)
     check_secret_store_is_bounded(render, problems)
     check_projects_permit_what_apps_deploy(render, problems)

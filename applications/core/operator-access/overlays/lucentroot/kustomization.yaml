@@ -39,15 +39,8 @@ patches:
         path: /spec/tls/0/hosts/0
         value: fabric-lucentroot
 
-  # The routes match on the Host the browser sends, which is the FQDN the
+  # The route matches on the Host the browser sends, which is the FQDN the
   # Tailscale operator registers -- not the short name the Ingress carries.
-  - target:
-      kind: HTTPRoute
-      name: saas-fabric-control-plane
-    patch: |-
-      - op: replace
-        path: /spec/hostnames/0
-        value: fabric-lucentroot.tail5a7546.ts.net
   - target:
       kind: HTTPRoute
       name: keycloak-operator

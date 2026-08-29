@@ -46,6 +46,12 @@ spec:
       namespace: argocd
     - server: https://kubernetes.default.svc
       namespace: platform-system
+
+    # The operator plane. Its own namespace so that carrying
+    # `operator-gateway-access` and not `gateway-access` is a boundary the
+    # Gateway enforces rather than a convention a route observes.
+    - server: https://kubernetes.default.svc
+      namespace: operator-system
     - server: https://kubernetes.default.svc
       namespace: identity
     - server: https://kubernetes.default.svc

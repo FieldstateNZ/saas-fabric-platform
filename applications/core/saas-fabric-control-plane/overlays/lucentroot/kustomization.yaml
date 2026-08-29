@@ -19,3 +19,15 @@ configMapGenerator:
     behavior: replace
     files:
       - control-plane.toml
+
+# The route matches on the Host the browser sends, which is the FQDN the
+# Tailscale operator registers for this environment -- not the short name the
+# Ingress beside it carries.
+patches:
+  - target:
+      kind: HTTPRoute
+      name: saas-fabric-control-plane
+    patch: |-
+      - op: replace
+        path: /spec/hostnames/0
+        value: fabric-lucentroot.tail5a7546.ts.net

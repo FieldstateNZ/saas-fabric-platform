@@ -9,7 +9,7 @@
 | Container image | `ghcr.io/fieldstatenz/saas-fabric-control-plane:0.1.0` |
 | | `ghcr.io/fieldstatenz/saas-fabric-control-plane-ui:0.1.0` |
 | Licence | Fieldstate |
-| Namespace | `platform-system` |
+| Namespace | `operator-system` |
 | Grouping | `core` — a deployment tier, not a classification |
 | Service contract | [`platform-service.yaml`](platform-service.yaml) |
 | Sync wave | `40` |
@@ -32,10 +32,22 @@ Two Deployments here, from two images:
 
 ## Operator plane only, structurally
 
-The namespace metadata carries **no `gateway-access` label**, so this Application
-cannot attach a route to the product `Gateway` even by mistake. It is published
-on the operator plane and nowhere else, through
-[`../operator-access`](../operator-access/):
+**A namespace of its own, carrying `operator-gateway-access` and not
+`gateway-access`.** That is what makes "operator plane only" a boundary rather
+than a habit.
+
+It was `platform-system` with the label merely omitted from this Application,
+which read like a guarantee and was not: that namespace carries `gateway-access`
+from its other tenants, so a route in it was eligible for the product listener
+regardless. The route naming `sectionName: operator` was then a choice the route
+made about itself — convention, not isolation.
+
+A namespace with one grant and not the other is enforced by the `Gateway`'s own
+selector: a route here that named the product listener is refused, by
+Kubernetes, without anybody reviewing it. `scripts/check.py` asserts the
+namespace never acquires the other label.
+
+Published through [`../operator-access`](../operator-access/):
 
 | Path | Backend |
 |---|---|
@@ -132,7 +144,7 @@ POLICY
 
 bao write auth/kubernetes/role/saas-fabric-control-plane \
   bound_service_account_names=saas-fabric-control-plane \
-  bound_service_account_namespaces=platform-system \
+  bound_service_account_namespaces=operator-system \
   policies=saas-fabric-control-plane ttl=1h
 ```
 
