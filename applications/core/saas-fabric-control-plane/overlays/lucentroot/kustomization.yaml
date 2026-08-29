@@ -7,11 +7,13 @@ resources:
 # Pinned, never `latest`. Promote by editing this and nothing else.
 images:
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane
-    newTag: 0.1.0
+    newTag: 0.2.0
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
-    newTag: 0.1.0
+    newTag: 0.2.0
 
-# The environment's operator identity and its GitHub App installation.
+# The environment's identity provider, its own addresses, and where an
+# operator's browser reaches this control plane. No GitHub App identifiers:
+# the platform creates its own when an operator connects it.
 configMapGenerator:
   - name: saas-fabric-control-plane-config
     behavior: replace
