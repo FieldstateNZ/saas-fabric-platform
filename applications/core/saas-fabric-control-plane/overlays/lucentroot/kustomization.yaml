@@ -7,9 +7,9 @@ resources:
 # Pinned, never `latest`. Promote by editing this and nothing else.
 images:
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane
-    newTag: 0.2.1
+    newTag: 0.2.2
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
-    newTag: 0.2.1
+    newTag: 0.2.2
 
 # The environment's identity provider, its own addresses, and where an
 # operator's browser reaches this control plane. No GitHub App identifiers:
