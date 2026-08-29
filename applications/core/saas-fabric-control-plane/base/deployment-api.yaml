@@ -52,16 +52,18 @@ spec:
               value: /etc/fabric/control-plane.toml
             - name: RUST_LOG
               value: info
-          envFrom:
-            # Keycloak's service-account credential, delivered by External
-            # Secrets from OpenBao. Not optional: reconciliation authenticates
-            # with it, and a control plane without it could converge nothing.
-            #
-            # The Git credential is deliberately absent. The platform creates
-            # its own application and writes its key into its own secret
-            # partition, so there is nothing for a deployment to supply.
-            - secretRef:
-                name: saas-fabric-control-plane-secrets
+          # No `envFrom`, and no Secret behind it. **This deployment supplies
+          # the control plane with no credential of any kind.**
+          #
+          # Git: the platform creates its own application when an operator
+          # connects it, and writes the key into its own secret partition.
+          #
+          # Keycloak: the platform holds no authority over it. It acts as the
+          # operator who asked, with the bearer they presented, so permission
+          # to create a realm belongs to a person in the master realm.
+          #
+          # What remains is the service-account token below, which is an
+          # identity rather than a credential somebody issued.
           volumeMounts:
             - name: config
               mountPath: /etc/fabric

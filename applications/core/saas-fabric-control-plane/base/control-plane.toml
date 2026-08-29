@@ -6,8 +6,9 @@
 # silently produced defaults would revert the operator posture to whatever the
 # code happened to default to.
 #
-# This base file is not deployable: its operator allowlist and public base URL
-# are placeholders, and each environment replaces the whole file.
+# This base file is not deployable: its issuer, its reachable address and its
+# public base URL are placeholders, and each environment replaces the whole
+# file.
 # Replacing rather than patching, because a partial patch of a config file is
 # how one ends up half from one environment and half from another.
 listen = "0.0.0.0:8081"
@@ -23,9 +24,12 @@ public_base_url = "PLACEHOLDER"
 # reachable from the tailnet and nowhere else — it has no gateway-access
 # label, so it cannot attach to the product Gateway.
 [control_plane.operator]
-mode = "trusted_header"
-header = "Tailscale-User-Login"
-allowlist = ["PLACEHOLDER"]
+mode = "oidc"
+issuer = "PLACEHOLDER"
+reachable_at = "PLACEHOLDER"
+client_id = "saas-fabric-console"
+required_role = "fabric-operator"
+redirect_uri = "PLACEHOLDER"
 
 [control_plane.reconciliation]
 # Bounds how long a change outside SaaS Fabric goes unnoticed, which is what
@@ -51,5 +55,4 @@ mode = "keycloak"
 base_url = "http://keycloak-http.identity.svc.cluster.local"
 admin_realm = "master"
 client_id = "saas-fabric"
-client_secret_ref = "keycloak/saas-fabric"
 http_timeout_seconds = 10

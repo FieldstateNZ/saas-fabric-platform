@@ -58,8 +58,8 @@ is missing**. Each environment overlay replaces `control-plane.toml` whole
 rather than patching it — a partial patch of a config file is how one ends up
 half from one environment and half from another.
 
-The base file is not deployable: its operator allowlist and public base URL are
-placeholders.
+The base file is not deployable: its issuer, its reachable address and its
+public base URL are placeholders.
 
 `public_base_url` is the one value that must be an externally reachable
 address rather than a cluster-local one. GitHub returns an operator's browser
@@ -67,35 +67,24 @@ to it after each approval in the connection flow, so it is the operator-plane
 hostname — and it is stated rather than taken from a request, because a
 redirect target read from a `Host` header is one the caller chose.
 
-## The one secret this deployment supplies
+## This deployment supplies no credential
 
-```yaml
-secretRef:
-  name: saas-fabric-control-plane-secrets   # namespace: platform-system
-```
+There is no `ExternalSecret` here and no `envFrom`. That is the whole of it,
+and it took two changes to get to:
 
-| OpenBao path | Property | Becomes |
-|---|---|---|
-| `platform/saas-fabric/keycloak` | `client-secret` | `FABRIC_SECRET_KEYCLOAK_SAAS_FABRIC` |
+| Against | How authority is obtained |
+|---|---|
+| GitHub | the platform creates its own application when an operator connects it, and writes the key into its own secret partition |
+| Keycloak | the platform holds none — it acts as the operator who asked, with the bearer they presented |
 
-It used to be two. **The GitHub App's private key is no longer delivered here
-because it is no longer delivered at all** — the platform creates its own
-application when an operator connects it and writes the key straight into its
-own secret partition. External Secrets could not do that job: projecting a
-secret into a pod is one-way, and the platform now generates credential
-material of its own.
+External Secrets could not have done the first job anyway: projecting a secret
+into a pod is one-way, and the platform now *generates* credential material.
+The second is not a delivery problem at all — permission to create a realm
+belongs to a person in the master realm, and a service account standing in for
+them was the thing worth removing.
 
-What remains is *issued elsewhere and consumed here*, which is what makes this
-the right delivery path for it — unlike Keycloak's admin password, generated
-in-cluster because nobody needs to choose or transport it.
-
-Named with `data[]` rather than `dataFrom.extract`, because the environment
-variable name is derived from a reference in the application's configuration
-(`keycloak/saas-fabric` → `FABRIC_SECRET_KEYCLOAK_SAAS_FABRIC`), and `data[]`
-names one exact key where `find.path` would take everything under a prefix.
-
-**Nothing secret is in this directory**, and after this change nothing about a
-Git host is either.
+What the pod still holds is a **service-account token**, which is an identity
+rather than a credential somebody issued. See below.
 
 ## The instance's own secret partition
 
@@ -168,11 +157,14 @@ integration through the console, GitHub returns a private key exactly once, and
 the platform writes it into its own partition. Nothing about it is a
 deployment-time prerequisite.
 
-Operators authenticate to the console through the tailnet. The control plane
-consumes the identity the operator-plane proxy established
-(`Tailscale-User-Login`) and checks it against an allowlist that **may not be
-empty** — the tailnet establishes who someone is, the allowlist establishes that
-they administer this platform.
+Operators reach the console through the tailnet and **sign in to Keycloak**.
+Being on the tailnet establishes who someone is; holding the `fabric-operator`
+realm role establishes that they administer this platform, and that is checked
+against a verified token rather than against a header a proxy set.
+
+The bearer they present is also what the platform acts with when it changes
+Keycloak, which is why the third row above says an operator needs master-realm
+`admin` and not merely `create-realm`.
 
 ## Current state
 
@@ -190,11 +182,20 @@ to this repository:
 
 1. **The OpenBao role and policy above.** Without them the control plane starts
    and serves, but cannot store what a connection produces.
-2. **The Keycloak master realm's console client and `fabric-operator` role**,
-   before the operator posture can move from `trusted_header` to `oidc`. The
-   LucentRoot overlay carries the replacement block in a comment, and flipping
-   it before the realm has both would lock every operator out of the console —
-   including the console that would be used to fix it.
+2. **The Keycloak master realm needs three things**, and until they exist
+   nobody can sign in — there is no second posture to fall back to:
+
+   | What | Why |
+   |---|---|
+   | a **public** client `saas-fabric-console`, PKCE required, redirect URI `https://fabric-lucentroot.tail5a7546.ts.net/` | the console holds no secret; PKCE replaces one |
+   | a realm role `fabric-operator`, granted to each operator | this is what lets them into the console |
+   | each operator holding master-realm **`admin`** | this is what Keycloak checks when the platform creates a realm as them |
+
+   The last is easy to miss. `create-realm` alone is not enough: creating a
+   realm grants the creator that realm's admin roles into tokens minted
+   *afterwards*, and the platform is using a borrowed token it cannot
+   re-mint — so an operator with only `create-realm` creates a realm and is
+   then refused on the first role inside it.
 
 ## Dependencies
 

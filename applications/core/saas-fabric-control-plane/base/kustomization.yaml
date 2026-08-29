@@ -5,7 +5,6 @@ namespace: platform-system
 
 resources:
   - serviceaccount.yaml
-  - externalsecret.yaml
   - deployment-api.yaml
   - service-api.yaml
   - deployment-ui.yaml

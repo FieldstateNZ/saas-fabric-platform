@@ -6,9 +6,9 @@
 # is state the platform owns rather than configuration a human writes down.
 # That is the whole point of ADR 0011 in the application repository.
 #
-# One secret is still delivered by External Secrets: Keycloak's service-account
-# credential, which reconciliation authenticates with. It is issued elsewhere
-# and consumed here, so OpenBao remains the right delivery path for it.
+# **This deployment supplies no credential of any kind.** Keycloak is reached
+# with the authority of the operator who asked — permission to create a realm
+# belongs to a person in the master realm, not to a service account (ADR 0012).
 listen = "0.0.0.0:8081"
 request_timeout_seconds = 30
 
@@ -20,26 +20,33 @@ request_timeout_seconds = 30
 public_base_url = "https://fabric-lucentroot.tail5a7546.ts.net"
 
 [control_plane.operator]
-# Still the trusted-header posture, deliberately. The OIDC posture is
-# implemented and is the production one, but it needs a public client and a
-# `fabric-operator` role in Keycloak's master realm, and nothing creates those
-# yet. Flipping this before they exist would lock every operator out of the
-# console — including the console that would be used to fix it.
-#
-# The replacement, once the realm has both:
-#
-#     mode = "oidc"
-#     issuer = "http://keycloak-http.identity.svc.cluster.local/realms/master"
-#     client_id = "saas-fabric-console"
-#     required_role = "fabric-operator"
-#     redirect_uri = "https://fabric-lucentroot.tail5a7546.ts.net/"
-mode = "trusted_header"
-header = "Tailscale-User-Login"
+mode = "oidc"
 
-# The tailnet establishes who someone is; this establishes that they administer
-# this platform. It may not be empty, and the application refuses to start if it
-# is.
-allowlist = ["brett@pukekos.co.nz"]
+# What appears in a token, and where the browser is sent. It must match
+# Keycloak's own `hostnames.public` for this environment exactly, because that
+# is what ends up in the `iss` claim.
+issuer = "http://auth.lucentroot.internal/realms/master"
+
+# Where *this pod* reaches the same realm, which is not the same address.
+# `auth.lucentroot.internal` is resolved by the operator's machine and by
+# nothing inside the cluster — there is no CoreDNS rewrite and no hostAliases —
+# so the signing keys and the code redemption go to the service instead.
+#
+# Collapsing these two is the failure that reads as something else: every
+# operator refused, and a log saying either that no key set arrived or that the
+# token is not from this realm.
+reachable_at = "http://keycloak-http.identity.svc.cluster.local/realms/master"
+
+client_id = "saas-fabric-console"
+
+# Being on the tailnet establishes who someone is. This establishes that they
+# administer this platform, and it is checked against a verified token rather
+# than against a header a proxy set.
+required_role = "fabric-operator"
+
+# The console's origin root, not a path beneath it: the console is served with
+# no history fallback, so a redirect to /callback would answer 404.
+redirect_uri = "https://fabric-lucentroot.tail5a7546.ts.net/"
 
 [control_plane.reconciliation]
 interval_seconds = 60
@@ -68,5 +75,7 @@ mode = "keycloak"
 base_url = "http://keycloak-http.identity.svc.cluster.local"
 admin_realm = "master"
 client_id = "saas-fabric"
-client_secret_ref = "keycloak/saas-fabric"
+
+# No credential. The platform presents the operator's own bearer, so there is
+# nothing here for a deployment to deliver and nothing to rotate.
 http_timeout_seconds = 10
