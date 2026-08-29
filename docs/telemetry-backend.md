@@ -1,10 +1,12 @@
 # Telemetry backend selection
 
-> **Status: proposed.** This document exists to be argued with. It answers the
-> two gates that can be answered from evidence, states the two that are the
-> product's to answer, and ends with one recommendation, one option rejected for
-> being too small and one rejected for being too large — so that over- and
-> under-building are both visible rather than only the middle.
+> **Status: proposed.** This document exists to be argued with, and has been
+> once: the first draft proved tenant isolation on the **read** path and was
+> silent on the **write** path, which is the half that may actually decide it.
+> It now answers what evidence can answer, states what is the product's to
+> answer, and ends with one recommendation — explicitly split into a settled
+> half and a provisional one — plus one option rejected for being too small and
+> one for being too large, so that over- and under-building are both visible.
 
 The platform emits OTLP to a collector whose three pipelines terminate in the
 `debug` exporter. Nothing stores telemetry, so
@@ -80,11 +82,25 @@ backend enforces scope from that selector
 Perses RBAC decides who may use which datasource
 ```
 
-Which yields the criterion that does the most work in this document:
+Which yields the criterion that does the most work in this document. Stated as
+the invariant rather than as one mechanism, because more than one mechanism
+satisfies it:
 
-> **A candidate must express tenancy as something addressable by a static URL or
-> a static header. A backend whose only tenancy story is "put a filter in the
-> query" cannot be isolated by anything in this architecture.**
+> **Tenant scope must be completely determined by immutable datasource
+> configuration and enforced by the backend. It must not depend on the query
+> carrying the correct filter.**
+
+Valid implementations, all equivalent under that rule:
+
+```text
+URL path                  /select/<accountID>/…
+HTTP header               AccountID: 7
+credential / principal    datasource authenticates as a role the backend
+                          scopes — a ClickHouse row policy, for instance
+```
+
+What it excludes is the thing worth excluding: a shared endpoint where
+correctness depends on every dashboard remembering `tenant_id="acme"`.
 
 Two honest caveats:
 
@@ -116,20 +132,77 @@ so the raw material exists. Adopting it makes the collector's tenancy status
 `unresolved` rather than `not-applicable`, which is a real change to that
 contract.
 
-**Its shape decides how much it costs.** This is where gate 2 meets gate 4:
+**Its shape decides what can be enforced — not what it costs.**
 
-| Shape | Cost |
+| Shape | What it gives you |
 |---|---|
-| A metrics **label** (`tenant_id="acme"`) | multiplies active series by tenant count, on top of the `module` / `service` / `environment` / `region` / `version` dimensions the telemetry convention already proposes |
-| A backend **tenant** (an `AccountID`, a header) | partitions storage instead of multiplying series, and is the only shape gate 1 can enforce |
+| A metrics **label** (`tenant_id="acme"`) | a filter every query must remember to apply |
+| A backend **tenant** (an `AccountID`, a header, a database principal) | isolation that is structural: the query cannot reach across it, whatever it says |
 
-These are not equivalent, and the second is both cheaper and safer. A label is
-a filter someone can forget to apply. A tenant is a partition the query cannot
-reach across.
+The second is **safer**. It is not cheaper, and an earlier draft of this
+document said it was. VictoriaMetrics is explicit that "the database performance
+and resource usage do not depend on the number of tenants. It depends mostly on
+the total number of active time series in all the tenants" — so if Acme and
+Contoso each emit `http_requests_total{service="api"}`, that is two series
+either way. Backend tenancy buys a boundary, not a discount, and selling it as
+performance would be selling it dishonestly.
 
-**Recommendation for gate 2:** stamp a tenant identifier at the collector *and*
-map it to a backend tenant at export. Carry the label too if it is useful for
-platform-wide aggregate views, but do not let it be the isolation mechanism.
+### The write path is the hard half, and it is a selection criterion
+
+The read path is settled by gate 1: a static selector on a per-tenant datasource.
+The write path is not, and it does not follow from it.
+
+**OTLP exporter headers are exporter configuration.** They are static. There is
+no `AccountID: ${resource.attributes.tenant_id}`, so a single collector holding
+an interleaved batch —
+
+```text
+Acme metric │ Contoso metric │ Acme log │ Contoso log
+```
+
+— cannot be split into tenants by a header the exporter sets once. What each
+candidate does about that differs sharply, and it is the difference this
+document was previously silent on.
+
+**VictoriaMetrics answers it natively, and well.** Its multitenant ingest
+endpoint takes the tenant from `vm_account_id` / `vm_project_id` labels **on
+each sample**, and strips them before storage:
+
+```text
+k8s metadata ─▶ collector stamps tenant_id ─▶ transform to vm_account_id
+                                                      │
+                                            one mixed stream
+                                                      ▼
+                              /insert/multitenant/…  ─▶  tenant partitions
+```
+
+One exporter, any number of clients. No per-client collector configuration.
+
+**VictoriaLogs and VictoriaTraces do not.** Both identify a tenant by
+`(AccountID, ProjectID)` **request headers** — per request, not per entry. There
+is a mixed-tenant endpoint, `/insert/multitenant/native`, but it is documented
+as the path `vlagent` writes to in the native protocol, not as something an
+arbitrary OTLP batch can use. So the options are:
+
+| Option | Cost |
+|---|---|
+| Route by `tenant_id` in the collector to one exporter per tenant, via the `routing` connector | **generated per-client collector configuration**, growing with the client list, on an `alpha` component. A materially different operational shape from one static exporter |
+| Put `vlagent` in front and write to `/insert/multitenant/native` | another runtime, and it is unverified whether it can derive tenancy from OTLP-sourced fields |
+| Something cleaner nobody has verified | unknown |
+
+**ClickHouse answers it trivially**, because the tenant is a column value rather
+than a routing decision. One exporter, mixed batches, tenant carried in the row.
+Its cost sits on the read side instead, where isolation is a row policy this
+platform designs.
+
+This asymmetry may decide the recommendation, so it is spike step 1 rather than
+a footnote.
+
+**Recommendation for gate 2:** stamp a tenant identifier at the collector, from
+Kubernetes metadata, and require of any candidate that a **single** collector
+configuration can deliver a mixed-tenant stream into the right partitions.
+Carry the label too if platform-wide aggregate views want it, but do not let a
+label be the isolation mechanism.
 
 ---
 
@@ -193,31 +266,41 @@ Two consequences:
 
 | | From | Criterion |
 |---|---|---|
-| C1 | gate 1 | tenancy addressable by static URL or header |
+| C1 | gate 1 | **read isolation** — tenant scope fixed by immutable datasource configuration and enforced by the backend, never by a filter in the query |
 | C2 | platform | Apache-2.0 or compatible — the constraint that replaced Grafana |
 | C3 | Perses | a datasource plugin exists in `perses/plugins` (Apache-2.0) |
 | C4 | gate 4 | operational retention; not required to be a warehouse |
 | C5 | platform | component count this platform must run, secure and reason about |
+| C6 | gate 2 | **write isolation** — one collector configuration delivers a mixed-tenant stream into the right partitions, without per-client pipelines |
+
+C1 and C6 are separate criteria on purpose. A backend can pass one and fail the
+other, and the recommendation below turns on precisely that.
 
 ## The candidates
 
 Licences verified against each project's repository, not recalled.
 
-| Candidate | Licence | Perses plugin | Tenancy addressing | Runtimes |
-|---|---|---|---|---|
-| Prometheus | Apache-2.0 | `prometheus` | **none** | 1 |
-| Loki | **AGPL-3.0** | `loki` | `X-Scope-OrgID` header | 1+ |
-| Tempo | **AGPL-3.0** | `tempo` | `X-Scope-OrgID` header | 1+ |
-| Mimir | **AGPL-3.0** | via `prometheus` | `X-Scope-OrgID` header | several |
-| Pyroscope | **AGPL-3.0** | `pyroscope` | header | 1 |
-| VictoriaMetrics (cluster) | Apache-2.0 | `prometheus`, documented by upstream | `accountID` in URL **or header** | 3 |
-| VictoriaLogs | Apache-2.0 | `victorialogs` | `AccountID` / `ProjectID` headers | 1 |
-| VictoriaTraces | Apache-2.0 | *(unverified — see spike)* | *(unverified)* | 1 |
-| ClickHouse | Apache-2.0 | `clickhouse` | row policies bound to a user, one datasource per tenant | 1 |
-| GreptimeDB | Apache-2.0 | `greptimedb` | *(unverified)* | 1 |
-| Jaeger | Apache-2.0 | `jaeger` | *(unverified)* | 1 |
-| OpenObserve | **AGPL-3.0** | — | — | — |
-| SigNoz | mixed / no single SPDX | — | — | — |
+| Candidate | Licence | Perses plugin | C1 read isolation | C6 mixed-tenant ingest | Runtimes |
+|---|---|---|---|---|---|
+| Prometheus | Apache-2.0 | `prometheus` | **none** | n/a | 1 |
+| Loki | **AGPL-3.0** | `loki` | `X-Scope-OrgID` header | per-request header | 1+ |
+| Tempo | **AGPL-3.0** | `tempo` | `X-Scope-OrgID` header | per-request header | 1+ |
+| Mimir | **AGPL-3.0** | via `prometheus` | `X-Scope-OrgID` header | per-request header | several |
+| Pyroscope | **AGPL-3.0** | `pyroscope` | header | — | 1 |
+| VictoriaMetrics (cluster) | Apache-2.0 | `prometheus`, documented upstream | `accountID` in URL or header | **yes** — `vm_account_id` label per sample, stripped before storage | 3 |
+| VictoriaLogs | Apache-2.0 | `victorialogs` | `AccountID` / `ProjectID` headers | **per-request header.** Mixed-tenant endpoint documented only for `vlagent` native protocol | 1 (+ `vlagent`?) |
+| VictoriaTraces | Apache-2.0 | *(unverified)* | `AccountID` / `ProjectID` headers | same as VictoriaLogs | 1 |
+| ClickHouse | Apache-2.0 | `clickhouse` | row policy bound to the datasource's principal | **yes** — the tenant is a column value | 1 |
+| GreptimeDB | Apache-2.0 | `greptimedb` | *(unverified)* | *(unverified)* | 1 |
+| Jaeger | Apache-2.0 | `jaeger` | *(unverified)* | *(unverified)* | 1 |
+| OpenObserve | **AGPL-3.0** | — | — | — | — |
+| SigNoz | mixed / no single SPDX | — | — | — | — |
+
+One property is shared by every Victoria component and worth stating once:
+**none of them performs per-tenant authorization.** Upstream says so plainly and
+points at `vmauth`. In this architecture that role is Perses' proxy plus
+per-tenant datasources — which is why the authentication caveat under gate 1 is
+load-bearing rather than cosmetic.
 
 ### The finding that reframes this
 
@@ -242,58 +325,90 @@ Grafana stack does **not** mean writing a Perses plugin.
 
 ## Recommendation
 
-### Adopt: VictoriaMetrics for metrics, VictoriaLogs for logs, traces deferred
+### Adopt: VictoriaMetrics for metrics. VictoriaLogs for logs, pending one test
 
 ```text
-OTLP ──▶ collector ──┬──▶ VictoriaMetrics   metrics, ~30d, tenant per accountID
-                     ├──▶ VictoriaLogs      logs, ~30d, AccountID/ProjectID headers
+OTLP ──▶ collector ──┬──▶ VictoriaMetrics   metrics, ~30d, tenant per sample label
+                     ├──▶ VictoriaLogs      logs, ~30d — if C6 holds; see below
                      └──▶ debug             traces, until a Fabric surface needs them
 ```
 
 | Criterion | |
 |---|---|
-| C1 tenancy | **the strongest fit available.** Both express a tenant as a header or URL segment — precisely and only what the Perses proxy can carry. VictoriaLogs documents "thousands of tenants in a single instance" as normal |
+| C1 read | **the strongest fit available.** Both fix tenant scope in datasource configuration — a URL segment or a header — with nothing left to the query |
 | C2 licence | Apache-2.0 throughout. No re-litigation of the decision that produced Perses |
 | C3 Perses | metrics through the `prometheus` plugin, integration documented by VictoriaMetrics itself; logs through the first-party `victorialogs` plugin |
 | C4 retention | sized for an operational window, with the analytical path left where it already is |
 | C5 cost | VictoriaLogs is one process. VictoriaMetrics **cluster** is three, and single-node has no tenancy — so tenancy costs real components, and that is the honest price of C1 |
+| C6 write | **metrics: yes. Logs: unproven, and this is the open question** |
 
-Two things this does not do, stated so they are not discovered later:
+### The metrics half is settled; the logs half is provisional
 
-- **VictoriaMetrics does not authenticate tenants.** Upstream is explicit that
-  auth tokens and tenant mapping belong to a service in front of it. Here that
-  service is Perses' proxy plus per-tenant datasources — which is exactly why
-  gate 1's authentication caveat is load-bearing rather than cosmetic.
-- **It commits to two stores rather than one.** The single-store alternative is
-  below, and it is a genuine contender rather than a straw man.
+**VictoriaMetrics passes C6 outright.** Mixed-tenant ingest from one exporter,
+tenant taken per sample from a label the collector stamps. That is as clean a
+fit with a shared collector as this architecture could ask for.
 
-### Runner-up, and the reason it is not the recommendation
+**VictoriaLogs has not been shown to.** Its tenant is a per-request header, and
+the mixed-tenant endpoint is documented for `vlagent`'s native protocol rather
+than for OTLP. If the only route is one exporter per client, the platform
+acquires generated per-client collector configuration on an `alpha` connector —
+which is a different operational proposition from what this recommendation
+otherwise describes, and not obviously the right trade.
 
-**ClickHouse as a single store for all three signals.** Apache-2.0, one runtime,
-a first-party Perses datasource plugin, an excellent bulk read path for Airflow,
-and it collapses the operational and analytical stores into one thing.
+So the recommendation is deliberately split:
 
-It loses on C1. Tenancy would be row policies bound to database users, with one
-Perses datasource per tenant carrying that tenant's credentials — workable, but
-it is a schema and access-control design this platform would own and operate,
-rather than a header the store already understands. It also makes the platform
-responsible for a telemetry schema, which is a larger commitment than running a
-purpose-built store.
+| | |
+|---|---|
+| **VictoriaMetrics for metrics** | recommended, and unlikely to change |
+| **VictoriaLogs for logs** | **provisional**, pending spike step 1 |
+| **Traces** | deferred either way — see gate 3 |
 
-Worth revisiting if the answer to gate 3 turns out to be "metrics and logs, with
-retention longer than 30 days", because at that point the two stores start
-duplicating what ClickHouse does in one.
+**What would flip it:** if VictoriaLogs cannot take a mixed-tenant OTLP stream
+without per-client collector configuration or an extra runtime, ClickHouse
+becomes the better answer for logs — and at that point running ClickHouse for
+both signals is more coherent than running VictoriaMetrics beside it. A
+better-looking read path does not win an argument the write path decides.
+
+Also stated so it is not discovered later: **this commits to two stores rather
+than one.** The single-store alternative is immediately below, and it is a
+genuine contender.
+
+### Runner-up: ClickHouse as a single store
+
+Apache-2.0, one runtime, a first-party Perses datasource plugin, an excellent
+bulk read path for Airflow, and it collapses the operational and analytical
+stores into one thing.
+
+It **satisfies C1 by a different mechanism**, not by failing it: a row policy
+bound to the principal the datasource authenticates as is exactly as immutable,
+from the query's point of view, as a header. An earlier draft scored this as a
+loss, which was wrong — the criterion is that the query cannot widen its own
+scope, not that the mechanism is a header.
+
+It **satisfies C6 trivially**, because the tenant is a column value rather than
+a routing decision. One exporter, mixed batches, no per-client configuration.
+
+Its real cost is ownership: the platform designs and operates the schema, the
+row policies and the per-tenant principals, rather than configuring a store that
+already understands tenants. The collector's ClickHouse exporter is also `beta`
+for traces and logs and `alpha` for metrics, which is a maturity gap worth
+weighing against VictoriaMetrics' native path.
+
+It becomes the recommendation if spike step 1 goes against VictoriaLogs, and it
+is worth revisiting anyway if retention turns out to exceed the operational
+window, because at that point two stores start duplicating what one does.
 
 ### Rejected as too simple: single-node Prometheus, no log store
 
 The smallest thing that could plausibly be called done. Apache-2.0, one process,
 a Perses plugin, and the platform could show a dashboard this week.
 
-It fails two gates outright:
+It fails two criteria outright:
 
-- **C1.** Prometheus has no tenancy. Isolation would be a label filter written
-  into each query — exactly the shape gate 1 established Perses cannot enforce.
-  Tenant A would be one edited URL away from Tenant B's telemetry.
+- **C1.** Prometheus has no tenancy at all. Scope would live in the query as a
+  label filter — precisely what C1 exists to forbid, because the query is the
+  one thing the reader controls. Tenant A would be one edited URL away from
+  Tenant B's telemetry, and nothing in the architecture would object.
 - **Gate 3.** No log store means every incident ends at a graph. The drill-down
   from a metric to a log line is the thing operational observability is *for*.
 
@@ -322,26 +437,34 @@ it is expensive in exactly the dimensions this platform has been careful about.
 
 | Open | Owner |
 |---|---|
+| **C6 for logs** — whether a mixed-tenant OTLP stream can reach VictoriaLogs tenants without per-client collector configuration | **blocks the logs half of the recommendation** |
 | Gate 2 — the tenant attribute, its name and where it is stamped | platform; blocks any tenancy claim |
 | Gate 3 — whether traces are stored now or later | product |
 | Retention numbers | product and cost, not architecture |
-| Whether VictoriaTraces, GreptimeDB or Jaeger tenancy meets C1 | unverified above; a spike, not a debate |
+| Whether GreptimeDB or Jaeger tenancy meets C1, and whether Perses can query VictoriaTraces | unverified above; a spike, not a debate |
 
 ## Proving it before adopting it
 
 Deliberately small, and answering the questions that would actually change the
 recommendation:
 
-1. Stand up VictoriaMetrics and VictoriaLogs on LucentRoot; point the collector's
-   exporters at them. Confirms the intake path end to end.
+1. **The one that decides it.** Send interleaved Acme and Contoso metrics *and*
+   logs through a single collector instance, deriving tenant identity from
+   Kubernetes metadata, and prove each signal lands in the correct backend
+   tenant **without maintaining an exporter or pipeline per client.** Metrics
+   are expected to pass via `vm_account_id`. Logs are the question. If logs
+   cannot, run the same test against ClickHouse before concluding anything.
 2. Provision two Perses datasources differing **only** by tenant selector, and
    confirm from the browser that one cannot return the other's data. This is the
-   gate 1 claim, tested rather than reasoned about.
+   C1 claim, tested rather than reasoned about.
 3. Confirm what a tenant costs: series overhead, storage, and whether
    VictoriaMetrics cluster's three processes are proportionate at LucentRoot's
    size.
 4. Have Airflow read a range and build one projection. Confirms the bulk path
    nobody notices until it is missing.
+
+Step 1 comes first because it can change the answer. Steps 2–4 refine a choice;
+step 1 makes it.
 
 Each is a platform service candidate with its own contract and tenancy
 assessment before it may be adopted — the process in
