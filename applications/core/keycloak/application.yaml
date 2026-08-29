@@ -43,6 +43,12 @@ spec:
         fieldstate.nz/layer: platform
         # Permits this namespace to attach routes to the platform Gateway.
         fieldstate.nz/gateway-access: "true"
+
+        # Keycloak answers on both planes now. Applications reach it on the
+        # product edge; operators reach it on the operator listener, on the
+        # same origin as the console they signed in from. Neither route
+        # publishes /admin.
+        fieldstate.nz/operator-gateway-access: "true"
     retry:
       limit: 5
       backoff:

@@ -24,15 +24,11 @@ mode = "oidc"
 
 # What appears in a token, and where the browser is sent.
 #
-# Keycloak's own operator-plane front door, because that is where an operator's
-# browser reaches it and Keycloak derives its issuer from the host the request
-# arrived on.
-#
-# A different origin from the console, and that is fine: the browser only
-# *navigates* here. The code is redeemed by the control plane, server-side, so
-# nothing is fetched cross-origin and the console's `default-src 'self'` is
-# untouched.
-issuer = "https://auth-lucentroot.tail5a7546.ts.net/realms/master"
+# The operator plane's own hostname, because Keycloak answers on it: the
+# console, the API and the realm endpoints are all one origin behind one
+# Tailscale front door, and Keycloak derives its issuer from the host the
+# request arrived on. An operator never leaves this origin to sign in.
+issuer = "https://fabric-lucentroot.tail5a7546.ts.net/realms/master"
 
 # Where *this pod* reaches the same realm, which is not the same address: the
 # tailnet hostname resolves for an operator's browser and for nothing inside
