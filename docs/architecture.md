@@ -741,7 +741,7 @@ Recorded rather than hidden. None blocks a cluster from converging.
 | Gap | Consequence | Where it would go |
 |---|---|---|
 | No certificate automation | The production Gateway listener references a TLS secret that must be injected by hand | a `cert-manager` core application; it has a genuine platform requirement once public hostnames are served |
-| No telemetry backend | All three OTLP pipelines terminate in the `debug` exporter | an exporter in `environments/<env>/config/observability.yaml` |
+| No telemetry backend | All three OTLP pipelines terminate in the `debug` exporter | an exporter in `environments/<env>/config/observability.yaml`, once a store is chosen — see [telemetry-backend.md](telemetry-backend.md) |
 | No OpenBao auto-unseal **in production** | A restarted production pod must be unsealed by an operator. LucentRoot auto-unseals against a disposable static seal | an `azurekeyvault` seal stanza in `environments/production/config/openbao.yaml`, once `saas-fabric-hosting` supplies a vault and identity |
 | No operator plane in production | Argo CD, Perses and OpenBao diagnostics are reachable only by `kubectl port-forward`. Keycloak is no longer among them — its console is deliberately published nowhere, so production needs no Keycloak admin hostname | a tailnet for production, then the same two lines LucentRoot uses |
 | Secret injection runs as cluster-admin | The bootstrap workflow uses the node kubeconfig, which can do anything, to write one Secret in one namespace | a platform-owned ServiceAccount with a Role permitting `create`/`patch` on `operator-oauth` in `tailscale` and nothing else |

@@ -226,6 +226,7 @@ request that renders invalid manifests cannot merge.
 | [bootstrap.md](docs/bootstrap.md) | k3s / LucentRoot and AKS / production, step by step |
 | [releases.md](docs/releases.md) | cutting a release, promoting production by moving a Git ref, rolling back |
 | [platform-services.md](docs/platform-services.md) | the service capability model, the register, and the tenancy checklist |
+| [telemetry-backend.md](docs/telemetry-backend.md) | choosing what stores telemetry: the gates, the candidates, and one recommendation with its floor and ceiling |
 | [adding-an-application.md](docs/adding-an-application.md) | how to classify, place and add a service |
 | [migrating-lucentroot.md](docs/migrating-lucentroot.md) | rebuilding LucentRoot onto this repository, and what that costs |
 
