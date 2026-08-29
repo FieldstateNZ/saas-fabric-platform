@@ -10,6 +10,18 @@
 # allowedRoutes is a label selector rather than Same. A namespace may attach
 # routes when it carries fieldstate.nz/gateway-access: "true"; client
 # namespaces receive that label when OpenTofu creates them.
+#
+# # Two listeners, two audiences, two labels
+#
+# `http` is the product edge: what a client's users reach. `operator` is the
+# operator plane, reachable only through the Tailscale proxy in front of it.
+#
+# They are separate listeners on separate ports with *separate attach labels*
+# on purpose. The control plane must not become reachable from the product
+# edge, and this is what makes that structural rather than careful: a namespace
+# carrying `gateway-access` cannot attach to the operator listener, and one
+# carrying `operator-gateway-access` cannot attach to the product one. Neither
+# label implies the other, and nothing in this repository grants both.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -28,3 +40,16 @@ spec:
           selector:
             matchLabels:
               fieldstate.nz/gateway-access: "true"
+
+    # The operator plane. A different port because it is a different audience:
+    # the Tailscale proxy is the only thing that talks to it, and the address
+    # serving the product edge does not serve these hostnames at all.
+    - name: operator
+      protocol: HTTP
+      port: 8081
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              fieldstate.nz/operator-gateway-access: "true"

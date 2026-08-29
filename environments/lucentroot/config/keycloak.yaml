@@ -20,8 +20,26 @@ replicas: 1
 # There is deliberately no admin hostname. SaaS Fabric administers Keycloak
 # through its Admin REST API, cluster-locally; the upstream console is not part
 # of the operator experience. See docs/architecture.md#the-administrative-control-plane.
+# **No pinned hostname, deliberately.**
+#
+# Keycloak builds its login form's action, its issuer and every redirect from
+# the frontend URL. Pin one, and it emits that URL no matter which host the
+# request arrived on -- so an operator arriving on the tailnet gets a login
+# page whose form posts to `auth.lucentroot.internal`, which their browser
+# cannot reach. That is not a theory: the form action was checked, and it was
+# absolute.
+#
+# Deriving it from the request is what makes one Keycloak serve several front
+# doors, which is the shape the platform already has. Each instance has one
+# hostname; a token minted through it carries that issuer; the application
+# behind that door validates against it. The operator plane is one such door
+# and is not special.
+#
+# `proxy.mode: xforwarded` below is what makes this safe: the scheme and host
+# come from headers the proxy sets, not from anything a client can assert
+# directly.
 hostnames:
-  public: http://auth.lucentroot.internal
+  strict: false
 
 httpRoute:
   enabled: true

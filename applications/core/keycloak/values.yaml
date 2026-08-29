@@ -49,16 +49,33 @@ dbchecker:
 # environments/<env>/config/keycloak.yaml; the chart runs `tpl` over extraEnv,
 # so they can vary without each environment restating the block below.
 #
-# hostname is not optional. Keycloak 26 refuses to start in production mode
-# without it -- "hostname is not configured" -- and the value is what it puts in
-# the OIDC issuer, so it must be the product-plane URL.
+# Keycloak 26 refuses to start in production mode without *either* a pinned
+# hostname or `hostname-strict: false`. This platform chooses the second, and
+# the choice is load-bearing rather than a relaxation.
+#
+# A pinned hostname is emitted in the login form's action, the issuer and every
+# redirect, whatever host the request actually arrived on. One Keycloak behind
+# several front doors -- a client instance's domain, the operator plane -- would
+# then send every one of them to whichever door was pinned. Deriving it from
+# the request is what lets each front door work.
+#
+# `strict: false` and no `public`. An environment may still pin one by setting
+# `hostnames.public`, which is what a single-front-door deployment wants.
 hostnames:
-  public: https://auth.invalid
+  strict: false
 
 # The admin credential is generated in-cluster; see ../keycloak-credentials.
 extraEnv: |
+  {{- if .Values.hostnames.public }}
   - name: KC_HOSTNAME
     value: {{ .Values.hostnames.public }}
+  {{- else }}
+  # Derived from the request. `KC_PROXY_HEADERS: xforwarded` above is what
+  # makes that safe: the host and scheme come from headers the proxy sets,
+  # not from anything a client can assert for itself.
+  - name: KC_HOSTNAME_STRICT
+    value: "false"
+  {{- end }}
   - name: KC_BOOTSTRAP_ADMIN_USERNAME
     valueFrom:
       secretKeyRef:

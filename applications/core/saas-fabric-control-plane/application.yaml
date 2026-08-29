@@ -23,7 +23,7 @@ spec:
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: platform-system
+    namespace: operator-system
 
   syncPolicy:
     automated:
@@ -35,9 +35,23 @@ spec:
       labels:
         fieldstate.nz/system: saas-fabric
         fieldstate.nz/layer: platform
-        # No gateway-access label. The control plane is deliberately not
-        # attachable to the product Gateway: it belongs on the operator plane
-        # and nowhere else.
+        fieldstate.nz/plane: operator
+
+        # **Only** the operator grant, and a namespace of its own so that the
+        # word "only" means something.
+        #
+        # This used to live in `platform-system` with the label merely omitted
+        # here. That was not the guarantee it read as: the namespace carries
+        # `gateway-access` from its other tenants, so a route in it was
+        # eligible for the product listener no matter what this Application
+        # left out. Naming `sectionName: operator` on the route was then a
+        # choice the route made about itself, which is convention, not a
+        # boundary.
+        #
+        # A namespace that carries one label and not the other is a boundary
+        # Kubernetes enforces: a route here that named the product listener is
+        # refused by the Gateway's own selector, not by review.
+        fieldstate.nz/operator-gateway-access: "true"
     retry:
       limit: 5
       backoff:

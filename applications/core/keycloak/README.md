@@ -78,13 +78,19 @@ kubectl -n identity get secret keycloak-admin \
 
 ## Hostnames
 
-Keycloak 26 refuses to start in production mode without `hostname` — the value
-it puts in the OIDC issuer — so it is set per environment rather than left to a
-default:
+Keycloak 26 refuses to start in production mode without *either* a pinned
+`hostname` or `hostname-strict: false`. This platform chooses the second: **the
+hostname is not pinned**. Keycloak derives its frontend URL from the request.
 
-| | LucentRoot | Production |
-|---|---|---|
-| `hostnames.public` | `http://auth.lucentroot.internal` | `https://auth.fieldstate.nz` |
+That is the change that lets one Keycloak sit behind several front doors. A
+pinned hostname is emitted in the login form's action, the issuer and every
+redirect *whatever host the request arrived on* — so an operator arriving on
+the tailnet got a login page whose form posted to `auth.lucentroot.internal`,
+which their browser cannot reach. The form action was checked; it was absolute.
+
+Each front door now mints its own issuer: a client instance's domain for that
+client's users, the operator hostname for operators. An environment that
+genuinely has one door can still pin it by setting `hostnames.public`.
 
 **The scheme must match the listener that serves it.** LucentRoot's shared
 Gateway has one listener — `http` on 80 — and Keycloak's `HTTPRoute` attaches to
@@ -128,8 +134,13 @@ planes, and the split is not "Keycloak is internal".
 
 | Plane | Carries | Paths |
 |---|---|---|
-| Product (Envoy) | what applications call | `/realms`, `/resources`, `/.well-known` |
-| Operator (Tailscale) | — | **nothing**; the admin console is published on no plane |
+| Product (Envoy, port 80) | what applications call | `/realms`, `/resources`, `/.well-known` |
+| Operator (Envoy, port 8081, behind Tailscale) | operator sign-in | `/realms`, `/resources` |
+
+**The operator plane carries authentication now, and still not the console.**
+That changed when operators began signing in to Keycloak: an operator's browser
+has to reach the realm endpoints, and it reaches nothing on the product edge.
+Both routes list their paths explicitly and neither includes `/admin`.
 
 Applications genuinely need the authentication endpoints on the product edge.
 The admin console and admin API do not belong there, so the product-plane route
@@ -140,7 +151,7 @@ single `/` prefix — which would put `/admin` back on the public edge.
 service, and separately rejects any `Ingress` publishing `keycloak-http` — the
 service that would front the console.
 
-**The console is deliberately unreachable in every environment.** SaaS Fabric is
+**The console is still deliberately unreachable in every environment.** SaaS Fabric is
 the administrative control plane for Keycloak and drives it server-side through
 the Admin REST API; the upstream console is a vendor administration surface, not
 the capability. This also makes the old LucentRoot mixed-content problem moot

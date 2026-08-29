@@ -22,17 +22,19 @@ public_base_url = "https://fabric-lucentroot.tail5a7546.ts.net"
 [control_plane.operator]
 mode = "oidc"
 
-# What appears in a token, and where the browser is sent. It must match
-# Keycloak's own `hostnames.public` for this environment exactly, because that
-# is what ends up in the `iss` claim.
-issuer = "http://auth.lucentroot.internal/realms/master"
-
-# Where *this pod* reaches the same realm, which is not the same address.
-# `auth.lucentroot.internal` is resolved by the operator's machine and by
-# nothing inside the cluster — there is no CoreDNS rewrite and no hostAliases —
-# so the signing keys and the code redemption go to the service instead.
+# What appears in a token, and where the browser is sent.
 #
-# Collapsing these two is the failure that reads as something else: every
+# The operator plane's own hostname, because Keycloak answers on it: the
+# console, the API and the realm endpoints are all one origin behind one
+# Tailscale front door, and Keycloak derives its issuer from the host the
+# request arrived on. An operator never leaves this origin to sign in.
+issuer = "https://fabric-lucentroot.tail5a7546.ts.net/realms/master"
+
+# Where *this pod* reaches the same realm, which is not the same address: the
+# tailnet hostname resolves for an operator's browser and for nothing inside
+# the cluster. The signing keys and the code redemption go to the service.
+#
+# Collapsing these two is the failure that reads as something else — every
 # operator refused, and a log saying either that no key set arrived or that the
 # token is not from this realm.
 reachable_at = "http://keycloak-http.identity.svc.cluster.local/realms/master"

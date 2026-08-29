@@ -107,7 +107,7 @@ initializeStanza: |
       path      = "auth/kubernetes/role/saas-fabric-control-plane"
       data      = {
         bound_service_account_names      = "saas-fabric-control-plane"
-        bound_service_account_namespaces = "platform-system"
+        bound_service_account_namespaces = "operator-system"
         policies                         = "saas-fabric-control-plane"
         ttl                              = "1h"
       }
