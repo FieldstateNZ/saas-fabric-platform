@@ -166,7 +166,7 @@ TENANCY_PERMITTING_CLIENTS = ("accepted",)
 # the question it was simultaneously recording as open.
 # Whether SaaS Fabric administers a service, and whether that service's own
 # administrative UI is published. These are separate questions: some upstream UIs
-# *are* the capability operators want (Grafana's dashboards), others are vendor
+# *are* the capability operators want (Perses' exploration), others are vendor
 # administration surfaces that SaaS Fabric replaces (Keycloak's console).
 CONTROL_PLANE_MANAGEMENT = (True, False, "partial")
 ADMIN_SURFACES = (
@@ -1150,7 +1150,7 @@ def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) 
     and an Ingress is one line to add.
 
     "Upstream software ships an admin UI" is not an operational need. Services
-    whose UI is itself the capability (Grafana) declare `exposed`, and diagnostic
+    whose UI is itself the capability (Perses) declare `exposed`, and diagnostic
     surfaces (OpenBao) declare `break-glass`; both are left alone.
     """
     withheld: dict[str, str] = {}

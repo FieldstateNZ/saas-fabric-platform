@@ -1,0 +1,4 @@
+# Not a platform service in its own right. See docs/platform-services.md.
+#
+# Perses' platform-owned project, dashboards and datasources, as Git holds them.
+componentOf: perses

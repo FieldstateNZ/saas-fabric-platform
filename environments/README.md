@@ -67,7 +67,7 @@ counts, storage classes, hostnames, resource sizing.
 An environment with nothing to say about an application has no file for it —
 Argo CD is configured with `ignoreMissingValueFiles`, so the shared values apply
 unchanged. LucentRoot has no `saas-fabric.yaml` for that reason; production has
-no `grafana.yaml` because it does not deploy Grafana yet.
+no `perses.yaml` because it does not deploy Perses yet.
 
 ## What must not go here
 
@@ -78,11 +78,11 @@ a few lines. This shape is what this repository is structured to avoid:
 environments/
   lucentroot/
     keycloak/
-    grafana/
+    perses/
     openbao/
   production/
     keycloak/
-    grafana/
+    perses/
     openbao/
 ```
 
@@ -103,7 +103,7 @@ The `catalogue` tier is one line, and omitting it yields a complete platform:
 | LucentRoot | yes | yes | yes |
 | Production | yes | no — no tailnet yet | no |
 
-**Enablement is independent of what a service is.** Grafana is the same platform
+**Enablement is independent of what a service is.** Perses is the same platform
 service in both environments; LucentRoot deploys it and production does not yet.
 A service does not change architectural type by being switched on somewhere.
 
@@ -117,7 +117,7 @@ things production does not:
 LucentRoot
   Envoy Gateway      CloudNativePG      OpenBao
   External Secrets   Keycloak           OpenTelemetry
-  Grafana            SaaS Fabric
+  Perses             SaaS Fabric
   OpenFGA    [when adopted]
   Superset   [when adopted]
   Airflow    [when adopted]

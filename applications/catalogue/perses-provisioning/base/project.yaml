@@ -1,0 +1,15 @@
+# The platform's own Perses project.
+#
+# Perses refuses to provision a project-scoped resource whose project does not
+# exist, so this has to be present for anything in dashboards/ to load. Ordering
+# within a batch is not a concern: Perses applies every Project first regardless
+# of the order files are read in.
+#
+# Client projects are not created here. When they exist they belong to client
+# provisioning, for the reason set out in ../../perses/README.md.
+kind: Project
+metadata:
+  name: platform
+spec:
+  display:
+    name: Platform

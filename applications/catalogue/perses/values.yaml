@@ -1,0 +1,81 @@
+# Perses values shared by every environment that enables the catalogue.
+# Environment differences live in environments/<env>/config/perses.yaml.
+
+fullnameOverride: perses
+
+replicas: 1
+
+serviceAccount:
+  create: true
+
+service:
+  type: ClusterIP
+  port: 8080
+
+persistence:
+  enabled: true
+  size: 4Gi
+
+config:
+  security:
+    # Git owns dashboards, datasources and projects; Perses reconciles them from
+    # the provisioning folder. `readonly` stops Perses registering the create,
+    # update and delete routes on its resource endpoints at all, and removes the
+    # UI's editing affordances, so the only way a resource enters this instance
+    # is through a commit.
+    #
+    # It does not touch the datasource proxy, which is what actually serves a
+    # panel's queries -- so reading stays fully functional.
+    #
+    # It is also why no credential exists. A writable dashboard runtime needs an
+    # administrator password because its UI writes to its database; a read-only
+    # one has nothing behind a login that the operator plane does not already
+    # gate. See README.md.
+    readonly: true
+    enable_auth: false
+  provisioning:
+    # Re-injected on this interval, so a resource cannot be edited out of
+    # existence at runtime -- the folder is authoritative, and the folder comes
+    # from Git.
+    folders:
+      - /etc/perses/provisioning
+    interval: 5m
+
+sidecar:
+  # Loads every ConfigMap labelled perses.dev/resource=true into the
+  # provisioning folder. applications/catalogue/perses-provisioning supplies
+  # them; the sidecar is only the transport.
+  enabled: true
+  # Namespace-scoped, which makes the chart render a Role rather than a
+  # ClusterRole. The catalogue project grants no cluster-scoped kinds at all, so
+  # the upstream default of watching every namespace would be refused at sync --
+  # and platform dashboards are delivered into `catalogue` regardless.
+  allNamespaces: false
+  # The chart hardens its own container and leaves this one at cluster defaults.
+  # It already runs as 65534 and needs no capabilities, so matching the container
+  # beside it costs nothing. The root filesystem is left writable deliberately:
+  # the sidecar is Python, and denying it a scratch path is a crash-loop looking
+  # for an occasion.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+# The chart's own datasource field is deprecated upstream, and it mounts to a
+# path outside the provisioning folder. Datasources are provisioned like every
+# other resource; see perses-provisioning.
+datasources: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+testFramework:
+  enabled: false

@@ -1,0 +1,211 @@
+# The platform's telemetry pipeline, seen through its own metrics.
+#
+# Deliberately the first dashboard. The OpenTelemetry collector is the only
+# observability component this platform deploys, its internal metrics
+# (`otelcol_*`) are the first thing any platform Prometheus would scrape, and
+# "is telemetry arriving and leaving" is the question an operator asks before
+# any dashboard about a service means anything.
+#
+# No datasource is named. The queries select the environment's default
+# PrometheusDatasource, so this dashboard is the same definition everywhere and
+# the endpoint stays an environment fact. No environment defines one yet -- the
+# collector's pipelines still terminate in the `debug` exporter -- so the panels
+# have nothing to query until a backend lands. See
+# applications/core/observability.
+kind: Dashboard
+metadata:
+  name: telemetry-pipeline
+  project: platform
+spec:
+  display:
+    name: Telemetry pipeline
+    description: >-
+      Intake and export health of the platform OpenTelemetry collector.
+  duration: 1h
+  refreshInterval: 1m
+
+  panels:
+    uptime:
+      kind: Panel
+      spec:
+        display:
+          name: Collector uptime
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last-number
+            format:
+              unit: seconds
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: otelcol_process_uptime_seconds_total
+
+    accepted:
+      kind: Panel
+      spec:
+        display:
+          name: Accepted by receiver
+          description: Spans, metric points and log records entering the collector.
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(otelcol_receiver_accepted_spans_total[5m]))
+                  seriesNameFormat: traces
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(otelcol_receiver_accepted_metric_points_total[5m]))
+                  seriesNameFormat: metrics
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(otelcol_receiver_accepted_log_records_total[5m]))
+                  seriesNameFormat: logs
+
+    refused:
+      kind: Panel
+      spec:
+        display:
+          name: Refused by receiver
+          description: >-
+            Anything above zero is telemetry the platform accepted responsibility
+            for and then dropped at the boundary.
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(otelcol_receiver_refused_spans_total[5m]))
+                  seriesNameFormat: traces
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(otelcol_receiver_refused_metric_points_total[5m]))
+                  seriesNameFormat: metrics
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(otelcol_receiver_refused_log_records_total[5m]))
+                  seriesNameFormat: logs
+
+    exportFailures:
+      kind: Panel
+      spec:
+        display:
+          name: Failed to export
+          description: >-
+            The backend, not the intake. Sustained failures here mean the
+            environment's exporter is misconfigured or its destination is down.
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (exporter) (rate(otelcol_exporter_send_failed_spans_total[5m]))
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points_total[5m]))
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (exporter) (rate(otelcol_exporter_send_failed_log_records_total[5m]))
+
+    queueSize:
+      kind: Panel
+      spec:
+        display:
+          name: Exporter queue
+          description: A queue that only grows is a backend that cannot keep up.
+        plugin:
+          kind: TimeSeriesChart
+          spec: {}
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (exporter) (otelcol_exporter_queue_size)
+
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Intake
+          collapse:
+            open: true
+        items:
+          - x: 0
+            y: 0
+            width: 6
+            height: 6
+            content:
+              $ref: '#/spec/panels/uptime'
+          - x: 6
+            y: 0
+            width: 9
+            height: 6
+            content:
+              $ref: '#/spec/panels/accepted'
+          - x: 15
+            y: 0
+            width: 9
+            height: 6
+            content:
+              $ref: '#/spec/panels/refused'
+    - kind: Grid
+      spec:
+        display:
+          title: Export
+          collapse:
+            open: true
+        items:
+          - x: 0
+            y: 0
+            width: 12
+            height: 6
+            content:
+              $ref: '#/spec/panels/exportFailures'
+          - x: 12
+            y: 0
+            width: 12
+            height: 6
+            content:
+              $ref: '#/spec/panels/queueSize'

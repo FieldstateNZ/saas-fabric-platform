@@ -1,4 +1,0 @@
-# Not a platform service in its own right. See docs/platform-services.md.
-#
-# Grafana's generated administrator credential.
-componentOf: grafana

@@ -141,9 +141,9 @@ kubectl get ingress -A -o custom-columns=\
 NAME:.metadata.name,NS:.metadata.namespace,CLASS:.spec.ingressClassName,HOST:.spec.rules[0].host
 ```
 
-On LucentRoot that is `argocd-lucentroot`, `bao-lucentroot` and
-`grafana-lucentroot`. Who can reach them is decided by the tailnet ACL, not
-by this repository.
+On LucentRoot that is `argocd-lucentroot`, `bao-lucentroot`,
+`fabric-lucentroot`, `auth-lucentroot` and `perses-lucentroot`. Who can reach
+them is decided by the tailnet ACL, not by this repository.
 
 ---
 
@@ -177,7 +177,7 @@ bootstrap set — a root Application that cannot read its source will sit
 `keycloak-admin` is generated in-cluster here as everywhere else, and production
 runs no operator plane yet, so it needs no `operator-oauth` — its administrative
 surfaces are reachable only by `kubectl port-forward`. The catalogue is not
-enabled, so `grafana-admin` is not needed either.
+enabled, and nothing in it holds a credential in any case.
 
 What production does need is a TLS certificate, referenced by the platform
 Gateway's `https` listener and not created here:

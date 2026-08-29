@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: grafana
+  name: perses
   namespace: argocd
   labels:
     fieldstate.nz/source: helm
@@ -14,15 +14,15 @@ spec:
   project: saas-fabric-catalogue
 
   sources:
-    - repoURL: https://grafana.github.io/helm-charts
-      chart: grafana
-      targetRevision: 10.5.15
+    - repoURL: https://perses.github.io/helm-charts
+      chart: perses
+      targetRevision: 0.23.2
       helm:
-        releaseName: grafana
+        releaseName: perses
         ignoreMissingValueFiles: true
         valueFiles:
-          - $platform/applications/catalogue/grafana/values.yaml
-          - $platform/environments/PLACEHOLDER/config/grafana.yaml
+          - $platform/applications/catalogue/perses/values.yaml
+          - $platform/environments/PLACEHOLDER/config/perses.yaml
     - repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
       targetRevision: PLACEHOLDER
       ref: platform

@@ -4,7 +4,7 @@ deployment: assessed          # not adopted; see README.md
 required: false
 operatorUsage: true           # intended: platform and operator analytics
 controlPlane:
-  # Analytics UI is the capability, as with Grafana.
+  # Analytics UI is the capability, as with Perses.
   managed: false
   upstreamAdminSurface: exposed
 clientPartitioning:

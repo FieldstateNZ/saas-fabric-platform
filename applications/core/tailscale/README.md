@@ -17,7 +17,7 @@
 ## Why it exists in SaaS Fabric
 
 The platform needs a way for the people who run it to reach administrative
-surfaces — Argo CD, Grafana, OpenBao's UI for break-glass — without putting any
+surfaces — Argo CD, Perses, OpenBao's UI for break-glass — without putting any
 of them on the product edge. Not every upstream console qualifies: Keycloak's is
 published on no plane, because SaaS Fabric administers it through its API.
 

@@ -1,28 +1,28 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: grafana-credentials
+  name: perses-provisioning
   namespace: argocd
   labels:
     fieldstate.nz/source: kustomize
     fieldstate.nz/class: catalogue
   annotations:
-    # Same wave as Grafana. Within a wave Argo CD applies everything before
-    # waiting on health, so the Secret is created alongside the Deployment that
-    # reads it; the pod retries until it appears.
+    # Same wave as Perses. Within a wave Argo CD applies everything before
+    # waiting on health, and the provisioning sidecar picks a ConfigMap up
+    # whenever it appears, so neither order matters.
     argocd.argoproj.io/sync-wave: "40"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   # The catalogue project, not the platform one. `catalogue` is deliberately not
   # in the platform project's destinations, which is why this cannot live with
-  # the other credential generators.
+  # the other platform-owned configuration.
   project: saas-fabric-catalogue
 
   source:
     repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
     targetRevision: PLACEHOLDER
-    path: applications/catalogue/grafana-credentials/overlays/PLACEHOLDER
+    path: applications/catalogue/perses-provisioning/overlays/PLACEHOLDER
 
   destination:
     server: https://kubernetes.default.svc
@@ -34,10 +34,9 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - SkipDryRunOnMissingResource=true
     retry:
-      limit: 10
+      limit: 5
       backoff:
-        duration: 15s
+        duration: 10s
         factor: 2
-        maxDuration: 10m
+        maxDuration: 5m

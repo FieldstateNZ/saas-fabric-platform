@@ -1,0 +1,51 @@
+# Platform service contract. See docs/platform-services.md.
+#
+# The motivating case for this model. SaaS Fabric operates without Perses, which
+# under the old core/catalogue split made it "catalogue" and therefore implicitly
+# peripheral. It is in fact a platform-management capability that operators use
+# daily, and its project model is a plausible client partition -- three
+# independent facts the old classification could not express.
+#
+# A fourth, which is new to this runtime and does not change the answer: Perses
+# is also a component library and an API that the SaaS Fabric UI renders
+# operational views from, so Fabric is a consumer of the service rather than
+# merely a producer of the telemetry it shows. That makes it more load-bearing
+# without making it required -- an environment with observability disabled is
+# still a complete platform, and Fabric's Operations experience is a capability
+# rather than a prerequisite.
+service: perses
+deployment: adopted
+required: false         # SaaS Fabric operates without it
+operatorUsage: true     # platform dashboards and operational visibility
+controlPlane:
+  # The counter-example, and the reason this is not one flag. Git owns the
+  # dashboards, so the platform's own GitOps process administers most of what an
+  # operator would otherwise do in this console -- but the console is still where
+  # exploration happens, and exploration is the capability operators came for
+  # rather than a vendor administration surface wrapped around it. It stays
+  # published, on the operator plane only.
+  managed: partial
+  upstreamAdminSurface: exposed
+clientPartitioning:
+  # `unknown`, not `logical`. Projects with role bindings look like the right
+  # mechanism and that is a hypothesis, not a finding -- claiming a strength here
+  # would assert the very thing tenancy.status says is unestablished. The harder
+  # half of the problem is not Perses at all: platform telemetry carries no
+  # per-client attribute for a datasource to filter on. See
+  # applications/core/observability.
+  mode: unknown
+  candidateUnit: project
+  provisioning: unsupported
+clientCapability:
+  available: false      # a candidate capability, not an offered one
+tenancy:
+  status: candidate
+  unknowns:
+    - Telemetry carries no per-client attribute, so there is nothing for a
+      per-client datasource to scope queries by. Isolation has to hold at the
+      datasource boundary, and today the boundary has no dimension to enforce.
+    - Perses proxies datasource queries through its own server, which is where
+      a per-client restriction would have to be applied. Whether its project
+      permissions can express that restriction is unassessed.
+    - No provisioning model exists for creating or removing a client project,
+      its datasources and its role bindings.

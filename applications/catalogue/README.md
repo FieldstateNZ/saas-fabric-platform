@@ -27,9 +27,10 @@ The old test was *"does SaaS Fabric require this to operate?"* — if no, it was
 catalogue. That made "catalogue" a synonym for "optional", and optional read as
 peripheral.
 
-Grafana is the counterexample that retired the model. SaaS Fabric runs without
-it, so it lands here; platform operators nonetheless use it daily, and its
-organisation model is a plausible client partition. Those three facts are
+Perses is the counterexample that retired the model. SaaS Fabric runs without
+it, so it lands here; platform operators nonetheless use it daily, Fabric's own
+UI is meant to render operational views from its API rather than link out to it,
+and its project model is a plausible client partition. Those facts are
 independent, and one directory name could not carry them.
 
 Required, operator-facing, client-partitionable and client-selectable are now
@@ -47,10 +48,10 @@ platform service and a client capability are different things.
 
 | Application | Platform service | Deployed |
 |---|---|---|
-| [Grafana](grafana/) | yes — operator-facing, client organisations intended | yes |
+| [Perses](perses/) | yes — operator-facing, client projects intended | yes |
 | [Superset](superset/) | yes — client partitioning unresolved | assessed, not adopted |
 | [Airflow](airflow/) | yes — not a client isolation boundary | assessed, not adopted |
-| [grafana-credentials](grafana-credentials/) | component of Grafana | yes |
+| [perses-provisioning](perses-provisioning/) | component of Perses | yes |
 
 Superset and Airflow are directories holding an assessment and no
 `application.yaml`. That is deliberate: the evaluation is worth keeping, and
@@ -69,6 +70,6 @@ gets none and is still a complete platform.
 | LucentRoot | yes | it dogfoods the services SaaS Fabric expects to manage |
 | Production | not yet | |
 
-Grafana being enabled in one and not the other does not make it a different kind
+Perses being enabled in one and not the other does not make it a different kind
 of thing in each. See
 [docs/platform-services.md](../../docs/platform-services.md#environment-enablement-is-separate-again).

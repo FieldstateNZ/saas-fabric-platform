@@ -16,6 +16,10 @@ monitoring:
   # Prometheus Operator is not a platform dependency; the OpenTelemetry
   # collector scrapes the operator instead. See applications/core/observability.
   podMonitorEnabled: false
+  # The chart's own key name, held off. The platform deploys no Grafana, so a
+  # dashboard shipped in Grafana's format has nothing to load it -- CloudNativePG
+  # observability belongs with the rest, in
+  # applications/catalogue/perses-provisioning.
   grafanaDashboard:
     create: false
 
