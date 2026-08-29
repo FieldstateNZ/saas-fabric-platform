@@ -206,6 +206,30 @@ def _reported_key_name(matched: str) -> str:
     return "credential"
 
 
+def _external_secret_destination_keys(path: Path, problems: list[str]) -> set[str]:
+    """The names an `ExternalSecret` gives the Secret keys it creates.
+
+    `spec.data[].secretKey` is a *destination key name*, never a credential:
+    the value stays in OpenBao and is fetched by the `remoteRef` beside it. It
+    collides with field names that really do carry a credential -- an AWS secret
+    key, for one -- so the exemption is drawn from the parsed document rather
+    than from the field name. Only strings this file actually declares as ESO
+    destination keys are exempt, and only on a `secretKey` line.
+
+    Without this, the check penalises the narrowest form ESO offers. `data[]`
+    names one exact key, where `dataFrom.find.path` takes everything under a
+    prefix -- so the shape most worth encouraging was the one that failed.
+    """
+    names: set[str] = set()
+    for document in load_all(path, problems):
+        if not document or document.get("kind") != "ExternalSecret":
+            continue
+        for entry in document.get("spec", {}).get("data") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("secretKey"), str):
+                names.add(entry["secretKey"])
+    return names
+
+
 def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
     """Nothing in Git, and nothing rendered from it, may carry a credential.
 
@@ -220,6 +244,8 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
         if PEM_BLOCK.search(text):
             fail(problems, f"{relative}: contains private key material")
 
+        destination_keys = _external_secret_destination_keys(path, problems)
+
         for number, line in enumerate(text.splitlines(), start=1):
             match = CREDENTIAL_KEY_PATTERN.match(line)
             if not match:
@@ -228,6 +254,8 @@ def check_no_plaintext_secrets(root: Path, problems: list[str]) -> None:
             if SECRET_VALUE_IS_A_REFERENCE.match(value):
                 continue
             key_name = _reported_key_name(match.group(1))
+            if key_name == "secretKey" and value in destination_keys:
+                continue
             fail(problems, f"{relative}:{number}: literal value for '{key_name}'")
 
         for document in load_all(path, problems):

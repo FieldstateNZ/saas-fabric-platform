@@ -4,20 +4,11 @@ kind: Kustomization
 resources:
   - ../../base
 
-# Pin a published tag here to go live. See ../../README.md.
+# Pinned to the same tag LucentRoot runs. What holds this at zero is the base's
+# replica count, and the reason is no longer the image — see ../../README.md.
 images:
   - name: ghcr.io/fieldstatenz/saas-fabric
-    newTag: placeholder
-
-configMapGenerator:
-  - name: saas-fabric-config
-    behavior: merge
-    literals:
-      - SAAS_FABRIC__ENVIRONMENT=production
-      - SAAS_FABRIC__PLATFORM_DOMAIN=platform.fieldstate.nz
-
-generatorOptions:
-  disableNameSuffixHash: true
+    newTag: 0.1.0
 
 patches:
   # TLS terminates at the Gateway's https listener, so the route selects that

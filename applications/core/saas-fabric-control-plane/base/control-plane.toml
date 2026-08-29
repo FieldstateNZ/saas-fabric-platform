@@ -1,0 +1,58 @@
+# The control plane's configuration, as a file rather than environment
+# variables.
+#
+# The application reads TOML from the path in `FABRIC_CP_CONFIG` and refuses to
+# start if it is missing — deliberately, because a mis-mounted ConfigMap that
+# silently produced defaults would revert the operator posture to whatever the
+# code happened to default to.
+#
+# This base file is not deployable: its issuer, its reachable address and its
+# public base URL are placeholders, and each environment replaces the whole
+# file.
+# Replacing rather than patching, because a partial patch of a config file is
+# how one ends up half from one environment and half from another.
+listen = "0.0.0.0:8081"
+request_timeout_seconds = 30
+
+[control_plane]
+# Replaced per environment. GitHub returns an operator's browser here after
+# each approval in the connection flow.
+public_base_url = "PLACEHOLDER"
+
+# The control plane consumes an operator identity the operator-plane proxy
+# has already established. That is only sound because this service is
+# reachable from the tailnet and nowhere else — it has no gateway-access
+# label, so it cannot attach to the product Gateway.
+[control_plane.operator]
+mode = "oidc"
+issuer = "PLACEHOLDER"
+reachable_at = "PLACEHOLDER"
+client_id = "saas-fabric-console"
+required_role = "fabric-operator"
+redirect_uri = "PLACEHOLDER"
+
+[control_plane.reconciliation]
+# Bounds how long a change outside SaaS Fabric goes unnoticed, which is what
+# sets the value; a lost trigger is the lesser concern.
+interval_seconds = 60
+
+[desired_state]
+# Established in the product by an operator, not stated here. Nothing about a
+# Git host belongs in a deployment any more.
+mode = "managed"
+
+[secret_store]
+# Where this instance keeps the application's private key and the record
+# describing it. The pod authenticates with its own Kubernetes identity.
+mode = "open_bao"
+address = "http://openbao.secrets.svc.cluster.local:8200"
+role = "saas-fabric-control-plane"
+
+[identity_provider]
+mode = "keycloak"
+# Cluster-local. Keycloak's administrative API is not published on any
+# plane, and this is the path that replaces having published it.
+base_url = "http://keycloak-http.identity.svc.cluster.local"
+admin_realm = "master"
+client_id = "saas-fabric"
+http_timeout_seconds = 10

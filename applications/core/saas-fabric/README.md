@@ -6,7 +6,7 @@
 | Upstream project | https://github.com/FieldstateNZ (application repository) |
 | Helm chart source | none — platform-owned manifests |
 | Chart version (pinned) | n/a |
-| Container image | `ghcr.io/fieldstatenz/saas-fabric:<version>` |
+| Container image | `ghcr.io/fieldstatenz/saas-fabric:0.1.0` |
 | Licence | Fieldstate |
 | Namespace | `platform-system` |
 | Grouping | `core` — a deployment tier, not a classification |
@@ -15,33 +15,32 @@
 
 ## What this directory is
 
-The **deployment contract** for SaaS Fabric: how the platform runs it, and what
-it is entitled to expect from the platform around it. It is deliberately a
-contract rather than a description of the application, because the application
-repository does not publish an image yet.
+The **deployment contract** for SaaS Fabric's **runtime plane**: the half that
+serves tenant traffic on the product edge. Its other half — the control plane
+that holds what a client is and reconciles that definition — is a separate
+Application at [`../saas-fabric-control-plane`](../saas-fabric-control-plane/),
+because they are two deployments on two networks: the runtime plane must keep
+serving tenants while the control plane is down.
 
 This directory contains no application source code and never will.
 
 ## Current state: scaled to zero
 
-`ghcr.io/fieldstatenz/saas-fabric` has no published tag. The Deployment ships
-with `replicas: 0` and a `placeholder` tag so that a clean cluster still
-converges, instead of the platform's first milestone failing on an image that
-cannot be pulled.
+`ghcr.io/fieldstatenz/saas-fabric:0.1.0` is published and the overlays pin it,
+but the Deployment stays at `replicas: 0`.
 
-**This Application reporting Healthy does not mean SaaS Fabric is running.** It
-means the cluster matches Git, and Git currently asks for zero replicas. The
-platform substrate — routing, identity, secrets, data and telemetry — is
-genuinely converged and reconciling; SaaS Fabric itself is not yet deployed.
-See [architecture.md](../../../docs/architecture.md#first-milestone).
+The reason is no longer a missing image. The runtime plane reads its tenants,
+data sources and catalogue from files, and **none of them exists on any
+environment yet** — they are a reconciliation target beside Keycloak, and the
+control plane does not publish them yet. A replica would start, fail to find
+them, and refuse to serve. Zero states that honestly.
 
-Going live is two edits in one environment overlay:
+**This Application reporting Healthy does not mean SaaS Fabric is serving.** It
+means the cluster matches Git, and Git currently asks for zero replicas.
+
+Going live is one edit in one environment overlay, once that state is published:
 
 ```yaml
-images:
-  - name: ghcr.io/fieldstatenz/saas-fabric
-    newTag: 0.1.0            # a real published tag
-
 replicas:
   - name: saas-fabric
     count: 1                 # LucentRoot; production sets its own
@@ -70,17 +69,24 @@ Promote to production only after LucentRoot has run the tag — see
 
 ## Runtime configuration interface
 
-Non-secret configuration is supplied by the `saas-fabric-config` ConfigMap and
-mounted with `envFrom`. The base declares the platform endpoints; each
-environment overlay merges in that environment's identity:
+Non-secret configuration is a **TOML file**, supplied by the
+`saas-fabric-config` ConfigMap and mounted at the path in `FABRIC_CONFIG`. The
+application refuses to start if it is missing.
 
-| Key | Source |
+The previous `SAAS_FABRIC__*` environment keys were a contract the application
+never had: it namespaces its own environment overrides `FABRIC_SETTING_*` and
+takes the rest from the file. Manifests that set keys nothing reads look
+configured and are not, which is worse than being unconfigured.
+
+| Setting | Value |
 |---|---|
-| `SAAS_FABRIC__ENVIRONMENT` | environment overlay |
-| `SAAS_FABRIC__PLATFORM_DOMAIN` | environment overlay |
-| `SAAS_FABRIC__KEYCLOAK_URL` | platform service address |
-| `SAAS_FABRIC__OPENBAO_ADDR` | platform service address |
-| `SAAS_FABRIC__OTLP_ENDPOINT` | platform service address |
+| `token.mode` | `trusted_ingress` — the gateway authenticates, the runtime consumes the identity it established |
+| `tenants_path`, `data_sources_path`, `catalog_path` | files reconciliation writes and the runtime reads |
+| `[[connectors]]` | none yet, and the application refuses to start with an empty list |
+
+That refusal is correct: a runtime plane with no connector can execute nothing,
+and starting anyway would answer every request with an error that looks like a
+tenant problem. It is the second reason this Deployment is held at zero.
 
 ## Required external secret
 
@@ -105,7 +111,8 @@ OpenBao-sourced one rather than the values being relocated.
 | [OpenBao](../openbao/) | `10` | secrets capability |
 | [Keycloak](../keycloak/) | `20` | identity provider |
 
-Wave `30` places SaaS Fabric after all four.
+Wave `30` places SaaS Fabric after all four. The control plane follows at `40`,
+after the runtime plane and after everything it administers.
 
 ## Autoscaling
 

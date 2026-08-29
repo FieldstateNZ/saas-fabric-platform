@@ -1,0 +1,46 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: saas-fabric-control-plane
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: kustomize
+    fieldstate.nz/class: core
+  annotations:
+    # After SaaS Fabric's runtime plane at 30, and after everything it
+    # administers. It reconciles Keycloak, so Keycloak has to exist first; it
+    # reads secrets, so secret delivery has to exist first.
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  source:
+    repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+    targetRevision: PLACEHOLDER
+    path: applications/core/saas-fabric-control-plane/overlays/PLACEHOLDER
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+        # No gateway-access label. The control plane is deliberately not
+        # attachable to the product Gateway: it belongs on the operator plane
+        # and nowhere else.
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

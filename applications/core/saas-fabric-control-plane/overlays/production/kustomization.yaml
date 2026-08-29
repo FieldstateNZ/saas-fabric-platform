@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Production has no operator plane, so nothing could reach the console and the
+# control plane would administer with credentials that do not exist there.
+# Deployed at zero rather than omitted, so promoting is a replica count and a
+# tag rather than a new Application — and so this environment can be compared
+# against LucentRoot.
+#
+# See docs/releases.md: promote only after LucentRoot has run the tag.
+images:
+  - name: ghcr.io/fieldstatenz/saas-fabric-control-plane
+    newTag: 0.1.0
+  - name: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
+    newTag: 0.1.0
+
+replicas:
+  - name: saas-fabric-control-plane
+    count: 0
+  - name: saas-fabric-control-plane-ui
+    count: 0

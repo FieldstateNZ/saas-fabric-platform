@@ -1,0 +1,81 @@
+# LucentRoot's control-plane configuration.
+#
+# **Nothing here is a credential, and nothing here names a Git host.** The
+# platform creates its own GitHub application when an operator connects it, and
+# what it learns doing so — an application id, an installation, a private key —
+# is state the platform owns rather than configuration a human writes down.
+# That is the whole point of ADR 0011 in the application repository.
+#
+# **This deployment supplies no credential of any kind.** Keycloak is reached
+# with the authority of the operator who asked — permission to create a realm
+# belongs to a person in the master realm, not to a service account (ADR 0012).
+listen = "0.0.0.0:8081"
+request_timeout_seconds = 30
+
+[control_plane]
+# Where an operator's browser reaches this control plane. GitHub returns the
+# browser here after each approval in the connection flow, so it must be the
+# operator-plane hostname and it must be stated rather than taken from a
+# request — a redirect target read from a `Host` header is one the caller chose.
+public_base_url = "https://fabric-lucentroot.tail5a7546.ts.net"
+
+[control_plane.operator]
+mode = "oidc"
+
+# What appears in a token, and where the browser is sent. It must match
+# Keycloak's own `hostnames.public` for this environment exactly, because that
+# is what ends up in the `iss` claim.
+issuer = "http://auth.lucentroot.internal/realms/master"
+
+# Where *this pod* reaches the same realm, which is not the same address.
+# `auth.lucentroot.internal` is resolved by the operator's machine and by
+# nothing inside the cluster — there is no CoreDNS rewrite and no hostAliases —
+# so the signing keys and the code redemption go to the service instead.
+#
+# Collapsing these two is the failure that reads as something else: every
+# operator refused, and a log saying either that no key set arrived or that the
+# token is not from this realm.
+reachable_at = "http://keycloak-http.identity.svc.cluster.local/realms/master"
+
+client_id = "saas-fabric-console"
+
+# Being on the tailnet establishes who someone is. This establishes that they
+# administer this platform, and it is checked against a verified token rather
+# than against a header a proxy set.
+required_role = "fabric-operator"
+
+# The console's origin root, not a path beneath it: the console is served with
+# no history fallback, so a redirect to /callback would answer 404.
+redirect_uri = "https://fabric-lucentroot.tail5a7546.ts.net/"
+
+[control_plane.reconciliation]
+interval_seconds = 60
+
+[desired_state]
+# Established in the product, not here. The control plane starts knowing only
+# that it has no client configuration repository, reports itself unconfigured,
+# and stays available so that an operator can connect one through the console.
+mode = "managed"
+
+[secret_store]
+# Where this Fabric instance keeps what it must not lose — the private key of
+# the application it creates, and the record describing it.
+#
+# The pod authenticates with its own Kubernetes identity, so there is no static
+# credential for anybody to create, transport or rotate. The role and its
+# policy are a one-time OpenBao step; see this directory's README.
+mode = "open_bao"
+address = "http://openbao.secrets.svc.cluster.local:8200"
+role = "saas-fabric-control-plane"
+
+[identity_provider]
+mode = "keycloak"
+# Cluster-local. Keycloak's administrative API is not published on any plane,
+# and this is the path that replaces having published it.
+base_url = "http://keycloak-http.identity.svc.cluster.local"
+admin_realm = "master"
+client_id = "saas-fabric"
+
+# No credential. The platform presents the operator's own bearer, so there is
+# nothing here for a deployment to deliver and nothing to rotate.
+http_timeout_seconds = 10

@@ -30,3 +30,5 @@ resources:
   - secret-store/application.yaml
   # wave 30 — SaaS Fabric
   - saas-fabric/application.yaml
+  # wave 40 — the control plane, after everything it administers
+  - saas-fabric-control-plane/application.yaml

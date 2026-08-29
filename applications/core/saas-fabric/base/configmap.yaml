@@ -1,15 +1,40 @@
-# Non-secret runtime configuration for SaaS Fabric.
+# Non-secret runtime configuration for SaaS Fabric's runtime plane.
 #
-# Only platform-level facts belong here. Client definitions and client feature
-# configuration are reconciled by saas-fabric-clients and never appear in this
-# repository.
+# A TOML file, because that is what the application reads — from the path in
+# `FABRIC_CONFIG`, refusing to start if it is missing. The previous
+# `SAAS_FABRIC__*` keys were a contract the application never had; it namespaces
+# its own environment overrides `FABRIC_SETTING_*` and takes the rest from here.
+#
+# Only platform-level facts belong in this file. Client definitions and client
+# feature configuration are reconciled from `saas-fabric-clients` and never
+# appear in this repository.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: saas-fabric-config
 data:
-  SAAS_FABRIC__ENVIRONMENT: unset
-  SAAS_FABRIC__PLATFORM_DOMAIN: unset
-  SAAS_FABRIC__KEYCLOAK_URL: http://keycloak-http.identity.svc.cluster.local
-  SAAS_FABRIC__OPENBAO_ADDR: http://openbao.secrets.svc.cluster.local:8200
-  SAAS_FABRIC__OTLP_ENDPOINT: http://observability-collector.observability.svc.cluster.local:4317
+  config.toml: |
+    listen = "0.0.0.0:8080"
+
+    # Trusted ingress: the gateway authenticates and validates the bearer, and
+    # the runtime consumes the identity it established (ADR 0002 in the
+    # application repository). This is the canonical posture, not a relaxation
+    # of one.
+    [token]
+    mode = "trusted_ingress"
+
+    # The files reconciliation writes and the runtime reads. **None of them
+    # exists on any environment yet**, which is why this Deployment is held at
+    # zero replicas — see README.md. Publishing them is a reconciliation target
+    # beside Keycloak, not a control-plane mutation reaching into a registry.
+    tenants_path = "/etc/fabric/state/tenants.json"
+    data_sources_path = "/etc/fabric/state/data-sources.json"
+    catalog_path = "/etc/fabric/state/catalog.json"
+
+    # Deliberately empty, and the application refuses to start with an empty
+    # list. That refusal is correct: a runtime plane with no connector can
+    # execute nothing, and starting anyway would answer every request with an
+    # error that looks like a tenant problem.
+    #
+    # A `[[connectors]]` block per connector process belongs here when one
+    # exists.

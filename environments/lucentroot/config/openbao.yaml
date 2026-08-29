@@ -25,7 +25,9 @@ sealStanza: |
 # for anyone to capture, and none needs to survive a rebuild.
 #
 # This establishes exactly the tenancy boundary the platform already documents:
-# the External Secrets role can read secret/platform/* and nothing else.
+# the External Secrets role can read secret/platform/* and nothing else, and
+# SaaS Fabric's control plane can write inside its own instance partition and
+# nowhere else.
 # secret/clients/* stays unreadable from here and is created by client
 # provisioning.
 initializeStanza: |
@@ -69,6 +71,44 @@ initializeStanza: |
         bound_service_account_names      = "external-secrets"
         bound_service_account_namespaces = "secrets"
         policies                         = "platform-secrets"
+        ttl                              = "1h"
+      }
+    }
+
+    # SaaS Fabric's control plane keeps its *own* durable state here: the
+    # private key of the GitHub application it creates when an operator
+    # connects it, and the record describing that integration.
+    #
+    # This is the first workload that **writes**, so `platform-secrets` will not
+    # do -- and widening that policy would give every reader write access to
+    # every platform secret. The grant here is narrower instead: write inside
+    # one instance's partition, nothing outside it.
+    #
+    # `delete` is on the metadata path rather than the data path deliberately.
+    # Deleting through `data` marks the latest version deleted and leaves
+    # earlier ones readable, which for a private key is not deletion at all.
+    request "control-plane-policy" {
+      operation = "update"
+      path      = "sys/policies/acl/saas-fabric-control-plane"
+      data      = {
+        policy = <<-POLICY
+          path "secret/data/platform/saas-fabric/instances/master/*" {
+            capabilities = ["create", "read", "update"]
+          }
+          path "secret/metadata/platform/saas-fabric/instances/master/*" {
+            capabilities = ["read", "list", "delete"]
+          }
+        POLICY
+      }
+    }
+
+    request "control-plane-role" {
+      operation = "update"
+      path      = "auth/kubernetes/role/saas-fabric-control-plane"
+      data      = {
+        bound_service_account_names      = "saas-fabric-control-plane"
+        bound_service_account_namespaces = "platform-system"
+        policies                         = "saas-fabric-control-plane"
         ttl                              = "1h"
       }
     }
