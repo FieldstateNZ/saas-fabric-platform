@@ -1,0 +1,42 @@
+# Telling Envoy the truth about how the operator arrived.
+#
+# # The failure this fixes
+#
+#   {"error":"invalid_request","error_description":"HTTPS required"}
+#
+# Keycloak's realms refuse plain HTTP from outside the cluster, and rightly.
+# The operator *did* arrive over HTTPS -- the Tailscale proxy terminated it --
+# but that proxy then speaks plain HTTP to Envoy, and Envoy rewrites
+# `X-Forwarded-Proto` from the protocol of its own downstream connection. So
+# Keycloak was told `http`, refused the request, and the operator saw a 403
+# from an endpoint that had nothing wrong with it.
+#
+# # Why asserting the scheme here is honest rather than a fudge
+#
+# This targets **one listener**, and that listener is reachable from exactly
+# one thing: the Tailscale proxy, through a ClusterIP that nothing else routes
+# to. Every request that can arrive here has already been terminated as TLS.
+# The assertion is true of the whole set of possible callers, which is what
+# makes it a statement about the topology rather than trust in a header.
+#
+# `set` rather than `add`, so a value a client supplied is replaced rather than
+# appended to -- an appended list would let a caller choose which end is read.
+#
+# The product listener is deliberately untouched. It serves an edge where the
+# scheme genuinely varies, and asserting anything there would be a fudge.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: operator-scheme
+  namespace: platform-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: platform
+      sectionName: operator
+  headers:
+    earlyRequestHeaders:
+      set:
+        - name: X-Forwarded-Proto
+          value: https
