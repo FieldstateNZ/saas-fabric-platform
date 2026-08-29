@@ -7,7 +7,6 @@ resources:
   - gatewayclass.yaml
   - gateway.yaml
   - operator-edge.yaml
-  - operator-trusted-hop.yaml
 
 labels:
   - includeSelectors: false

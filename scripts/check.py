@@ -81,6 +81,17 @@ CLUSTER_DNS = re.compile(r"\b([a-z0-9][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)\.svc\.cl
 # CloudNativePG creates <cluster>-rw, -ro and -r Services for each Cluster it
 # reconciles, so those names are legitimate without appearing in rendered output.
 CNPG_SERVICE = re.compile(r"^(?P<cluster>.+)-(rw|ro|r)$")
+# The downstream range each environment trusts to have already set
+# `X-Forwarded-Proto`, for the one listener an `EnvoyPatchPolicy` may touch.
+#
+# Per environment because it is topology, not policy. LucentRoot is a k3s box
+# whose operator listener sits behind a Tailscale proxy, so the pod network is
+# what can be the downstream; production runs a different ingress on a
+# different network and is deliberately absent, which makes any patch policy
+# there a failure until somebody states its range on purpose.
+TRUSTED_DOWNSTREAM = {
+    "lucentroot": "10.42.0.0",
+}
 # The operator plane's only ingress class. Anything else is a third routing
 # authority; see docs/architecture.md#exposure-planes.
 OPERATOR_INGRESS_CLASS = "tailscale"
@@ -630,16 +641,32 @@ def check_the_patch_hatch_stays_narrow(render: Path, problems: list[str]) -> Non
     `X-Forwarded-Proto: https` and satisfy Keycloak's HTTPS requirement over
     plain HTTP -- the check the patch exists to preserve, removed by the patch
     meant to preserve it.
+
+    The trusted range is **per environment**, because it is topology rather
+    than policy: a pod CIDR belongs to a cluster, and the premise that a proxy
+    hop exists at all belongs to an ingress design. An environment with no
+    entry here may have no patch policy, which is how production opts in
+    deliberately rather than inheriting a single-node k3s box's network.
     """
     allowed_listener = "platform-system/platform/operator"
-    allowed_prefix = "10.42.0.0"
 
     for environment in ENVIRONMENTS:
+        allowed_prefix = TRUSTED_DOWNSTREAM.get(environment)
         policies = []
         for path in sorted((render / environment).rglob("*.yaml")):
             for document in load_all(path, problems):
                 if document.get("kind") == "EnvoyPatchPolicy":
                     policies.append((path, document))
+
+        if policies and allowed_prefix is None:
+            fail(
+                problems,
+                f"{environment}: has an EnvoyPatchPolicy but no trusted"
+                " downstream range recorded in TRUSTED_DOWNSTREAM; an"
+                " environment states its own topology rather than inheriting"
+                " another's",
+            )
+            continue
 
         if len(policies) > 1:
             named = ", ".join(sorted(d["metadata"]["name"] for _, d in policies))

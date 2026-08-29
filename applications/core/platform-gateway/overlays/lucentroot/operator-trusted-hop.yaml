@@ -35,6 +35,15 @@
 # only thing that can be the downstream here: the operator listener is reached
 # through a ClusterIP that only the Tailscale proxy is routed to.
 #
+# # Why this is an overlay and not the base
+#
+# `10.42.0.0/24` is this cluster's k3s pod CIDR, allocated to its one node.
+# Every premise here is environment-specific -- the pod network, the Tailscale
+# proxy in front of the listener, the fact that a proxy hop exists at all -- so
+# putting it in the base would make one box's topology the contract for every
+# environment. Production runs a different ingress and a different pod range,
+# and opts in with its own or not at all.
+#
 # And it grants an in-cluster attacker nothing new. A pod can already reach
 # `keycloak-http` directly, where its own 10.x address makes Keycloak treat the
 # request as internal and permit plain HTTP without any of this.
