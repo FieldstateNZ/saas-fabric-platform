@@ -3,8 +3,8 @@
 # The motivating case for this model. SaaS Fabric operates without Perses, which
 # under the old core/catalogue split made it "catalogue" and therefore implicitly
 # peripheral. It is in fact a platform-management capability that operators use
-# daily, and its project model is a plausible client partition -- three
-# independent facts the old classification could not express.
+# daily, and it has a grouping unit that might one day carry client partitions --
+# three independent facts the old classification could not express.
 #
 # A fourth, which is new to this runtime and does not change the answer: Perses
 # is also a component library and an API that the SaaS Fabric UI renders
@@ -26,12 +26,45 @@ controlPlane:
   # published, on the operator plane only.
   managed: partial
   upstreamAdminSurface: exposed
+exposure:
+  # A constraint, not a description. Perses runs with `enable_auth: false`,
+  # which is only coherent because the operator plane is the whole boundary --
+  # every viewer is a platform operator, the instance is read-only, and there is
+  # nothing client-scoped in it to see. A client-reachable route would remove
+  # the only thing standing in front of it.
+  #
+  # So this is enforced rather than remembered. `backends` names the Services
+  # validation has to prove stay off the product plane, for the same reason
+  # controlPlane.adminBackends does: a claim about the cluster needs something
+  # to be checked against. check.py refuses an HTTPRoute that backends any of
+  # them.
+  #
+  # Lifting it is not a routing change. It requires user authentication,
+  # authorization, and a tenancy model that has actually been established --
+  # at which point this section changes with them, deliberately.
+  plane: operator
+  backends:
+    - perses
+  rationale: |
+    Perses is unauthenticated. The operator plane is what makes that
+    acceptable, so publishing it anywhere else is not a configuration choice
+    but a change of security posture.
 clientPartitioning:
   # `unknown`, not `logical`. Projects with role bindings look like the right
   # mechanism and that is a hypothesis, not a finding -- claiming a strength here
-  # would assert the very thing tenancy.status says is unestablished. The harder
-  # half of the problem is not Perses at all: platform telemetry carries no
-  # per-client attribute for a datasource to filter on. See
+  # would assert the very thing tenancy.status says is unestablished.
+  #
+  # Read `candidateUnit: project` narrowly, because the word invites a wrong
+  # reading. A Perses project is a grouping for observability resources. It is
+  # not a Fabric tenant authority, and one project per client would not by
+  # itself be a tenancy model:
+  #
+  #     Perses project  = observability-resource grouping
+  #     Tenant isolation = enforced at the telemetry datasource, by a mechanism
+  #                        that does not yet exist
+  #
+  # The harder half of the problem is not Perses at all: platform telemetry
+  # carries no per-client attribute for a datasource to filter on. See
   # applications/core/observability.
   mode: unknown
   candidateUnit: project

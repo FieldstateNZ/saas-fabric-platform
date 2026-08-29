@@ -196,7 +196,9 @@ It then checks the invariants a schema cannot express:
   attached to a listener that exists from a namespace the Gateway admits,
   operator traffic on Tailscale `Ingress` resources, and no third routing
   authority;
-- no administrative surface reachable from the product plane;
+- no administrative surface reachable from the product plane, and no
+  product-plane route to a service whose contract says the operator plane is the
+  only thing protecting it;
 - the non-default Argo CD behaviour the platform depends on present in both the
   bootstrap set and the reconciled environment, so neither wave ordering nor
   operator-plane access can quietly stop working;

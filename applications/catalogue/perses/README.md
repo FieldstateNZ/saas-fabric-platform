@@ -60,6 +60,11 @@ from a folder, and [`../perses-provisioning`](../perses-provisioning/) fills tha
 folder from this repository. Provisioning re-injects on an interval, so the
 folder is authoritative rather than merely initial.
 
+Dashboards, datasources and projects all travel that path. Today it carries the
+platform project and nothing else, because a dashboard with no datasource behind
+it is not configuration — see
+[`../perses-provisioning`](../perses-provisioning/#a-dashboard-arrives-with-its-datasource).
+
 Reading is untouched. The flag is applied per resource endpoint, not as a blanket
 method filter, so the datasource proxy that serves a panel's queries is
 unaffected — which is the half of the API that Fabric and the explorer use.
@@ -79,9 +84,28 @@ Nothing had to be migrated to get here. No dashboard definition was ever
 committed to this repository, and production has never enabled the catalogue, so
 the substitution replaced a runtime and not a body of work.
 
+## A project is a grouping, not a boundary
+
+Read `candidateUnit: project` narrowly, because the word invites exactly the
+wrong inference. Say it once, plainly:
+
+```text
+Perses project    =  a namespace for observability resources
+                     dashboards, datasources, variables, roles
+
+Perses project    ≠  a Fabric tenant authority
+Tenant isolation  =  enforced at the telemetry datasource, by a mechanism
+                     that does not exist yet
+```
+
+One Perses project per client would be a filing arrangement. It would not be a
+tenancy model, and nothing about creating one would make a client's telemetry
+unreachable from another client's dashboard. Anyone reaching for *"we isolate
+clients with Perses projects"* has skipped the part where the isolation happens.
+
 ## Tenancy: intended, not built
 
-Perses' project model is the same shape as Keycloak's realms — one runtime, a
+With that said, the shape is the same as Keycloak's realms — one runtime, a
 platform administrative context, one partition per client:
 
 ```text
@@ -92,13 +116,18 @@ Perses runtime                 platform
 ```
 
 **Nothing client-scoped is implemented here, and the contract claims none.**
-`tenancy.status` is `candidate`. The unresolved half is not really Perses: a
-client project would need a datasource that returns only that client's
-telemetry, and platform telemetry carries no per-client attribute to filter on.
-See [the checklist](../../../docs/platform-services.md#assessing-tenancy) and the
+`tenancy.status` is `candidate`, and `check.py` refuses any contract that claims
+client capability or provisioning while it stays that way.
+
+The unresolved half is not really Perses. A client project would need a
+datasource that returns only that client's telemetry, and platform telemetry
+carries no per-client attribute to filter on — so the boundary has no dimension
+to enforce even if the grouping were in place. That is the ordering: the
+attribute, then the enforcement, then the grouping. Not the grouping first. See
+[the checklist](../../../docs/platform-services.md#assessing-tenancy) and the
 known gap in [docs/architecture.md](../../../docs/architecture.md#known-gaps).
 
-One thing Perses does bring to that problem: unless a datasource sets
+One thing Perses does bring to the problem: unless a datasource sets
 `directUrl`, the browser queries it **through the Perses server**, which
 proxies. A per-client restriction would therefore have somewhere server-side to
 live, rather than depending on the frontend asking nicely — and frontend
@@ -141,6 +170,48 @@ The chart renders its own `Ingress` rather than
 deliberately absent from the platform project's destinations — so nothing running
 in the platform project can write into it.
 
+### That is a constraint, not a description
+
+Perses runs with `enable_auth: false`. That is acceptable, and it is acceptable
+for one reason only:
+
+```text
+tailnet / operator plane      every viewer is a platform operator
+        ↓
+unauthenticated Perses        nothing to sign in to
+        ↓
+read-only                     and nothing to change if you did
+```
+
+Take away the top line and the other two stop being reassuring. A
+client-reachable route would not be a routing change; it would be a change of
+security posture, made in four lines of YAML that do not look alarming.
+
+So it is declared and checked rather than remembered. The contract carries:
+
+```yaml
+exposure:
+  plane: operator
+  backends: [perses]
+```
+
+and `check_operator_only_services` in [`scripts/check.py`](../../../scripts/check.py)
+fails the build on any route that could reach a named Service **from the product
+plane** — resolved the way the Gateway resolves it, by the listener the route
+names or, when it names none, by the grant its namespace carries. An
+operator-plane route is exactly what the constraint permits, so it passes; that
+distinction is verified in both directions rather than assumed.
+
+The `catalogue` namespace not carrying `gateway-access` is what stops it today —
+but this repository has twice been wrong about an absent label being a
+guarantee, and an absent label is nobody's decision. This is the decision.
+
+> **Perses must not be reachable from a client-accessible route until user
+> authentication, authorization and an established tenancy model exist.**
+
+Lifting it means building those three things, and then changing this section
+deliberately. It does not mean deleting it.
+
 ## Endpoint contract
 
 The intended shape is that SaaS Fabric renders operational views from Perses'
@@ -167,12 +238,32 @@ Fabric UI
 and never a Perses embedded in the Fabric deployment. The standalone UI stays
 published for operators; that does not make it the client experience.
 
+Splitting the two halves, so *done* means something on each side:
+
+```text
+this repository                       the application repository
+  ✓ Perses deployed                     □ observability adapter
+  ✓ API boundary at a stable address    □ Perses rendering integration
+  ✓ resource provisioning mechanism     □ Fabric permission enforcement
+  ✓ datasource provisioning mechanism   □ client context propagation
+  ✓ dashboard-as-code mechanism
+  ✓ no Grafana remains
+  □ a telemetry backend to query
+```
+
+The right-hand column cannot be finished here, and the left-hand column should
+not have waited for it. The one box still open on the left is the one this
+change deliberately did not force: see
+[`../perses-provisioning`](../perses-provisioning/#a-dashboard-arrives-with-its-datasource).
+
 ## Dependencies
 
 None hard. In practice it is only useful once
-[`observability`](../../core/observability/) exports to a queryable backend,
-which is why its data sources are configured per environment rather than here —
-and why no environment configures one yet.
+[`observability`](../../core/observability/) exports to a queryable backend.
+Datasources are supplied through
+[`../perses-provisioning`](../perses-provisioning/) rather than through this
+chart's values, so adding one touches no part of this deployment — and no
+environment adds one yet, because there is nothing to point it at.
 
 ## Configuration owned by this repository
 
@@ -182,7 +273,11 @@ and why no environment configures one yet.
 
 ## Configuration expected from outside this repository
 
-- **Data source endpoints and credentials** for the environment's telemetry
-  backend.
+- **A telemetry backend**, and the data source endpoints and credentials that
+  address it. Its absence is the reason this service currently has nothing to
+  show, and choosing it is a decision in its own right rather than an
+  implementation detail of this one.
+- **The Fabric observability module** and everything above the API boundary.
 - **Client-shaped anything** — a project scoped to one client, or a dashboard
-  over one client's telemetry — belongs to the client layer.
+  over one client's telemetry — belongs to the client layer, and not before its
+  tenancy is established.

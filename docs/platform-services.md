@@ -141,6 +141,11 @@ controlPlane:
   managed: true              # true | partial | false
   upstreamAdminSurface: not-exposed   # none | not-exposed | break-glass | exposed
   adminBackends: [keycloak-http]      # required when not-exposed
+exposure:                    # optional; declared where it is a constraint
+  plane: operator            # operator | product | both
+  backends: [perses]         # required when operator
+  rationale: |               # required when operator
+    ...
 clientPartitioning:
   mode: strong               # unknown | none | logical | strong
   unit: realm                # named only once the mechanism is settled
@@ -153,6 +158,42 @@ tenancy:
   rationale: |
     ...
 ```
+
+### `exposure` is a constraint, not a description
+
+Most services need no `exposure` block: which plane they answer on is visible in
+the routes that exist, and a route is reviewed like anything else. It is
+declared only where the plane is *load-bearing* — where a service is safe
+because of where it sits rather than because of what it enforces.
+
+Perses is the case. It runs unauthenticated, which is coherent while the
+operator plane is the whole boundary and stops being coherent the moment it is
+not. A client-reachable route would be a change of security posture wearing the
+clothes of a routing change.
+
+```text
+tailnet / operator plane   →   unauthenticated Perses   →   read-only
+```
+
+Remove the first term and the other two stop reassuring anybody.
+
+So `plane: operator` names, in `backends`, the Services validation must prove
+stay off the product plane — for exactly the reason `not-exposed` names
+`adminBackends`. A claim about a cluster needs something to be checked against,
+and `check_operator_only_services` fails the build on a route that could reach
+one of them from the product plane. The plane is resolved as the Gateway
+resolves it — the listener the route names, or the grant its namespace carries —
+so an operator-plane route to the same Service is permitted, which is the whole
+point. The namespace happening not to carry `gateway-access` is what stops it
+today; this repository has twice been wrong about an absent label being a
+guarantee.
+
+`rationale` is required for the same reason a tenancy position is: a constraint
+nobody can read the reason for is one somebody will lift.
+
+Lifting it is not editing three lines. It is building the authentication,
+authorization and tenancy the constraint is standing in for, and then changing
+this block along with them.
 
 ### `mode` is a claim, and tenancy licenses it
 
@@ -175,6 +216,23 @@ The two fields are therefore a state machine:
 A settled mechanism is named in `unit`; a proposed one in `candidateUnit`, which
 `candidate` requires — a candidate is a specific proposal, not a general
 intention.
+
+**A candidate unit is a grouping until it is a boundary, and the words are not
+interchangeable.** Perses' `candidateUnit: project` is the live example, and the
+one most likely to be misread:
+
+```text
+Perses project    =  a namespace for observability resources
+Perses project    ≠  a Fabric tenant authority
+Tenant isolation  =  enforced at the telemetry datasource, by a mechanism
+                     that does not exist yet
+```
+
+One project per client would be a filing arrangement. `mode: unknown` is the
+model saying exactly that, and it is why `candidateUnit` is a separate field
+from `unit` rather than the same field used optimistically. Anyone reading a
+`candidateUnit` as an isolation model has read the field the state machine above
+exists to prevent.
 
 The last two states are deliberately distinct. *"We assessed this and it is not
 a boundary"* and *"this service does not partition clients at all"* are

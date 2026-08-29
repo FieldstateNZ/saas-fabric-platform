@@ -23,7 +23,8 @@ Checks, in order of how much damage they prevent:
  11. every in-cluster service reference resolves to something this repository
      actually deploys;
  12. the telemetry pipelines only reference components that exist;
- 13. every application directory carries the required documentation.
+ 13. every application directory carries the required documentation;
+ 14. a service whose only protection is the operator plane stays on it.
 """
 from __future__ import annotations
 
@@ -147,8 +148,21 @@ REQUIRED_DOC_FIELDS = (
     "Namespace",
 )
 
+# The Gateway's two listeners, and the namespace label each admits routes from.
+# A route naming neither listener is eligible for whichever grant its namespace
+# carries, which is why both checks below have to consult the labels rather than
+# read the route alone.
+PRODUCT_LISTENER, PRODUCT_GRANT = "http", "fieldstate.nz/gateway-access"
+OPERATOR_LISTENER, OPERATOR_GRANT = "operator", "fieldstate.nz/operator-gateway-access"
+GATEWAY_GRANTS = {PRODUCT_LISTENER: PRODUCT_GRANT, OPERATOR_LISTENER: OPERATOR_GRANT}
+
 # The platform service contract. See docs/platform-services.md.
 SERVICE_CONTRACT = "platform-service.yaml"
+# Which plane a service may be reached on. Declared rather than inferred, and
+# only where it is a constraint: `operator` is a statement that publishing the
+# service anywhere else would change its security posture, not merely its
+# routing. See check_operator_only_services.
+EXPOSURE_PLANES = ("operator", "product", "both")
 DEPLOYMENT_STATES = ("adopted", "planned", "assessed")
 PARTITION_MODES = ("unknown", "none", "logical", "strong")
 PROVISIONING_STATES = ("supported", "unsupported")
@@ -488,10 +502,7 @@ def check_routes_attach(render: Path, problems: list[str]) -> None:
     reverse -- which is the only reason `check_control_plane_is_operator_only`
     below can assert anything.
     """
-    grants = {
-        "http": "fieldstate.nz/gateway-access",
-        "operator": "fieldstate.nz/operator-gateway-access",
-    }
+    grants = GATEWAY_GRANTS
     for environment in ENVIRONMENTS:
         listeners: dict[tuple[str, str], set[str]] = {}
         routes = []
@@ -1092,6 +1103,24 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
         bad("controlPlane.upstreamAdminSurface is 'none' but adminBackends are named -- "
             "a service with no console has nothing to withhold")
 
+    # Optional, and declared only where exposure is a constraint rather than a
+    # description. `operator` has to name the Services it is talking about, for
+    # the same reason `not-exposed` does: otherwise check_operator_only_services
+    # has nothing to prove the claim against and the rule quietly stops applying.
+    exposure = declared.get("exposure")
+    if exposure is not None:
+        plane = exposure.get("plane")
+        if plane not in EXPOSURE_PLANES:
+            bad(f"exposure.plane '{plane}' is not one of {', '.join(EXPOSURE_PLANES)}")
+        if plane == "operator":
+            if not exposure.get("backends"):
+                bad("exposure.plane is 'operator' but no backends are named -- name the "
+                    "Services that must stay off the product plane so validation can prove "
+                    "none is published there")
+            if not exposure.get("rationale"):
+                bad("exposure.plane is 'operator' but no rationale is recorded -- a constraint "
+                    "nobody can read the reason for is one somebody will lift")
+
     tenancy = declared.get("tenancy") or {}
     status = tenancy.get("status")
     if status not in TENANCY_STATES:
@@ -1139,6 +1168,91 @@ def _check_one_contract(where: Path, declared: dict, application: Path, problems
         bad("deployment is 'adopted' but the directory has no application.yaml")
     if deployment in ("planned", "assessed") and deploys:
         bad(f"deployment is '{deployment}' but the directory has an application.yaml")
+
+
+def check_operator_only_services(root: Path, render: Path, problems: list[str]) -> None:
+    """A service whose only protection is the plane it is on.
+
+    Perses is the case this exists for. It runs with authentication disabled,
+    which is coherent for exactly as long as the operator plane is the whole
+    boundary: every viewer is a platform operator, the instance is read-only,
+    and there is nothing client-scoped inside it. A product-plane route would
+    take all of that away in four lines of YAML, and nothing about the four
+    lines would look alarming.
+
+    So `exposure.plane: operator` is a constraint that gets checked rather than
+    a note that gets read. The namespace not carrying the product grant is what
+    stops it today -- but this repository has twice been wrong about an absent
+    label being a guarantee, and an absent label is not a decision anybody made
+    on purpose. This is the decision, written where it can fail a build.
+
+    What is refused is the *product* plane specifically, not routing as such.
+    An operator-plane route to one of these services is exactly what the
+    constraint permits, so the plane is resolved the same way
+    `check_routes_attach` resolves it: the listener the route names, or -- when
+    it names none -- the grant its namespace carries.
+
+    Lifting the constraint means authentication, authorization and an
+    established tenancy model. It does not mean editing the contract until
+    validation stops complaining.
+    """
+    operator_only: dict[str, str] = {}
+    for contract in sorted(root.glob("applications/*/*/platform-service.yaml")):
+        declared = yaml.safe_load(contract.read_text()) or {}
+        exposure = declared.get("exposure") or {}
+        if exposure.get("plane") != OPERATOR_LISTENER:
+            continue
+        for backend in exposure.get("backends") or []:
+            operator_only[backend] = declared.get("service", contract.parent.name)
+    if not operator_only:
+        return
+
+    for environment in ENVIRONMENTS:
+        product_namespaces: set[str] = set()
+        routes = []
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                kind = document.get("kind")
+                if kind == "HTTPRoute":
+                    routes.append((path, document))
+                elif kind == "Application":
+                    managed = (
+                        document["spec"]
+                        .get("syncPolicy", {})
+                        .get("managedNamespaceMetadata", {})
+                        .get("labels", {})
+                    )
+                    if managed.get(PRODUCT_GRANT) == "true":
+                        product_namespaces.add(document["spec"]["destination"]["namespace"])
+
+        for path, route in routes:
+            namespace = route["metadata"]["namespace"]
+            name = route["metadata"]["name"]
+            reached = {
+                backend.get("name")
+                for rule in route["spec"].get("rules", [])
+                for backend in rule.get("backendRefs", [])
+            } & set(operator_only)
+            if not reached:
+                continue
+
+            for parent in route["spec"].get("parentRefs", []):
+                section = parent.get("sectionName")
+                if section == OPERATOR_LISTENER:
+                    continue
+                # No sectionName means the route takes whichever listener its
+                # namespace is granted, so the label decides the plane.
+                if section is None and namespace not in product_namespaces:
+                    continue
+                for service in sorted(reached):
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: HTTPRoute/{name} can reach"
+                        f" '{service}' from the product plane, and"
+                        f" {operator_only[service]} is declared"
+                        " operator-plane-only. Its contract says why, and the"
+                        " answer is not to widen the route",
+                    )
 
 
 def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) -> None:
@@ -1227,6 +1341,7 @@ def main() -> int:
     check_application_documentation(root, problems)
     check_service_capabilities(root, problems)
     check_control_plane_surfaces(root, render, problems)
+    check_operator_only_services(root, render, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")

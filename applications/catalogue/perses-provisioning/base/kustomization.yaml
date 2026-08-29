@@ -16,20 +16,14 @@ generatorOptions:
   labels:
     perses.dev/resource: "true"
 
-# Datasources are absent on purpose. The endpoint is an environment fact and no
-# environment has a queryable backend yet, so they are added by an overlay
-# rather than here. See ../overlays/lucentroot.
+# One resource, and that is the honest state of the platform. The project is
+# real configuration that Perses genuinely needs; a dashboard is not, until a
+# datasource exists for it to query. Both would travel this same path -- see
+# README.md for why only one of them is on it.
 configMapGenerator:
-  # Separate from the dashboards, and not for tidiness. Perses refuses a
-  # project-scoped resource whose project does not exist, so the Project is the
-  # one thing here that everything else depends on.
   - name: perses-platform-project
     files:
       - project.yaml
-
-  - name: perses-platform-dashboards
-    files:
-      - dashboards/telemetry-pipeline.yaml
 
 labels:
   - includeSelectors: false
