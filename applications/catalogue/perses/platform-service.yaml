@@ -1,0 +1,91 @@
+# Platform service contract. See docs/platform-services.md.
+#
+# The motivating case for this model. SaaS Fabric operates without Perses, which
+# under the old core/catalogue split made it "catalogue" and therefore implicitly
+# peripheral. It is in fact a platform-management capability that operators use
+# daily, and it has a grouping unit that might one day carry client partitions --
+# three independent facts the old classification could not express.
+#
+# A fourth, which is new to this runtime and does not change the answer: Perses
+# is also a component library and an API that the SaaS Fabric UI renders
+# operational views from, so Fabric is a consumer of the service rather than
+# merely a producer of the telemetry it shows. That makes it more load-bearing
+# without making it required -- an environment with observability disabled is
+# still a complete platform, and Fabric's Operations experience is a capability
+# rather than a prerequisite.
+service: perses
+deployment: adopted
+required: false         # SaaS Fabric operates without it
+operatorUsage: true     # platform dashboards and operational visibility
+controlPlane:
+  # The counter-example, and the reason this is not one flag. Git owns the
+  # dashboards, so the platform's own GitOps process administers most of what an
+  # operator would otherwise do in this console -- but the console is still where
+  # exploration happens, and exploration is the capability operators came for
+  # rather than a vendor administration surface wrapped around it. It stays
+  # published, on the operator plane only.
+  managed: partial
+  upstreamAdminSurface: exposed
+exposure:
+  # A constraint, not a description. Perses runs with `enable_auth: false`,
+  # which is only coherent because the operator plane is the whole boundary --
+  # every viewer is a platform operator, the instance is read-only, and there is
+  # nothing client-scoped in it to see. A client-reachable route would remove
+  # the only thing standing in front of it.
+  #
+  # So this is enforced rather than remembered. `backends` names the Services
+  # validation has to prove stay off the product plane, for the same reason
+  # controlPlane.adminBackends does: a claim about the cluster needs something
+  # to be checked against. check.py refuses any route that could reach one of
+  # them from the product plane.
+  #
+  # Namespaced, and written in the shape Gateway API uses, because a backendRef
+  # resolves to (namespace, name) and not to a name. A bare name would make this
+  # invariant quietly depend on nobody ever reusing the word `perses` in another
+  # namespace -- which is a convention, and the point of the check is to encode
+  # something stronger than one.
+  #
+  # Lifting it is not a routing change. It requires user authentication,
+  # authorization, and a tenancy model that has actually been established --
+  # at which point this section changes with them, deliberately.
+  plane: operator
+  backends:
+    - name: perses
+      namespace: catalogue
+  rationale: |
+    Perses is unauthenticated. The operator plane is what makes that
+    acceptable, so publishing it anywhere else is not a configuration choice
+    but a change of security posture.
+clientPartitioning:
+  # `unknown`, not `logical`. Projects with role bindings look like the right
+  # mechanism and that is a hypothesis, not a finding -- claiming a strength here
+  # would assert the very thing tenancy.status says is unestablished.
+  #
+  # Read `candidateUnit: project` narrowly, because the word invites a wrong
+  # reading. A Perses project is a grouping for observability resources. It is
+  # not a Fabric tenant authority, and one project per client would not by
+  # itself be a tenancy model:
+  #
+  #     Perses project  = observability-resource grouping
+  #     Tenant isolation = enforced at the telemetry datasource, by a mechanism
+  #                        that does not yet exist
+  #
+  # The harder half of the problem is not Perses at all: platform telemetry
+  # carries no per-client attribute for a datasource to filter on. See
+  # applications/core/observability.
+  mode: unknown
+  candidateUnit: project
+  provisioning: unsupported
+clientCapability:
+  available: false      # a candidate capability, not an offered one
+tenancy:
+  status: candidate
+  unknowns:
+    - Telemetry carries no per-client attribute, so there is nothing for a
+      per-client datasource to scope queries by. Isolation has to hold at the
+      datasource boundary, and today the boundary has no dimension to enforce.
+    - Perses proxies datasource queries through its own server, which is where
+      a per-client restriction would have to be applied. Whether its project
+      permissions can express that restriction is unassessed.
+    - No provisioning model exists for creating or removing a client project,
+      its datasources and its role bindings.

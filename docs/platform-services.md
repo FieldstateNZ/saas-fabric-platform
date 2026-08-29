@@ -18,12 +18,12 @@ and `catalogue`. That conflated two unrelated concerns: whether SaaS Fabric
 depends on a service, and whether that service can offer client-scoped
 capability.
 
-Grafana is where it broke. SaaS Fabric runs without Grafana, so Grafana was
-catalogue, so Grafana read as peripheral. All three of these are true at once:
+Perses is where it broke. SaaS Fabric runs without Perses, so Perses was
+catalogue, so Perses read as peripheral. All three of these are true at once:
 
 - SaaS Fabric does not require it;
 - platform operators use it daily, and it is where operational visibility lives;
-- its organisation model is a plausible client partition.
+- its project model is a plausible client partition.
 
 One binary cannot carry three independent facts. A service that is optional,
 operator-critical and potentially client-partitionable is not an edge case — it
@@ -43,7 +43,7 @@ Independent. Do not infer any one from any other.
 
 Two inferences that look reasonable and are not:
 
-- **Optional does not mean peripheral.** Grafana is optional and
+- **Optional does not mean peripheral.** Perses is optional and
   operator-critical.
 - **Partitionable does not mean offered.** Keycloak partitions strongly per
   client, and no client selects it — every client has identity by virtue of
@@ -66,12 +66,18 @@ capability; others are merely vendor administration surfaces.**
 |---|---|---|---|
 | Keycloak | true | `not-exposed` | Fabric owns identity management; the console is vendor administration |
 | OpenFGA | true | `none` | API-only upstream, nothing to withhold |
-| Grafana | partial | `exposed` | dashboards **are** the capability operators want |
+| Perses | partial | `exposed` | exploration **is** the capability operators want |
 | OpenBao | partial | `break-glass` | published for diagnostics, outside the normal contract |
 
-Grafana is the case that stops this becoming a blanket ban. Hiding its UI would
+Perses is the case that stops this becoming a blanket ban. Hiding its UI would
 remove the thing operators came for. Hiding Keycloak's removes a login screen
 they should not have needed.
+
+Perses sharpens the distinction rather than blurring it. Most of what an
+operator would once have done in a dashboard console is now Git's: definitions
+are committed, and the instance is deployed read-only. What stays published is
+exploration — following a metric into a log line into a trace — which is exactly
+the part no control plane replaces.
 
 `not-exposed` names the Kubernetes Services that would front the console in
 `adminBackends`, and `check.py` proves no `Ingress` publishes them — so the rule
@@ -90,13 +96,13 @@ Keycloak runtime            platform
   └── Contoso realm         client
 ```
 
-Grafana is the same shape, one step less proven:
+Perses is the same shape, one step less proven:
 
 ```text
-Grafana runtime             platform
-  ├── platform organisation platform
-  ├── Acme organisation     client   ← intended, not built
-  └── Contoso organisation  client   ← intended, not built
+Perses runtime              platform
+  ├── platform project      platform
+  ├── Acme project          client   ← intended, not built
+  └── Contoso project       client   ← intended, not built
 ```
 
 The pattern generalises to: **one runtime, one platform administrative context,
@@ -108,7 +114,7 @@ supplies a real isolation boundary.
 | Service | Platform owns | Client provisioning owns |
 |---|---|---|
 | Keycloak | deployment, master/admin | realm |
-| Grafana | deployment, platform organisation | client organisation *(intended)* |
+| Perses | deployment, platform project and dashboards | client project *(intended)* |
 | OpenBao | deployment, `secret/platform/*` | `secret/clients/<client>/*`, policies |
 | CloudNativePG | operator, shared infrastructure | client database |
 | Envoy Gateway | controller, shared `Gateway` | client host routes |
@@ -135,6 +141,13 @@ controlPlane:
   managed: true              # true | partial | false
   upstreamAdminSurface: not-exposed   # none | not-exposed | break-glass | exposed
   adminBackends: [keycloak-http]      # required when not-exposed
+exposure:                    # optional; declared where it is a constraint
+  plane: operator            # operator | product | both
+  backends:                  # required when operator
+    - name: perses           # a backendRef resolves to (namespace, name),
+      namespace: catalogue   # so both are named
+  rationale: |               # required when operator
+    ...
 clientPartitioning:
   mode: strong               # unknown | none | logical | strong
   unit: realm                # named only once the mechanism is settled
@@ -147,6 +160,48 @@ tenancy:
   rationale: |
     ...
 ```
+
+### `exposure` is a constraint, not a description
+
+Most services need no `exposure` block: which plane they answer on is visible in
+the routes that exist, and a route is reviewed like anything else. It is
+declared only where the plane is *load-bearing* — where a service is safe
+because of where it sits rather than because of what it enforces.
+
+Perses is the case. It runs unauthenticated, which is coherent while the
+operator plane is the whole boundary and stops being coherent the moment it is
+not. A client-reachable route would be a change of security posture wearing the
+clothes of a routing change.
+
+```text
+tailnet / operator plane   →   unauthenticated Perses   →   read-only
+```
+
+Remove the first term and the other two stop reassuring anybody.
+
+So `plane: operator` names, in `backends`, the Services validation must prove
+stay off the product plane — for exactly the reason `not-exposed` names
+`adminBackends`. A claim about a cluster needs something to be checked against,
+and `check_operator_only_services` fails the build on a route that could reach
+one of them from the product plane. The namespace happening not to carry
+`gateway-access` is what stops it today; this repository has twice been wrong
+about an absent label being a guarantee.
+
+The check resolves two things the way Kubernetes resolves them rather than the
+way a string comparison would, because an invariant that encodes an
+architectural truth should not rest on a naming convention:
+
+| | |
+|---|---|
+| **Identity** | a `backendRef` addresses `(namespace, name)`, and its namespace defaults to the route's own. Matching on the name alone would depend on nobody reusing a Service name in another namespace, and would misfire on a cross-namespace `backendRef`. A ref to any other kind or group is not a Service and is not matched against one |
+| **Plane** | what is refused is the *product* plane, not routing. The listener the route names decides it, or — when it names none — the grant its namespace carries. An operator-plane route to the same Service is permitted, which is the whole point |
+
+`rationale` is required for the same reason a tenancy position is: a constraint
+nobody can read the reason for is one somebody will lift.
+
+Lifting it is not editing three lines. It is building the authentication,
+authorization and tenancy the constraint is standing in for, and then changing
+this block along with them.
 
 ### `mode` is a claim, and tenancy licenses it
 
@@ -169,6 +224,23 @@ The two fields are therefore a state machine:
 A settled mechanism is named in `unit`; a proposed one in `candidateUnit`, which
 `candidate` requires — a candidate is a specific proposal, not a general
 intention.
+
+**A candidate unit is a grouping until it is a boundary, and the words are not
+interchangeable.** Perses' `candidateUnit: project` is the live example, and the
+one most likely to be misread:
+
+```text
+Perses project    =  a namespace for observability resources
+Perses project    ≠  a Fabric tenant authority
+Tenant isolation  =  enforced at the telemetry datasource, by a mechanism
+                     that does not exist yet
+```
+
+One project per client would be a filing arrangement. `mode: unknown` is the
+model saying exactly that, and it is why `candidateUnit` is a separate field
+from `unit` rather than the same field used optimistically. Anyone reading a
+`candidateUnit` as an isolation model has read the field the state machine above
+exists to prevent.
 
 The last two states are deliberately distinct. *"We assessed this and it is not
 a boundary"* and *"this service does not partition clients at all"* are
@@ -195,7 +267,7 @@ down as though it were a boundary.
 | External Secrets | yes | no | logical — `SecretStore` | accepted | yes |
 | OpenBao | yes | yes | strong — path prefix | accepted | yes |
 | Keycloak | yes | yes | strong — realm | accepted | yes |
-| Grafana | no | yes | unknown — organisation proposed | **candidate** | yes |
+| Perses | no | yes | unknown — project proposed | **candidate** | yes |
 | OpenFGA | **yes** | yes | unknown | unresolved | **planned** |
 | Superset | no | yes | unknown | unresolved | assessed |
 | Airflow | no | yes | none | rejected | assessed |
@@ -236,7 +308,7 @@ Current positions:
 | | |
 |---|---|
 | Keycloak, OpenBao, CloudNativePG, Envoy Gateway | **accepted** — relied on as boundaries |
-| Grafana | organisation model **promising**, unproven |
+| Perses | project model **promising**, unproven — and platform telemetry carries no per-client attribute to scope a datasource by |
 | OpenFGA | partitioning strategy **undecided** |
 | Superset | **requires explicit assessment** |
 | Airflow | assessed and **rejected** as a tenant isolation boundary |
@@ -256,10 +328,10 @@ capability in the product catalogue may be *implemented by* a platform service:
 
 ```text
 Capability: Observability
-  provider: Grafana
-  requires:  shared Grafana runtime
+  provider: Perses
+  requires:  shared Perses runtime
   provisioning:
-    create client organisation
+    create client project
     create datasource
     configure permissions
     contribute navigation
@@ -276,7 +348,7 @@ client capability may be implemented by a platform service
 ## Environment enablement is separate again
 
 Which services an environment deploys says nothing about what they are.
-LucentRoot enables Grafana because dogfooding the platform is its job;
-production does not enable it yet. Grafana is the same platform service in both.
+LucentRoot enables Perses because dogfooding the platform is its job;
+production does not enable it yet. Perses is the same platform service in both.
 
 See [`environments/README.md`](../environments/README.md).

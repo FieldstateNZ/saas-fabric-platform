@@ -18,7 +18,7 @@ Write them into a `platform-service.yaml` beside the application. See
 
 Two inferences to refuse, both of which the previous model encouraged:
 
-- *"It's optional, so it's peripheral."* Grafana is optional and is where
+- *"It's optional, so it's peripheral."* Perses is optional and is where
   operational visibility lives.
 - *"It's partitionable, so offer it."* Partitioning is a property of the
   runtime. Whether a client selects it is a product decision.

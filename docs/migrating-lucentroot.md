@@ -228,11 +228,10 @@ this cluster by hand:
 | Secret | Comes from |
 |---|---|
 | `keycloak-admin` | generated in-cluster, [`applications/core/keycloak-credentials`](../applications/core/keycloak-credentials/) |
-| `grafana-admin` | generated in-cluster, [`applications/catalogue/grafana-credentials`](../applications/catalogue/grafana-credentials/) |
 | `operator-oauth` | transported once, by [`inject-bootstrap-secrets.yaml`](../.github/workflows/inject-bootstrap-secrets.yaml) with a reviewer in the path |
 | everything a workload reads | OpenBao, via External Secrets |
 
-The two admin credentials are arbitrary — nobody needs to *choose* them — so
+Keycloak's admin credential is arbitrary — nobody needs to *choose* it — so
 nobody does. Only the credential Tailscale issues has to travel, and it travels
 through an approval gate rather than a shell.
 

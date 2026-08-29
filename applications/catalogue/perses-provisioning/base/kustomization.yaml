@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: catalogue
+
+# Every generated ConfigMap carries the label Perses' provisioning sidecar
+# watches for. The sidecar writes each data key into the provisioning folder as
+# a file named by that key, which is why the keys keep their `.yaml` suffix --
+# Perses only reads `.json`, `.yaml` and `.yml`.
+#
+# Name suffix hashes are disabled deliberately. A dashboard edit should show up
+# in Argo CD as a changed ConfigMap, not as one resource created and another
+# pruned; and the sidecar keys off the label, not the name.
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    perses.dev/resource: "true"
+
+# One resource, and that is the honest state of the platform. The project is
+# real configuration that Perses genuinely needs; a dashboard is not, until a
+# datasource exists for it to query. Both would travel this same path -- see
+# README.md for why only one of them is on it.
+configMapGenerator:
+  - name: perses-platform-project
+    files:
+      - project.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: perses
+      fieldstate.nz/system: saas-fabric
+      fieldstate.nz/layer: platform

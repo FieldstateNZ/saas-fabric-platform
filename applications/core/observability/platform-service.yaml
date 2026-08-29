@@ -2,7 +2,7 @@
 service: opentelemetry
 deployment: adopted
 required: true          # the telemetry boundary every service reports through
-operatorUsage: false    # a pipeline, not a console -- Grafana is the surface
+operatorUsage: false    # a pipeline, not a console -- Perses is the surface
 controlPlane:
   # Infrastructure reconciled by Argo CD, with no operator-facing console.
   managed: false

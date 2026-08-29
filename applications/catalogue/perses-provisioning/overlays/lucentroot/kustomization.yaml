@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# LucentRoot adds nothing to the base. It has no telemetry backend -- the
+# collector's pipelines still terminate in the `debug` exporter -- so there is
+# no datasource to declare here, and therefore no dashboard worth provisioning.
+#
+# When a backend lands, both arrive together in this directory: the datasource
+# that makes queries resolve, and the dashboards that depend on it. See
+# ../../README.md#a-dashboard-arrives-with-its-datasource.
+resources:
+  - ../../base

@@ -1,0 +1,27 @@
+# LucentRoot: internal storage, operator plane only.
+#
+# Perses reads platform telemetry and is an operations surface, not a product
+# one. It has no HTTPRoute and never appears on the product edge.
+#
+# No datasource: the collector's pipelines still terminate in the `debug`
+# exporter, so there is nothing queryable to point one at. Datasources are
+# provisioned like every other Perses resource -- see
+# applications/catalogue/perses-provisioning.
+persistence:
+  storageClass: local-path
+
+# `secretName` is required by the chart's values schema, not by the tailnet. The
+# Tailscale operator issues and holds the certificate for the device it
+# registers; nothing reads this Secret.
+ingress:
+  enabled: true
+  ingressClassName: tailscale
+  hosts:
+    - host: perses-lucentroot
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - perses-lucentroot
+      secretName: perses-lucentroot-tls

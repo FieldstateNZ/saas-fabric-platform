@@ -20,7 +20,7 @@ product. Every platform component and, later, every client workload emits OTLP
 to one well-known endpoint; what consumes that data is an environment decision
 that can change without touching a single application definition.
 
-This is why the collector is core and Grafana is catalogue. Grafana may read
+This is why the collector is core and Perses is catalogue. Perses may read
 platform telemetry, but the architecture must not be defined by it.
 
 ## The three signals

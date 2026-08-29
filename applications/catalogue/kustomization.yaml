@@ -5,5 +5,5 @@ kind: Kustomization
 # Fabric; an environment that omits this directory is a complete platform.
 #
 resources:
-  - grafana/application.yaml
-  - grafana-credentials/application.yaml
+  - perses/application.yaml
+  - perses-provisioning/application.yaml

@@ -1,0 +1,18 @@
+# The platform's own Perses project.
+#
+# A grouping for observability resources, and nothing more than that. It is not
+# a tenant boundary and must not be read as one -- see
+# ../../perses/README.md#a-project-is-a-grouping-not-a-boundary.
+#
+# Perses refuses to provision a project-scoped resource whose project does not
+# exist, so this has to be present before any dashboard can load. Ordering
+# within a batch is not a concern: Perses applies every Project first regardless
+# of the order files are read in.
+#
+# Client projects are not created here, and would not make one either.
+kind: Project
+metadata:
+  name: platform
+spec:
+  display:
+    name: Platform

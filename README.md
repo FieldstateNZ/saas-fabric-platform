@@ -72,7 +72,7 @@ Not one routing layer with exceptions — two, with disjoint jobs.
              │                             │
   client and platform HTTP        direct internal / admin
              │                             │
-  fabric / applications           Argo CD / Grafana /
+  fabric / applications           Argo CD / Perses /
   client hostnames                OpenBao UI (break-glass)
 ```
 
@@ -148,7 +148,7 @@ declared in a `platform-service.yaml` beside the application.
 | [External Secrets](applications/core/external-secrets/) | yes | no | logical — store | accepted | yes |
 | [OpenBao](applications/core/openbao/) | yes | yes | strong — path prefix | accepted | yes |
 | [Keycloak](applications/core/keycloak/) | yes | yes | strong — realm | accepted | yes |
-| [Grafana](applications/catalogue/grafana/) | no | **yes** | unknown — organisation proposed | candidate | yes |
+| [Perses](applications/catalogue/perses/) | no | **yes** | unknown — project proposed | candidate | yes |
 | [OpenFGA](applications/core/openfga/) | **yes** | yes | unknown | unresolved | **planned** |
 | [Superset](applications/catalogue/superset/) | no | yes | unknown | unresolved | assessed |
 | [Airflow](applications/catalogue/airflow/) | no | yes | none | rejected | assessed |
@@ -168,7 +168,7 @@ it:
 > partitions inside it.
 
 `core/` and `catalogue/` are **deployment tiers**, not classifications:
-`catalogue` gets one namespace and no cluster-scoped resources. Grafana lives
+`catalogue` gets one namespace and no cluster-scoped resources. Perses lives
 there because SaaS Fabric does not require it, which says nothing about whether
 operators depend on it — they do.
 
@@ -196,7 +196,9 @@ It then checks the invariants a schema cannot express:
   attached to a listener that exists from a namespace the Gateway admits,
   operator traffic on Tailscale `Ingress` resources, and no third routing
   authority;
-- no administrative surface reachable from the product plane;
+- no administrative surface reachable from the product plane, and no
+  product-plane route to a service whose contract says the operator plane is the
+  only thing protecting it;
 - the non-default Argo CD behaviour the platform depends on present in both the
   bootstrap set and the reconciled environment, so neither wave ordering nor
   operator-plane access can quietly stop working;

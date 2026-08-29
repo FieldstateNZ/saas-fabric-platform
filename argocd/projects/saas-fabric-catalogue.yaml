@@ -16,7 +16,7 @@ spec:
 
   sourceRepos:
     - https://github.com/FieldstateNZ/saas-fabric-platform.git
-    - https://grafana.github.io/helm-charts
+    - https://perses.github.io/helm-charts
 
   destinations:
     - server: https://kubernetes.default.svc
