@@ -500,10 +500,10 @@ it is expensive in exactly the dimensions this platform has been careful about.
 | Whether GreptimeDB or Jaeger tenancy meets C1, and whether Perses can query VictoriaTraces | unverified above; matters only if traces are stored |
 | The ClickHouse logs schema, and whether the platform or client provisioning owns row policies | follow-up 4 below |
 
-## Proving it before adopting it
+## Validation and follow-up
 
-Deliberately small, and answering the questions that would actually change the
-recommendation:
+One experiment decided the architecture and has been run. What remains validates
+the choice rather than making it.
 
 ### Spike step 1 — the one that decided it
 
