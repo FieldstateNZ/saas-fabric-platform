@@ -450,9 +450,10 @@ already understands tenants. The collector's ClickHouse exporter is also `beta`
 for traces and logs and `alpha` for metrics, which is a maturity gap worth
 weighing against VictoriaMetrics' native path.
 
-It becomes the recommendation if spike step 1 goes against VictoriaLogs, and it
-is worth revisiting anyway if retention turns out to exceed the operational
-window, because at that point two stores start duplicating what one does.
+ClickHouse-for-both remains the consolidation alternative. It becomes preferred
+if the ClickHouse metrics exporter matures to `beta` or better, or if operating
+two independent tenancy mechanisms proves more costly or fragile than retaining
+PromQL is worth.
 
 ### Rejected as too simple: single-node Prometheus, no log store
 
