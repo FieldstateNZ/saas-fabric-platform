@@ -1563,6 +1563,16 @@ def check_components_match_what_deploys(root: Path, render: Path, problems: list
             fail(problems, f"{manifest.relative_to(root)}: a managedRoot is empty or does not end in '/'")
             continue
 
+        # And it must be inside the repository. `/` ends in a slash and is not
+        # empty, so it passes the rule above and would then admit every path on
+        # the machine. Fabric refuses an absolute path outright, which is the
+        # defence that matters -- but a contract that permits a root its only
+        # consumer will never accept is a contract describing something that
+        # cannot work.
+        if any(str(managed).startswith(("/", "\\")) or ".." in Path(str(managed)).parts for managed in roots):
+            fail(problems, f"{manifest.relative_to(root)}: a managedRoot is not inside the repository")
+            continue
+
         for component, spec in (declared.get("components") or {}).items():
             desired = spec.get("desired") or {}
             version = str(desired.get("version", ""))

@@ -1,94 +1,46 @@
-# What LucentRoot is asked to run, and the policy that moves it.
+# What LucentRoot is asked to run.
+#
+# Machine-managed by SaaS Fabric Platform Management. Everything below this
+# header is written by Fabric in a deterministic layout, so a hand edit
+# survives as values and not as formatting. Editing it by hand is the
+# break-glass path and is expected to keep working.
 #
 # Desired state only. What versions are *available* is discovered from
-# registries, and what is *running* comes from the cluster; neither belongs in
-# Git, and a file that carried them would be wrong within minutes of being
-# written.
+# registries and what is *running* comes from the cluster; neither is recorded
+# here.
 #
-# Machine-managed. SaaS Fabric's Platform Management writes this file and
-# rewrites it whole, so hand edits survive as values but not as formatting or
-# comments below this header. Editing it by hand is the break-glass path and is
-# expected to keep working: it is how an environment is recovered when Fabric
-# itself is the thing that is broken.
+#   channel:      the release stream newer versions are drawn from
+#   update:       automatic | manual | locked
+#   hold:         pauses automatic advancement without changing policy
+#   pinnedIn:     platform-owned locations where each image digest is rendered
+#
+# See environments/README.md for the complete contract.
 ---
-# The shape of this file. Fabric refuses a version it was not written against
-# rather than guessing at a field that has moved.
 schemaVersion: 1
-
 environment: lucentroot
-
-# The only directories any `pinnedIn` below may point into.
-#
-# This repository owns the translation from a component version to the files
-# that carry it, and `pinnedIn` is how it says so -- but a mistake there would
-# otherwise make Fabric a confused deputy, editing `.github/workflows/` or a
-# README because a trusted file asked it to. The roots bound the *class* of
-# file Fabric will mutate, independently of any individual path.
-#
-# `applications/` and nothing else: overlays live inside it, and a root nothing
-# is in would be a rule that never fires.
 managedRoots:
-  - applications/
-
+- applications/
 components:
-  # SaaS Fabric is one component that publishes three images. They are built
-  # from one commit and they move together -- promoting the console without the
-  # control plane would put two thirds of a release on an integration
-  # environment and call it integrated.
   saas-fabric:
-    # Where to look for newer versions. `preview` admits SemVer prereleases,
-    # which no other environment may run.
     channel: preview
-
-    # `manual` until Platform Management exists to do the advancing. Declaring
-    # `automatic` today would describe a behaviour nothing implements, which is
-    # the same defect as a manifest key nothing reads.
     update: manual
-
     desired:
-      # The version, once. Not repeated against each image: three images
-      # claiming a version separately is three places for them to disagree,
-      # and disagreement is exactly what makes a release unit incomplete.
       version: 0.2.2
-
-      # The commit all three images were built from. Verified against each
-      # image's `org.opencontainers.image.revision` before a version is
-      # eligible, and the only place Git records where an artifact came from.
       sourceRevision: 5707f5e725eb2179a255428bc8c08e22d0845f50
-
       images:
-        runtime:
-          repository: ghcr.io/fieldstatenz/saas-fabric
-          digest: sha256:809876b52ed25985201784a76d3bfc4e1f4da4160bec3284ad40f71314da95e1
-          # Which files pin this image, declared here rather than known by
-          # Fabric. The platform repository owns its own layout: it can move
-          # these files without a Fabric release, and when it renders the
-          # overlays from this manifest instead, the list empties and Fabric
-          # writes one file with no change to Fabric.
-          #
-          # Fabric may write this manifest and exactly the paths it declares.
-          # Nothing else.
-          pinnedIn:
-            - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
-
-        controlPlane:
-          repository: ghcr.io/fieldstatenz/saas-fabric-control-plane
-          digest: sha256:155546874041e6896d6c4bddb2692335cfa3215aef85b6c40328118bea15f5b7
-          pinnedIn:
-            - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
-
         console:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
           digest: sha256:197131cf97814048fc048b849e8748cca00cd8f47d666641f5997a8ff20c7509
           pinnedIn:
-            - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
-
-    # An operator's "stay here until I say otherwise". Absent means automatic
-    # advancement may proceed when the policy is `automatic`; present means
-    # discovery keeps running and desired state does not move.
-    #
-    # It deliberately does not repeat the version -- `desired.version` already
-    # is the held version, so a break-glass edit that moves the version by hand
-    # leaves the hold correctly in force rather than pointing at a version
-    # nothing runs.
+          - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
+        controlPlane:
+          repository: ghcr.io/fieldstatenz/saas-fabric-control-plane
+          digest: sha256:155546874041e6896d6c4bddb2692335cfa3215aef85b6c40328118bea15f5b7
+          pinnedIn:
+          - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
+        runtime:
+          repository: ghcr.io/fieldstatenz/saas-fabric
+          digest: sha256:809876b52ed25985201784a76d3bfc4e1f4da4160bec3284ad40f71314da95e1
+          pinnedIn:
+          - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
     hold: null

@@ -71,8 +71,45 @@ rewrites it whole, so a hand edit survives as values but not as formatting.
 Editing it by hand is the break-glass path and is expected to keep working: it
 is how an environment is recovered when Fabric is the thing that is broken.
 
-`schemaVersion` says which shape the file is in, so a reader written against an
-older one refuses rather than half-understanding a field that has moved.
+The file's header says enough to orient somebody who opens it. **This is the
+contract**; the header deliberately does not try to become it.
+
+### The fields
+
+| | |
+|---|---|
+| `schemaVersion` | The shape of the document. A reader written against an older one refuses rather than half-understanding a field that has moved. |
+| `environment` | Which environment this describes, checked against the path it was read from. |
+| `managedRoots` | The only directories any `pinnedIn` may point into. See below. |
+| `channel` | The release stream newer versions are drawn from. `preview` admits SemVer prereleases, which no other environment may run. |
+| `update` | `automatic` — the newest eligible version is selected without asking. `manual` — an update is surfaced and an operator chooses it. `locked` — nothing moves without changing the constraint itself. |
+| `desired.version` | The version, **once**. Not repeated per image: three images claiming a version separately is three places for them to disagree, and disagreement is what makes a release unit incomplete rather than eligible. |
+| `desired.sourceRevision` | The commit every image was built from, verified against each image's `org.opencontainers.image.revision` before a version is eligible. The only place Git records where an artifact came from. |
+| `desired.images.<role>` | One image of the component: where it is published, the digest asked for, and where that pin is rendered. |
+| `hold` | Present while automatic advancement is paused. |
+
+### `hold` pauses advancement without changing policy
+
+A rollback under an `automatic` policy should not quietly demote the component
+to `manual` — the operator did not change what the environment should do in
+general, they said *stay here until I say otherwise*. So `update` keeps saying
+`automatic` and a `hold` appears beside it:
+
+```yaml
+update: automatic
+hold:
+  reason: rollback
+  since: 2026-09-01T09:00:00Z
+  note: preview.7 broke Secrets
+```
+
+Discovery keeps running and newer versions keep being reported as available;
+desired state does not move until an operator clears the hold. The effective
+state reads *Automatic — Paused*.
+
+**It carries no version.** `desired.version` already is the held version, so a
+break-glass edit that moves the version by hand leaves the hold correctly in
+force rather than pointing at something nothing runs.
 
 ### `pinnedIn` is why this repository keeps its own layout
 
@@ -117,9 +154,16 @@ That last one is deliberately enforced twice. This repository's CI proves the
 manifest is coherent at the commit it ran on; Fabric applies it again against
 whatever it actually read, which may be a state no CI has seen.
 
-A `managedRoot` must end in `/`, and may not be empty. The empty case is the
-one worth naming: every path starts with the empty string, so one blank entry
-would switch the whole guard off while still looking like a list of roots.
+A `managedRoot` must end in `/`, may not be empty, and must be inside the
+repository. Two of those are worth naming rather than merely enforcing:
+
+- **empty** — every path starts with the empty string, so one blank entry would
+  switch the whole guard off while still looking like a list of roots;
+- **absolute** — `/` ends in a slash and is not empty, so it passes both other
+  rules and would then admit every path on the machine. Fabric refuses an
+  absolute path outright, which is the defence that matters; this rejects it
+  too, because a contract permitting a root its only consumer will never accept
+  describes something that cannot work.
 
 `scripts/check.py` also holds the rest together: the rendered manifests must
 match the version and digests asked for, and a prerelease version must not
