@@ -71,6 +71,9 @@ rewrites it whole, so a hand edit survives as values but not as formatting.
 Editing it by hand is the break-glass path and is expected to keep working: it
 is how an environment is recovered when Fabric is the thing that is broken.
 
+`schemaVersion` says which shape the file is in, so a reader written against an
+older one refuses rather than half-understanding a field that has moved.
+
 ### `pinnedIn` is why this repository keeps its own layout
 
 Each image declares which files pin it:
@@ -90,10 +93,37 @@ When this repository eventually renders the overlays from this manifest rather
 than beside it, the list empties and Fabric writes one file, with no change to
 Fabric.
 
-`scripts/check.py` holds all of it together: every declared path must exist and
-must really pin that repository, the rendered manifests must match the version
-and digests asked for, and a prerelease version must not appear in any other
-environment.
+### `managedRoots` bounds what Fabric may touch at all
+
+`pinnedIn` is trusted — it is desired state in the repository Fabric writes to
+— and it is still worth bounding. A mistake in it would otherwise make Fabric a
+confused deputy, editing `.github/workflows/` or a README because a trusted
+document asked it to. `managedRoots` says which directories any `pinnedIn` may
+point into, independently of any individual path.
+
+Six rules apply to every declared path, and `scripts/check.py` and Fabric apply
+the same six:
+
+```text
+repository-relative, never absolute
+no traversal
+under a managedRoot
+a .yaml or .yml manifest
+exists
+and actually pins the image that declared it
+```
+
+That last one is deliberately enforced twice. This repository's CI proves the
+manifest is coherent at the commit it ran on; Fabric applies it again against
+whatever it actually read, which may be a state no CI has seen.
+
+A `managedRoot` must end in `/`, and may not be empty. The empty case is the
+one worth naming: every path starts with the empty string, so one blank entry
+would switch the whole guard off while still looking like a list of roots.
+
+`scripts/check.py` also holds the rest together: the rendered manifests must
+match the version and digests asked for, and a prerelease version must not
+appear in any other environment.
 
 It is not configuration. `config/` says what an environment *is*; this says what
 it is asked to run, which is why it sits beside that rather than inside it — the

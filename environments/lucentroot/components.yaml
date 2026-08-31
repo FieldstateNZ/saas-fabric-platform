@@ -11,7 +11,24 @@
 # expected to keep working: it is how an environment is recovered when Fabric
 # itself is the thing that is broken.
 ---
+# The shape of this file. Fabric refuses a version it was not written against
+# rather than guessing at a field that has moved.
+schemaVersion: 1
+
 environment: lucentroot
+
+# The only directories any `pinnedIn` below may point into.
+#
+# This repository owns the translation from a component version to the files
+# that carry it, and `pinnedIn` is how it says so -- but a mistake there would
+# otherwise make Fabric a confused deputy, editing `.github/workflows/` or a
+# README because a trusted file asked it to. The roots bound the *class* of
+# file Fabric will mutate, independently of any individual path.
+#
+# `applications/` and nothing else: overlays live inside it, and a root nothing
+# is in would be a rule that never fires.
+managedRoots:
+  - applications/
 
 components:
   # SaaS Fabric is one component that publishes three images. They are built

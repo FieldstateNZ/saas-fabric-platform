@@ -37,6 +37,11 @@ import yaml
 
 ENVIRONMENTS = ("lucentroot", "production")
 
+# The `components.yaml` shape this checker understands. Bumped together with
+# the readers, so a manifest that has moved on fails loudly here rather than
+# being half-understood.
+COMPONENTS_SCHEMA_VERSION = 1
+
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
 #
@@ -1539,7 +1544,26 @@ def check_components_match_what_deploys(root: Path, render: Path, problems: list
         if not documents:
             continue
 
-        for component, spec in (documents[0].get("components") or {}).items():
+        declared = documents[0]
+        if declared.get("schemaVersion") != COMPONENTS_SCHEMA_VERSION:
+            fail(problems, f"{manifest.relative_to(root)}: schemaVersion is not {COMPONENTS_SCHEMA_VERSION}")
+            continue
+
+        roots = declared.get("managedRoots") or []
+        if not roots:
+            fail(problems, f"{manifest.relative_to(root)}: declares no managedRoots")
+            continue
+
+        # A root must be a real directory prefix ending in `/`. Empty is the
+        # hole worth naming: `"".startswith("")` is true of every path, so one
+        # blank entry would turn the whole guard off while still looking like a
+        # list of roots. The trailing slash is what stops `applications` also
+        # admitting `applications-something/`.
+        if any(not str(managed).strip() or not str(managed).endswith("/") for managed in roots):
+            fail(problems, f"{manifest.relative_to(root)}: a managedRoot is empty or does not end in '/'")
+            continue
+
+        for component, spec in (declared.get("components") or {}).items():
             desired = spec.get("desired") or {}
             version = str(desired.get("version", ""))
             images = desired.get("images") or {}
@@ -1555,25 +1579,49 @@ def check_components_match_what_deploys(root: Path, render: Path, problems: list
                     fail(problems, f"{manifest.relative_to(root)}: {component}/{role} names no repository or digest")
                     continue
                 pinned[repository] = digest
-                _check_pinned_in(root, manifest, component, role, image, problems)
+                _check_pinned_in(root, manifest, component, role, image, roots, problems)
 
             _check_rendered_images(root, render, manifest, environment, version, pinned, problems)
 
 
 def _check_pinned_in(root: Path, manifest: Path, component: str, role: str, image: dict,
-                     problems: list[str]) -> None:
-    """Every declared file must exist and must really pin that repository."""
+                     roots: list[str], problems: list[str]) -> None:
+    """Every declared file must be one Fabric is allowed to write, and must really pin that image.
+
+    Six rules, and they are the same six Fabric applies before it writes. Not
+    because this file is untrusted -- it is desired state in the repository
+    Fabric is writing to -- but because a mistake in it would otherwise make
+    Fabric a confused deputy, editing a workflow file or a README on the
+    strength of a trusted document asking it to.
+
+    The last rule is the one worth having in both places. This proves the
+    repository is coherent at the commit CI ran on; Fabric applies it again
+    against whatever it actually read, which may be a state no CI has seen.
+    """
     repository = image["repository"]
     declared = image.get("pinnedIn") or []
+    named = f"{manifest.relative_to(root)}: {component}/{role}"
 
     if not declared:
-        fail(problems, f"{manifest.relative_to(root)}: {component}/{role} declares no pinnedIn")
+        fail(problems, f"{named} declares no pinnedIn")
         return
 
     for relative in declared:
+        if relative.startswith("/") or ".." in Path(relative).parts:
+            fail(problems, f"{named} pinnedIn names {relative}, which is not a plain repository-relative path")
+            continue
+
+        if not any(relative.startswith(managed) for managed in roots):
+            fail(problems, f"{named} pinnedIn names {relative}, which is under no managedRoot")
+            continue
+
+        if Path(relative).suffix not in (".yaml", ".yml"):
+            fail(problems, f"{named} pinnedIn names {relative}, which is not a manifest")
+            continue
+
         path = root / relative
         if not path.is_file():
-            fail(problems, f"{manifest.relative_to(root)}: {component}/{role} pinnedIn names {relative}, which does not exist")
+            fail(problems, f"{named} pinnedIn names {relative}, which does not exist")
             continue
 
         entries = [
