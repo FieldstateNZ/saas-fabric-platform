@@ -9,6 +9,7 @@ environments/
 ├── lucentroot/
 │   ├── kustomization.yaml           which applications this environment runs
 │   ├── bootstrap/                   kubectl apply -k environments/lucentroot/bootstrap
+│   ├── promotions/                  what it runs of a component, and where that came from
 │   └── config/
 │       ├── platform.yaml            the environment contract
 │       └── <application>.yaml       Helm values overrides, only where they differ
@@ -56,6 +57,24 @@ It appears in exactly two files per environment:
 | Production | `production`, a branch only ever fast-forwarded to a release tag |
 
 See [docs/releases.md](../docs/releases.md).
+
+## What an environment currently runs
+
+`promotions/<component>.yaml` records the version, source commit and image
+digests an environment is on. Edit it in the same commit as the overlay pins it
+describes — `scripts/check.py` fails if they ever disagree with each other or
+with what renders, so the two cannot drift apart quietly.
+
+That is the whole reason it exists. The overlays are what deploys, but they
+cannot say which *source commit* an image came from; a digest can be traced to
+one through the registry, and not by anyone reading Git.
+
+It is not configuration. `config/` says what an environment *is*; this says
+what it is currently running, which is why it sits beside that rather than
+inside it — the same distinction the Git ref makes above.
+
+Only LucentRoot has one today, because it is the only environment that follows
+component versions closely enough for the provenance to be worth recording.
 
 ## Per-application overrides
 

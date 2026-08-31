@@ -1,0 +1,21 @@
+# What LucentRoot runs of the saas-fabric component, and where it came from.
+#
+# The overlays under applications/ are what actually deploys. This records the
+# provenance -- which is the one thing they cannot, because a digest can be
+# traced to a source commit through the registry but not by anyone reading Git.
+#
+# Maintained by hand, alongside the pins, in the same commit. scripts/check.py
+# fails if this and the rendered manifests ever disagree, so the two cannot
+# drift apart quietly.
+component: saas-fabric
+version: 0.2.2
+source:
+  repository: https://github.com/FieldstateNZ/saas-fabric
+  sha: 5707f5e725eb2179a255428bc8c08e22d0845f50
+images:
+  - name: ghcr.io/fieldstatenz/saas-fabric
+    digest: sha256:809876b52ed25985201784a76d3bfc4e1f4da4160bec3284ad40f71314da95e1
+  - name: ghcr.io/fieldstatenz/saas-fabric-control-plane
+    digest: sha256:155546874041e6896d6c4bddb2692335cfa3215aef85b6c40328118bea15f5b7
+  - name: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
+    digest: sha256:197131cf97814048fc048b849e8748cca00cd8f47d666641f5997a8ff20c7509

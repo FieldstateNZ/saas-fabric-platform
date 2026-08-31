@@ -1470,6 +1470,120 @@ def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) 
                             )
 
 
+def _image_reference(reference: str) -> tuple[str, str, str]:
+    """Split `repository[:tag][@digest]` into its three parts.
+
+    Kustomize emits all three when an `images:` entry carries both a `newTag`
+    and a `digest`, which is the shape a promoted pin has.
+    """
+    name, _, digest = reference.partition("@")
+    head, separator, tail = name.rpartition(":")
+    # No colon, or a colon that belongs to a registry port rather than a tag.
+    if not separator or "/" in tail:
+        return name, "", digest
+    return head, tail, digest
+
+
+def _deployed_images(document, found: list[str]) -> None:
+    """Every `image:` string anywhere in a rendered document.
+
+    Recursive rather than reaching into `spec.template.spec.containers`,
+    because an image reference also appears in init containers, in sidecars an
+    upstream chart injects, and in custom resources whose shape this repository
+    does not model. The callers filter by repository, so a key called `image`
+    that is not one cannot produce a false positive.
+    """
+    if isinstance(document, dict):
+        for key, value in document.items():
+            if key == "image" and isinstance(value, str):
+                found.append(value)
+            else:
+                _deployed_images(value, found)
+    elif isinstance(document, list):
+        for entry in document:
+            _deployed_images(entry, found)
+
+
+def check_promotions_match_what_deploys(root: Path, render: Path, problems: list[str]) -> None:
+    """A promotion record and the manifests it drove cannot drift apart.
+
+    `environments/<environment>/promotions/<component>.yaml` says what an
+    environment runs of a component and where it came from, and is edited in
+    the same commit as the overlay pins it describes. Nothing stops a later
+    edit from moving one and not the other, and the result would be a file that
+    answers "what is LucentRoot running" with something that has not been true
+    for weeks.
+
+    So the record is checked against **rendered output** rather than against
+    the overlays it was written from. That is the artifact Argo CD applies, and
+    it is the only thing that settles the question.
+
+    The second half is the one that matters more. A preview is an integration
+    artifact and no cloud environment may run one, so a version carrying a
+    SemVer prerelease part must not appear anywhere but the environment whose
+    record names it. Without this, promoting a preview into production is a
+    one-line edit that renders, validates, and deploys.
+    """
+    for environment in ENVIRONMENTS:
+        for record in sorted((root / "environments" / environment / "promotions").glob("*.yaml")):
+            documents = load_all(record, problems)
+            if not documents:
+                continue
+            document = documents[0]
+            version = str(document.get("version", ""))
+            pinned = {
+                entry["name"]: entry["digest"]
+                for entry in document.get("images") or []
+                if isinstance(entry, dict) and "name" in entry and "digest" in entry
+            }
+            if not version or not pinned:
+                fail(problems, f"{record.relative_to(root)}: names no version or no images")
+                continue
+
+            seen: set[str] = set()
+            for other in ENVIRONMENTS:
+                for path in sorted((render / other).rglob("*.yaml")):
+                    references: list[str] = []
+                    for rendered in load_all(path, problems):
+                        _deployed_images(rendered, references)
+
+                    for reference in references:
+                        repository, tag, digest = _image_reference(reference)
+                        if repository not in pinned:
+                            continue
+
+                        if other != environment:
+                            # Another environment may legitimately run a
+                            # different version of the same component -- but
+                            # never a prerelease of it.
+                            if "-" in tag:
+                                fail(
+                                    problems,
+                                    f"{other}/{path.name}: {repository} is pinned to"
+                                    f" '{tag}', a preview. Only {environment} runs"
+                                    " previews; see docs/releases.md",
+                                )
+                            continue
+
+                        seen.add(repository)
+                        want = f"{repository}:{version}@{pinned[repository]}"
+                        if reference != want:
+                            fail(
+                                problems,
+                                f"{environment}/{path.name}: {repository} deploys"
+                                f" '{reference}', and {record.relative_to(root)} records"
+                                f" '{want}'",
+                            )
+
+            for missing in sorted(set(pinned) - seen):
+                fail(
+                    problems,
+                    f"{record.relative_to(root)}: records {missing}, which nothing"
+                    f" in {environment} deploys",
+                )
+
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -1501,6 +1615,7 @@ def main() -> int:
     check_service_capabilities(root, problems)
     check_control_plane_surfaces(root, render, problems)
     check_operator_only_services(root, render, problems)
+    check_promotions_match_what_deploys(root, render, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")

@@ -6,8 +6,9 @@
 | Upstream project | https://github.com/FieldstateNZ/saas-fabric |
 | Helm chart source | none — platform-owned manifests |
 | Chart version (pinned) | n/a |
-| Container image | `ghcr.io/fieldstatenz/saas-fabric-control-plane:0.1.0` |
-| | `ghcr.io/fieldstatenz/saas-fabric-control-plane-ui:0.1.0` |
+| Container image | `ghcr.io/fieldstatenz/saas-fabric-control-plane` |
+| | `ghcr.io/fieldstatenz/saas-fabric-control-plane-ui` |
+| | versions and digests in [the promotion record](../../../environments/lucentroot/promotions/saas-fabric.yaml) |
 | Licence | Fieldstate |
 | Namespace | `operator-system` |
 | Grouping | `core` — a deployment tier, not a classification |
