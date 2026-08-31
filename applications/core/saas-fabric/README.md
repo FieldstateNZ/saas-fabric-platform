@@ -6,7 +6,7 @@
 | Upstream project | https://github.com/FieldstateNZ (application repository) |
 | Helm chart source | none — platform-owned manifests |
 | Chart version (pinned) | n/a |
-| Container image | `ghcr.io/fieldstatenz/saas-fabric:0.1.0` |
+| Container image | `ghcr.io/fieldstatenz/saas-fabric` — version and digest in [LucentRoot's components](../../../environments/lucentroot/components.yaml) |
 | Licence | Fieldstate |
 | Namespace | `platform-system` |
 | Grouping | `core` — a deployment tier, not a classification |
@@ -26,8 +26,9 @@ This directory contains no application source code and never will.
 
 ## Current state: scaled to zero
 
-`ghcr.io/fieldstatenz/saas-fabric:0.1.0` is published and the overlays pin it,
-but the Deployment stays at `replicas: 0`.
+The image is published and the overlays pin it — by version *and* digest, so
+the artifact cannot move under the pin — but the Deployment stays at
+`replicas: 0`.
 
 The reason is no longer a missing image. The runtime plane reads its tenants,
 data sources and catalogue from files, and **none of them exists on any

@@ -1,0 +1,46 @@
+# What LucentRoot is asked to run.
+#
+# Machine-managed by SaaS Fabric Platform Management. Everything below this
+# header is written by Fabric in a deterministic layout, so a hand edit
+# survives as values and not as formatting. Editing it by hand is the
+# break-glass path and is expected to keep working.
+#
+# Desired state only. What versions are *available* is discovered from
+# registries and what is *running* comes from the cluster; neither is recorded
+# here.
+#
+#   channel:      the release stream newer versions are drawn from
+#   update:       automatic | manual | locked
+#   hold:         pauses automatic advancement without changing policy
+#   pinnedIn:     platform-owned locations where each image digest is rendered
+#
+# See environments/README.md for the complete contract.
+---
+schemaVersion: 1
+environment: lucentroot
+managedRoots:
+- applications/
+components:
+  saas-fabric:
+    channel: preview
+    update: manual
+    desired:
+      version: 0.2.2
+      sourceRevision: 5707f5e725eb2179a255428bc8c08e22d0845f50
+      images:
+        console:
+          repository: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
+          digest: sha256:197131cf97814048fc048b849e8748cca00cd8f47d666641f5997a8ff20c7509
+          pinnedIn:
+          - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
+        controlPlane:
+          repository: ghcr.io/fieldstatenz/saas-fabric-control-plane
+          digest: sha256:155546874041e6896d6c4bddb2692335cfa3215aef85b6c40328118bea15f5b7
+          pinnedIn:
+          - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
+        runtime:
+          repository: ghcr.io/fieldstatenz/saas-fabric
+          digest: sha256:809876b52ed25985201784a76d3bfc4e1f4da4160bec3284ad40f71314da95e1
+          pinnedIn:
+          - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
+    hold: null

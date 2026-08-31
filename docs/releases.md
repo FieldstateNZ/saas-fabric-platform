@@ -7,6 +7,9 @@ There are two versions in this system and they must not be confused.
 | **Application version** | one deployed component | `targetRevision` in an `application.yaml`, e.g. Keycloak chart `7.3.0` |
 | **Platform version** | the entire platform definition, as a composition | a Git tag on this repository, e.g. `v0.3.0` |
 
+A third file records *where* a component version came from — see
+[what an environment currently runs](../environments/README.md#what-an-environment-currently-runs).
+
 A platform release says *these versions of these components, configured this
 way, worked together*. That is the thing production runs.
 
@@ -16,6 +19,13 @@ way, worked together*. That is the thing production runs.
 |---|---|---|
 | LucentRoot | `refs/heads/main` | a pull request merges |
 | Production | `refs/heads/production` | that branch is fast-forwarded to a release tag's commit |
+
+LucentRoot is the environment that may run a **preview** of a component — an
+integration candidate rather than a release, such as
+`saas-fabric 0.3.0-preview.42`. No other environment may:
+`scripts/check.py` fails if a version carrying a SemVer prerelease part appears
+anywhere else, so promoting one to production is not a one-line edit that
+renders, validates and deploys.
 
 Production follows a branch, but that branch is not a development stream. It
 only ever moves to a commit that carries a release tag, so what production runs
@@ -112,8 +122,15 @@ kubectl -n argocd get applications
 Every Application `Synced` and `Healthy`, on the commit being released. An
 application that has been Degraded and self-healed repeatedly is not validated.
 
-Note that `saas-fabric` reports Healthy with zero replicas until an image is
-published. That is reconciliation working, not the application running.
+Note that `saas-fabric` reports Healthy with zero replicas. That is
+reconciliation working, not the application running — see
+[the application's README](../applications/core/saas-fabric/README.md).
+
+Check what LucentRoot actually has of SaaS Fabric, and where it came from:
+
+```bash
+cat environments/lucentroot/components.yaml
+```
 
 ### 2. Tag the commit
 

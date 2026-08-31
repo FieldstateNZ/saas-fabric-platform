@@ -37,6 +37,11 @@ import yaml
 
 ENVIRONMENTS = ("lucentroot", "production")
 
+# The `components.yaml` shape this checker understands. Bumped together with
+# the readers, so a manifest that has moved on fails loudly here rather than
+# being half-understood.
+COMPONENTS_SCHEMA_VERSION = 1
+
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
 #
@@ -1470,6 +1475,210 @@ def check_control_plane_surfaces(root: Path, render: Path, problems: list[str]) 
                             )
 
 
+def _image_reference(reference: str) -> tuple[str, str, str]:
+    """Split `repository[:tag][@digest]` into its three parts.
+
+    Kustomize emits all three when an `images:` entry carries both a `newTag`
+    and a `digest`, which is the shape a promoted pin has.
+    """
+    name, _, digest = reference.partition("@")
+    head, separator, tail = name.rpartition(":")
+    # No colon, or a colon that belongs to a registry port rather than a tag.
+    if not separator or "/" in tail:
+        return name, "", digest
+    return head, tail, digest
+
+
+def _deployed_images(document, found: list[str]) -> None:
+    """Every `image:` string anywhere in a rendered document.
+
+    Recursive rather than reaching into `spec.template.spec.containers`,
+    because an image reference also appears in init containers, in sidecars an
+    upstream chart injects, and in custom resources whose shape this repository
+    does not model. The callers filter by repository, so a key called `image`
+    that is not one cannot produce a false positive.
+    """
+    if isinstance(document, dict):
+        for key, value in document.items():
+            if key == "image" and isinstance(value, str):
+                found.append(value)
+            else:
+                _deployed_images(value, found)
+    elif isinstance(document, list):
+        for entry in document:
+            _deployed_images(entry, found)
+
+
+def check_components_match_what_deploys(root: Path, render: Path, problems: list[str]) -> None:
+    """`components.yaml` is the desired state, and the manifests must agree with it.
+
+    `environments/<environment>/components.yaml` says what an environment is
+    asked to run of a component, where it came from, and which files pin each
+    image. SaaS Fabric's Platform Management writes it, and writes the files it
+    declares -- so three things have to hold, and nothing else stops any of
+    them going wrong quietly.
+
+    **`pinnedIn` has to be true.** It is the only reason Fabric knows which
+    files to write, and this repository owns its own layout: moving an overlay
+    without updating the manifest would leave Fabric writing to a path that no
+    longer pins anything, or refusing a promotion outright. So every declared
+    path must exist and must actually carry an `images:` entry for that
+    repository.
+
+    **The rendered manifests have to match.** Checked against rendered output
+    rather than against the overlays the manifest describes, because that is
+    the artifact Argo CD applies and it is the only thing that settles the
+    question.
+
+    **A preview must not escape.** A version carrying a SemVer prerelease part
+    may appear only in the environment whose manifest declares it. Without
+    this, promoting a preview into production is a one-line edit that renders,
+    validates and deploys.
+    """
+    for environment in ENVIRONMENTS:
+        manifest = root / "environments" / environment / "components.yaml"
+        if not manifest.is_file():
+            continue
+
+        documents = load_all(manifest, problems)
+        if not documents:
+            continue
+
+        declared = documents[0]
+        if declared.get("schemaVersion") != COMPONENTS_SCHEMA_VERSION:
+            fail(problems, f"{manifest.relative_to(root)}: schemaVersion is not {COMPONENTS_SCHEMA_VERSION}")
+            continue
+
+        roots = declared.get("managedRoots") or []
+        if not roots:
+            fail(problems, f"{manifest.relative_to(root)}: declares no managedRoots")
+            continue
+
+        # A root must be a real directory prefix ending in `/`. Empty is the
+        # hole worth naming: `"".startswith("")` is true of every path, so one
+        # blank entry would turn the whole guard off while still looking like a
+        # list of roots. The trailing slash is what stops `applications` also
+        # admitting `applications-something/`.
+        if any(not str(managed).strip() or not str(managed).endswith("/") for managed in roots):
+            fail(problems, f"{manifest.relative_to(root)}: a managedRoot is empty or does not end in '/'")
+            continue
+
+        # And it must be inside the repository. `/` ends in a slash and is not
+        # empty, so it passes the rule above and would then admit every path on
+        # the machine. Fabric refuses an absolute path outright, which is the
+        # defence that matters -- but a contract that permits a root its only
+        # consumer will never accept is a contract describing something that
+        # cannot work.
+        if any(str(managed).startswith(("/", "\\")) or ".." in Path(str(managed)).parts for managed in roots):
+            fail(problems, f"{manifest.relative_to(root)}: a managedRoot is not inside the repository")
+            continue
+
+        for component, spec in (declared.get("components") or {}).items():
+            desired = spec.get("desired") or {}
+            version = str(desired.get("version", ""))
+            images = desired.get("images") or {}
+
+            if not version or not images:
+                fail(problems, f"{manifest.relative_to(root)}: {component} declares no version or no images")
+                continue
+
+            pinned = {}
+            for role, image in images.items():
+                repository, digest = image.get("repository"), image.get("digest")
+                if not repository or not digest:
+                    fail(problems, f"{manifest.relative_to(root)}: {component}/{role} names no repository or digest")
+                    continue
+                pinned[repository] = digest
+                _check_pinned_in(root, manifest, component, role, image, roots, problems)
+
+            _check_rendered_images(root, render, manifest, environment, version, pinned, problems)
+
+
+def _check_pinned_in(root: Path, manifest: Path, component: str, role: str, image: dict,
+                     roots: list[str], problems: list[str]) -> None:
+    """Every declared file must be one Fabric is allowed to write, and must really pin that image.
+
+    Six rules, and they are the same six Fabric applies before it writes. Not
+    because this file is untrusted -- it is desired state in the repository
+    Fabric is writing to -- but because a mistake in it would otherwise make
+    Fabric a confused deputy, editing a workflow file or a README on the
+    strength of a trusted document asking it to.
+
+    The last rule is the one worth having in both places. This proves the
+    repository is coherent at the commit CI ran on; Fabric applies it again
+    against whatever it actually read, which may be a state no CI has seen.
+    """
+    repository = image["repository"]
+    declared = image.get("pinnedIn") or []
+    named = f"{manifest.relative_to(root)}: {component}/{role}"
+
+    if not declared:
+        fail(problems, f"{named} declares no pinnedIn")
+        return
+
+    for relative in declared:
+        if relative.startswith("/") or ".." in Path(relative).parts:
+            fail(problems, f"{named} pinnedIn names {relative}, which is not a plain repository-relative path")
+            continue
+
+        if not any(relative.startswith(managed) for managed in roots):
+            fail(problems, f"{named} pinnedIn names {relative}, which is under no managedRoot")
+            continue
+
+        if Path(relative).suffix not in (".yaml", ".yml"):
+            fail(problems, f"{named} pinnedIn names {relative}, which is not a manifest")
+            continue
+
+        path = root / relative
+        if not path.is_file():
+            fail(problems, f"{named} pinnedIn names {relative}, which does not exist")
+            continue
+
+        entries = [
+            entry
+            for document in load_all(path, problems)
+            for entry in (document.get("images") or [])
+            if isinstance(entry, dict)
+        ]
+        if not any(entry.get("name") == repository for entry in entries):
+            fail(problems, f"{relative}: does not pin {repository}, which {manifest.relative_to(root)} says it does")
+
+
+def _check_rendered_images(root: Path, render: Path, manifest: Path, environment: str, version: str,
+                           pinned: dict, problems: list[str]) -> None:
+    """What renders must be exactly what the manifest asks for, and only here."""
+    seen: set[str] = set()
+
+    for other in ENVIRONMENTS:
+        for path in sorted((render / other).rglob("*.yaml")):
+            references: list[str] = []
+            for rendered in load_all(path, problems):
+                _deployed_images(rendered, references)
+
+            for reference in references:
+                repository, tag, digest = _image_reference(reference)
+                if repository not in pinned:
+                    continue
+
+                if other != environment:
+                    # Another environment may run a different version of the
+                    # same component -- but never a prerelease of it.
+                    if "-" in tag:
+                        fail(problems, f"{other}/{path.name}: {repository} is pinned to '{tag}', a preview."
+                                       f" Only {environment} runs previews; see docs/releases.md")
+                    continue
+
+                seen.add(repository)
+                want = f"{repository}:{version}@{pinned[repository]}"
+                if reference != want:
+                    fail(problems, f"{environment}/{path.name}: {repository} deploys '{reference}',"
+                                   f" and {manifest.relative_to(root)} asks for '{want}'")
+
+    for missing in sorted(set(pinned) - seen):
+        fail(problems, f"{manifest.relative_to(root)}: asks for {missing}, which nothing in {environment} deploys")
+
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -1501,6 +1710,7 @@ def main() -> int:
     check_service_capabilities(root, problems)
     check_control_plane_surfaces(root, render, problems)
     check_operator_only_services(root, render, problems)
+    check_components_match_what_deploys(root, render, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")

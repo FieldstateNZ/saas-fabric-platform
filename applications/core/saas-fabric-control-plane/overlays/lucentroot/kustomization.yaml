@@ -8,8 +8,10 @@ resources:
 images:
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane
     newTag: 0.2.2
+    digest: sha256:155546874041e6896d6c4bddb2692335cfa3215aef85b6c40328118bea15f5b7
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
     newTag: 0.2.2
+    digest: sha256:197131cf97814048fc048b849e8748cca00cd8f47d666641f5997a8ff20c7509
 
 # The environment's identity provider, its own addresses, and where an
 # operator's browser reaches this control plane. No GitHub App identifiers:
