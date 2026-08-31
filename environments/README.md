@@ -9,7 +9,7 @@ environments/
 ├── lucentroot/
 │   ├── kustomization.yaml           which applications this environment runs
 │   ├── bootstrap/                   kubectl apply -k environments/lucentroot/bootstrap
-│   ├── promotions/                  what it runs of a component, and where that came from
+│   ├── components.yaml              what it is asked to run, and the policy that moves it
 │   └── config/
 │       ├── platform.yaml            the environment contract
 │       └── <application>.yaml       Helm values overrides, only where they differ
@@ -60,21 +60,47 @@ See [docs/releases.md](../docs/releases.md).
 
 ## What an environment currently runs
 
-`promotions/<component>.yaml` records the version, source commit and image
-digests an environment is on. Edit it in the same commit as the overlay pins it
-describes — `scripts/check.py` fails if they ever disagree with each other or
-with what renders, so the two cannot drift apart quietly.
+`components.yaml` is what an environment is **asked** to run: the version of
+each component, the commit its images were built from, their immutable digests,
+the update policy, and any hold. It is desired state, and only desired state —
+what versions are *available* is discovered from registries and what is
+*running* comes from the cluster, so neither is written here.
 
-That is the whole reason it exists. The overlays are what deploys, but they
-cannot say which *source commit* an image came from; a digest can be traced to
-one through the registry, and not by anyone reading Git.
+It is **machine-managed**. SaaS Fabric's Platform Management writes it and
+rewrites it whole, so a hand edit survives as values but not as formatting.
+Editing it by hand is the break-glass path and is expected to keep working: it
+is how an environment is recovered when Fabric is the thing that is broken.
 
-It is not configuration. `config/` says what an environment *is*; this says
-what it is currently running, which is why it sits beside that rather than
-inside it — the same distinction the Git ref makes above.
+### `pinnedIn` is why this repository keeps its own layout
 
-Only LucentRoot has one today, because it is the only environment that follows
-component versions closely enough for the provenance to be worth recording.
+Each image declares which files pin it:
+
+```yaml
+runtime:
+  repository: ghcr.io/fieldstatenz/saas-fabric
+  digest: sha256:...
+  pinnedIn:
+    - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
+```
+
+Fabric may write this manifest and exactly the paths it declares, and nothing
+else. That is what keeps the platform's directory layout *here* rather than
+compiled into a Fabric release — these files can move without waiting for one.
+When this repository eventually renders the overlays from this manifest rather
+than beside it, the list empties and Fabric writes one file, with no change to
+Fabric.
+
+`scripts/check.py` holds all of it together: every declared path must exist and
+must really pin that repository, the rendered manifests must match the version
+and digests asked for, and a prerelease version must not appear in any other
+environment.
+
+It is not configuration. `config/` says what an environment *is*; this says what
+it is asked to run, which is why it sits beside that rather than inside it — the
+same distinction the Git ref makes above.
+
+Only LucentRoot has one today, because it is the only environment whose
+component versions move often enough to be worth managing rather than reviewing.
 
 ## Per-application overrides
 

@@ -6,7 +6,7 @@
 | Upstream project | https://github.com/FieldstateNZ (application repository) |
 | Helm chart source | none — platform-owned manifests |
 | Chart version (pinned) | n/a |
-| Container image | `ghcr.io/fieldstatenz/saas-fabric` — version and digest in [the promotion record](../../../environments/lucentroot/promotions/saas-fabric.yaml) |
+| Container image | `ghcr.io/fieldstatenz/saas-fabric` — version and digest in [LucentRoot's components](../../../environments/lucentroot/components.yaml) |
 | Licence | Fieldstate |
 | Namespace | `platform-system` |
 | Grouping | `core` — a deployment tier, not a classification |

@@ -129,7 +129,7 @@ reconciliation working, not the application running — see
 Check what LucentRoot actually has of SaaS Fabric, and where it came from:
 
 ```bash
-cat environments/lucentroot/promotions/saas-fabric.yaml
+cat environments/lucentroot/components.yaml
 ```
 
 ### 2. Tag the commit

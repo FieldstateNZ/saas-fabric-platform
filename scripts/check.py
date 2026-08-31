@@ -1504,83 +1504,120 @@ def _deployed_images(document, found: list[str]) -> None:
             _deployed_images(entry, found)
 
 
-def check_promotions_match_what_deploys(root: Path, render: Path, problems: list[str]) -> None:
-    """A promotion record and the manifests it drove cannot drift apart.
+def check_components_match_what_deploys(root: Path, render: Path, problems: list[str]) -> None:
+    """`components.yaml` is the desired state, and the manifests must agree with it.
 
-    `environments/<environment>/promotions/<component>.yaml` says what an
-    environment runs of a component and where it came from, and is edited in
-    the same commit as the overlay pins it describes. Nothing stops a later
-    edit from moving one and not the other, and the result would be a file that
-    answers "what is LucentRoot running" with something that has not been true
-    for weeks.
+    `environments/<environment>/components.yaml` says what an environment is
+    asked to run of a component, where it came from, and which files pin each
+    image. SaaS Fabric's Platform Management writes it, and writes the files it
+    declares -- so three things have to hold, and nothing else stops any of
+    them going wrong quietly.
 
-    So the record is checked against **rendered output** rather than against
-    the overlays it was written from. That is the artifact Argo CD applies, and
-    it is the only thing that settles the question.
+    **`pinnedIn` has to be true.** It is the only reason Fabric knows which
+    files to write, and this repository owns its own layout: moving an overlay
+    without updating the manifest would leave Fabric writing to a path that no
+    longer pins anything, or refusing a promotion outright. So every declared
+    path must exist and must actually carry an `images:` entry for that
+    repository.
 
-    The second half is the one that matters more. A preview is an integration
-    artifact and no cloud environment may run one, so a version carrying a
-    SemVer prerelease part must not appear anywhere but the environment whose
-    record names it. Without this, promoting a preview into production is a
-    one-line edit that renders, validates, and deploys.
+    **The rendered manifests have to match.** Checked against rendered output
+    rather than against the overlays the manifest describes, because that is
+    the artifact Argo CD applies and it is the only thing that settles the
+    question.
+
+    **A preview must not escape.** A version carrying a SemVer prerelease part
+    may appear only in the environment whose manifest declares it. Without
+    this, promoting a preview into production is a one-line edit that renders,
+    validates and deploys.
     """
     for environment in ENVIRONMENTS:
-        for record in sorted((root / "environments" / environment / "promotions").glob("*.yaml")):
-            documents = load_all(record, problems)
-            if not documents:
+        manifest = root / "environments" / environment / "components.yaml"
+        if not manifest.is_file():
+            continue
+
+        documents = load_all(manifest, problems)
+        if not documents:
+            continue
+
+        for component, spec in (documents[0].get("components") or {}).items():
+            desired = spec.get("desired") or {}
+            version = str(desired.get("version", ""))
+            images = desired.get("images") or {}
+
+            if not version or not images:
+                fail(problems, f"{manifest.relative_to(root)}: {component} declares no version or no images")
                 continue
-            document = documents[0]
-            version = str(document.get("version", ""))
-            pinned = {
-                entry["name"]: entry["digest"]
-                for entry in document.get("images") or []
-                if isinstance(entry, dict) and "name" in entry and "digest" in entry
-            }
-            if not version or not pinned:
-                fail(problems, f"{record.relative_to(root)}: names no version or no images")
-                continue
 
-            seen: set[str] = set()
-            for other in ENVIRONMENTS:
-                for path in sorted((render / other).rglob("*.yaml")):
-                    references: list[str] = []
-                    for rendered in load_all(path, problems):
-                        _deployed_images(rendered, references)
+            pinned = {}
+            for role, image in images.items():
+                repository, digest = image.get("repository"), image.get("digest")
+                if not repository or not digest:
+                    fail(problems, f"{manifest.relative_to(root)}: {component}/{role} names no repository or digest")
+                    continue
+                pinned[repository] = digest
+                _check_pinned_in(root, manifest, component, role, image, problems)
 
-                    for reference in references:
-                        repository, tag, digest = _image_reference(reference)
-                        if repository not in pinned:
-                            continue
+            _check_rendered_images(root, render, manifest, environment, version, pinned, problems)
 
-                        if other != environment:
-                            # Another environment may legitimately run a
-                            # different version of the same component -- but
-                            # never a prerelease of it.
-                            if "-" in tag:
-                                fail(
-                                    problems,
-                                    f"{other}/{path.name}: {repository} is pinned to"
-                                    f" '{tag}', a preview. Only {environment} runs"
-                                    " previews; see docs/releases.md",
-                                )
-                            continue
 
-                        seen.add(repository)
-                        want = f"{repository}:{version}@{pinned[repository]}"
-                        if reference != want:
-                            fail(
-                                problems,
-                                f"{environment}/{path.name}: {repository} deploys"
-                                f" '{reference}', and {record.relative_to(root)} records"
-                                f" '{want}'",
-                            )
+def _check_pinned_in(root: Path, manifest: Path, component: str, role: str, image: dict,
+                     problems: list[str]) -> None:
+    """Every declared file must exist and must really pin that repository."""
+    repository = image["repository"]
+    declared = image.get("pinnedIn") or []
 
-            for missing in sorted(set(pinned) - seen):
-                fail(
-                    problems,
-                    f"{record.relative_to(root)}: records {missing}, which nothing"
-                    f" in {environment} deploys",
-                )
+    if not declared:
+        fail(problems, f"{manifest.relative_to(root)}: {component}/{role} declares no pinnedIn")
+        return
+
+    for relative in declared:
+        path = root / relative
+        if not path.is_file():
+            fail(problems, f"{manifest.relative_to(root)}: {component}/{role} pinnedIn names {relative}, which does not exist")
+            continue
+
+        entries = [
+            entry
+            for document in load_all(path, problems)
+            for entry in (document.get("images") or [])
+            if isinstance(entry, dict)
+        ]
+        if not any(entry.get("name") == repository for entry in entries):
+            fail(problems, f"{relative}: does not pin {repository}, which {manifest.relative_to(root)} says it does")
+
+
+def _check_rendered_images(root: Path, render: Path, manifest: Path, environment: str, version: str,
+                           pinned: dict, problems: list[str]) -> None:
+    """What renders must be exactly what the manifest asks for, and only here."""
+    seen: set[str] = set()
+
+    for other in ENVIRONMENTS:
+        for path in sorted((render / other).rglob("*.yaml")):
+            references: list[str] = []
+            for rendered in load_all(path, problems):
+                _deployed_images(rendered, references)
+
+            for reference in references:
+                repository, tag, digest = _image_reference(reference)
+                if repository not in pinned:
+                    continue
+
+                if other != environment:
+                    # Another environment may run a different version of the
+                    # same component -- but never a prerelease of it.
+                    if "-" in tag:
+                        fail(problems, f"{other}/{path.name}: {repository} is pinned to '{tag}', a preview."
+                                       f" Only {environment} runs previews; see docs/releases.md")
+                    continue
+
+                seen.add(repository)
+                want = f"{repository}:{version}@{pinned[repository]}"
+                if reference != want:
+                    fail(problems, f"{environment}/{path.name}: {repository} deploys '{reference}',"
+                                   f" and {manifest.relative_to(root)} asks for '{want}'")
+
+    for missing in sorted(set(pinned) - seen):
+        fail(problems, f"{manifest.relative_to(root)}: asks for {missing}, which nothing in {environment} deploys")
 
 
 
@@ -1615,7 +1652,7 @@ def main() -> int:
     check_service_capabilities(root, problems)
     check_control_plane_surfaces(root, render, problems)
     check_operator_only_services(root, render, problems)
-    check_promotions_match_what_deploys(root, render, problems)
+    check_components_match_what_deploys(root, render, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")
