@@ -7,11 +7,11 @@ resources:
 # Pinned, never `latest`. Promote by editing this and nothing else.
 images:
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane
-    newTag: 0.3.0-preview.2
-    digest: sha256:ea39b128cb3daa8c28e39f1357919ed1faecade505b91634aa0679270d2c9797
+    newTag: 0.3.0-preview.3
+    digest: sha256:f3b2021220bb34e91e03ab93fd9346ac9fb80d0ca2e333b0cc1faf1e68000075
   - name: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
-    newTag: 0.3.0-preview.2
-    digest: sha256:c41d305bcb346f16cb9e3faff6994bd44811a2fee978d852dfcd02326a83cf4b
+    newTag: 0.3.0-preview.3
+    digest: sha256:abf6e9ac887040f03c108286ff41fa19a034c8487ee5dfbceced9cfd585da77b
 
 # The environment's identity provider, its own addresses, and where an
 # operator's browser reaches this control plane. No GitHub App identifiers:
