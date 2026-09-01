@@ -43,4 +43,7 @@ components:
           digest: sha256:be964d822be748dc5391bcd2a5dc7801b690e099af1fa147bdf5da6b4d80be1f
           pinnedIn:
           - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
-    hold: null
+    hold:
+      reason: paused
+      since: 2026-09-01T22:38:10Z
+      note: testing preview 4 by hand
