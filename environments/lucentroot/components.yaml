@@ -25,22 +25,22 @@ components:
     channel: preview
     update: automatic
     desired:
-      version: 0.3.0-preview.1
+      version: 0.3.0-preview.2
       sourceRevision: 936e77614e931f620d13d5d3691c7f1571942805
       images:
         console:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
-          digest: sha256:bc06156e11727e20d8adabe404ca95000dfe48dfe609f7175585a02b1c5fda3d
+          digest: sha256:c41d305bcb346f16cb9e3faff6994bd44811a2fee978d852dfcd02326a83cf4b
           pinnedIn:
           - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
         controlPlane:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane
-          digest: sha256:a876a4305c801667b27b31902725f61fdb8da1e006186dabd8c4e103c9c5fb33
+          digest: sha256:ea39b128cb3daa8c28e39f1357919ed1faecade505b91634aa0679270d2c9797
           pinnedIn:
           - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
         runtime:
           repository: ghcr.io/fieldstatenz/saas-fabric
-          digest: sha256:086dbfdaf19458951d2bed618111f0ca47731c2bc8c2a45aa56b9b57a724977e
+          digest: sha256:437a9ff8181ceee70de15b0e363b2440cc14acca11f7a42027d3cf84730d2aac
           pinnedIn:
           - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
     hold: null
