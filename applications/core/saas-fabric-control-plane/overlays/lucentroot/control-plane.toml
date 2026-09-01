@@ -70,6 +70,31 @@ mode = "open_bao"
 address = "http://openbao.secrets.svc.cluster.local:8200"
 role = "saas-fabric-control-plane"
 
+[platform_management]
+# This deployment manages LucentRoot, and knows nothing else about the platform
+# repository. **Which** repository, and the credential for it, are operator
+# state: an operator installs the Platform Management GitHub App and picks a
+# repository through the console, exactly as they do for client configuration.
+#
+# There is no environment name in the binary and none in a request. A caller
+# who could name an environment could name a path, because the name reaches the
+# platform repository as one -- `environments/<name>/components.yaml`. So the
+# deployment states the one environment it is, and the route takes nothing.
+environment = "lucentroot"
+
+# Sixty seconds because LucentRoot is an integration environment: a preview
+# published now should be running within a minute, and being wrong about that
+# costs a registry request nobody needed. Somewhere slower states something
+# slower here; zero observes an environment without advancing it.
+reconciliation_interval_seconds = 60
+
+# `[platform_management.registry]` is omitted. It defaults to ghcr.io, which is
+# where SaaS Fabric publishes, and **it carries no credential** -- anonymous OCI
+# distribution serves tag listings, manifests and config blobs. The Platform
+# Management application's authority is over the platform repository and is
+# never the registry credential; a boundary that does not exist cannot be
+# conflated with one that does.
+
 [identity_provider]
 mode = "keycloak"
 # Cluster-local. Keycloak's administrative API is not published on any plane,
