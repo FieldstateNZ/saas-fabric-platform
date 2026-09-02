@@ -8,8 +8,8 @@ resources:
 # for a reason that is no longer about the image — see ../../README.md.
 images:
   - name: ghcr.io/fieldstatenz/saas-fabric
-    newTag: 0.3.0-preview.6
-    digest: sha256:185ecd5e810b89e724caa17910df592dcca1078ab8cf8724d959b049f2bc8435
+    newTag: 0.3.0-preview.8
+    digest: sha256:95ccb1953a88402cd93ed3d61d68ea914c6a14972eec00678e808ddaa214c5c9
 
 patches:
   - target:
