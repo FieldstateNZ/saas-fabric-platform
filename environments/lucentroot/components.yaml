@@ -9,38 +9,47 @@
 # registries and what is *running* comes from the cluster; neither is recorded
 # here.
 #
+#   artifact:     what this component is published as, and its provenance
 #   channel:      the release stream newer versions are drawn from
 #   update:       automatic | manual | locked
+#   desired:      the version this environment is asked to run
 #   hold:         pauses automatic advancement without changing policy
-#   pinnedIn:     platform-owned locations where each image digest is rendered
+#   pinnedIn:     platform-owned locations where the version is written, each
+#                 naming the renderer that writes it
 #
 # See environments/README.md for the complete contract.
 ---
-schemaVersion: 1
+schemaVersion: 2
 environment: lucentroot
 managedRoots:
 - applications/
 components:
   saas-fabric:
-    channel: preview
-    update: automatic
-    desired:
-      version: 0.3.0-preview.9
+    artifact:
+      type: oci
       sourceRevision: 7c13f461af895ea3c70f3dede9f531fdfdc571fb
       images:
         console:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
           digest: sha256:6435be7a01acc421c113e36581e7225bdcf5b3b80d65830e3a263801b879a26e
-          pinnedIn:
-          - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
         controlPlane:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane
           digest: sha256:8d3a55d3c347169434ff127878254c2e3e5094dd2a4250642b5a61e1f958b97d
-          pinnedIn:
-          - applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
         runtime:
           repository: ghcr.io/fieldstatenz/saas-fabric
           digest: sha256:aa49d9be3f7a7675eb8750fe4384cddca4d37e38b94476eea2f9e4a08431e5c7
-          pinnedIn:
-          - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
+    channel: preview
+    update: automatic
+    desired:
+      version: 0.3.0-preview.9
+    pinnedIn:
+    - renderer: kustomize-image
+      path: applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
+      image: console
+    - renderer: kustomize-image
+      path: applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
+      image: controlPlane
+    - renderer: kustomize-image
+      path: applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
+      image: runtime
     hold: null

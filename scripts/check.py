@@ -40,7 +40,7 @@ ENVIRONMENTS = ("lucentroot", "production")
 # The `components.yaml` shape this checker understands. Bumped together with
 # the readers, so a manifest that has moved on fails loudly here rather than
 # being half-understood.
-COMPONENTS_SCHEMA_VERSION = 1
+COMPONENTS_SCHEMA_VERSION = 2
 
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
@@ -1574,12 +1574,19 @@ def check_components_match_what_deploys(root: Path, render: Path, problems: list
             continue
 
         for component, spec in (declared.get("components") or {}).items():
-            desired = spec.get("desired") or {}
-            version = str(desired.get("version", ""))
-            images = desired.get("images") or {}
+            version = str((spec.get("desired") or {}).get("version", ""))
+            artifact = spec.get("artifact") or {}
+            images = artifact.get("images") or {}
 
-            if not version or not images:
-                fail(problems, f"{manifest.relative_to(root)}: {component} declares no version or no images")
+            # Schema 2 separates what a component is published as from where a
+            # version is written. Only the OCI kind renders images, so only it
+            # has rendered output to agree with.
+            if artifact.get("type") != "oci":
+                fail(problems, f"{manifest.relative_to(root)}: {component} declares no artifact this checker reads")
+                continue
+
+            if not version or not images or not artifact.get("sourceRevision"):
+                fail(problems, f"{manifest.relative_to(root)}: {component} declares no version, images or sourceRevision")
                 continue
 
             pinned = {}
@@ -1589,12 +1596,12 @@ def check_components_match_what_deploys(root: Path, render: Path, problems: list
                     fail(problems, f"{manifest.relative_to(root)}: {component}/{role} names no repository or digest")
                     continue
                 pinned[repository] = digest
-                _check_pinned_in(root, manifest, component, role, image, roots, problems)
 
+            _check_pinned_in(root, manifest, component, spec, images, roots, problems)
             _check_rendered_images(root, render, manifest, environment, version, pinned, problems)
 
 
-def _check_pinned_in(root: Path, manifest: Path, component: str, role: str, image: dict,
+def _check_pinned_in(root: Path, manifest: Path, component: str, spec: dict, images: dict,
                      roots: list[str], problems: list[str]) -> None:
     """Every declared file must be one Fabric is allowed to write, and must really pin that image.
 
@@ -1608,15 +1615,31 @@ def _check_pinned_in(root: Path, manifest: Path, component: str, role: str, imag
     repository is coherent at the commit CI ran on; Fabric applies it again
     against whatever it actually read, which may be a state no CI has seen.
     """
-    repository = image["repository"]
-    declared = image.get("pinnedIn") or []
-    named = f"{manifest.relative_to(root)}: {component}/{role}"
+    declared = spec.get("pinnedIn") or []
+    named = f"{manifest.relative_to(root)}: {component}"
 
     if not declared:
         fail(problems, f"{named} declares no pinnedIn")
         return
 
-    for relative in declared:
+    for pin in declared:
+        # The renderer is the pin's kind, and each kind carries exactly the
+        # fields it uses. An unknown one is refused rather than guessed at --
+        # the same rule Fabric applies, where the renderer is an enum variant
+        # and a name it does not know parses as nothing.
+        renderer = pin.get("renderer")
+        if renderer != "kustomize-image":
+            fail(problems, f"{named} pinnedIn names renderer {renderer!r}, which this checker does not read")
+            continue
+
+        role = pin.get("image")
+        if role not in images:
+            fail(problems, f"{named} pinnedIn pins {role!r}, which {component} does not publish")
+            continue
+
+        repository = images[role]["repository"]
+        relative = str(pin.get("path", ""))
+
         if relative.startswith("/") or ".." in Path(relative).parts:
             fail(problems, f"{named} pinnedIn names {relative}, which is not a plain repository-relative path")
             continue
