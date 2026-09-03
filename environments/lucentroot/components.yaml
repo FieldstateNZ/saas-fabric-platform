@@ -52,6 +52,4 @@ components:
     - renderer: kustomize-image
       path: applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
       image: runtime
-    hold:
-      reason: paused
-      since: 2026-09-03T09:25:33Z
+    hold: null
