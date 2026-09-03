@@ -31,17 +31,17 @@ components:
       images:
         console:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
-          digest: sha256:6732dc1a35277a8a221bb6257082ee96626928469131e3131172516fb45840a2
+          digest: sha256:6435be7a01acc421c113e36581e7225bdcf5b3b80d65830e3a263801b879a26e
         controlPlane:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane
-          digest: sha256:0a3b5e1d7e1e9e31d2f3419f3f3e4ad78ae390f411a1a0bbb6134cca9871918e
+          digest: sha256:8d3a55d3c347169434ff127878254c2e3e5094dd2a4250642b5a61e1f958b97d
         runtime:
           repository: ghcr.io/fieldstatenz/saas-fabric
-          digest: sha256:50ca3a277d9433e5dc8e6dc28b5af078ee73ff71db2d01d1a5ad495851bf0142
+          digest: sha256:aa49d9be3f7a7675eb8750fe4384cddca4d37e38b94476eea2f9e4a08431e5c7
     channel: preview
     update: automatic
     desired:
-      version: 0.3.0-preview.10
+      version: 0.3.0-preview.9
     pinnedIn:
     - renderer: kustomize-image
       path: applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
@@ -52,4 +52,6 @@ components:
     - renderer: kustomize-image
       path: applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
       image: runtime
-    hold: null
+    hold:
+      reason: rollback
+      since: 2026-09-03T09:26:58Z
