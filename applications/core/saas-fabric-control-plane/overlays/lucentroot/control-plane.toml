@@ -119,3 +119,23 @@ audience = "saas-fabric"
 # No credential. The platform presents the operator's own bearer, so there is
 # nothing here for a deployment to deliver and nothing to rotate.
 http_timeout_seconds = 10
+
+# Read-only evidence. Requires the observer-capable release; remove this block
+# if rolling back to preview.11 or earlier. Each namespace owns a limited Role.
+[[platform_management.observation.saas-fabric]]
+namespace = "operator-system"
+deployment = "saas-fabric-control-plane"
+container = "control-plane"
+repository = "ghcr.io/fieldstatenz/saas-fabric-control-plane"
+
+[[platform_management.observation.saas-fabric]]
+namespace = "operator-system"
+deployment = "saas-fabric-control-plane-ui"
+container = "console"
+repository = "ghcr.io/fieldstatenz/saas-fabric-control-plane-ui"
+
+[[platform_management.observation.saas-fabric]]
+namespace = "platform-system"
+deployment = "saas-fabric"
+container = "saas-fabric"
+repository = "ghcr.io/fieldstatenz/saas-fabric"

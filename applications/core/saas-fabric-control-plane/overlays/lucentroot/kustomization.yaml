@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - ../../base
+  - observation-rbac.yaml
 
 # Pinned, never `latest`. Promote by editing this and nothing else.
 images:

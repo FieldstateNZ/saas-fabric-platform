@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - ../../base
+  - observation-rbac.yaml
 
 # Pinned. The replica count in the base is what still holds this at zero, and
 # for a reason that is no longer about the image — see ../../README.md.
