@@ -52,4 +52,7 @@ components:
     - renderer: kustomize-image
       path: applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
       image: runtime
-    hold: null
+    hold:
+      reason: paused
+      since: '2026-09-17T05:27:42Z'
+      note: 'Held until the control plane can take its identity provider audience in the same commit as the next image advance, saas-fabric-platform #33. Builds after 0.3.0-preview.10 refuse to start without it.'
