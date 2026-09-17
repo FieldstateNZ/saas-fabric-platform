@@ -87,8 +87,13 @@ Argo then completed both rollouts. The live API and visible Components page
 reported desired and running `0.3.0-preview.13`, healthy API and console at 1/1,
 and the intentionally stopped runtime at 0/0. Acme reconverged to Applied and
 all authenticated management reads returned 200. The loaded console asset
-matched the tested production build. Browser expiry recovery is the last
-interactive acceptance check.
+matched the tested production build.
+
+The browser token was allowed to expire naturally, including the verifier's
+clock-skew allowance. Refresh then displayed “Your session ended. Sign in again
+to continue.” Clicking Sign in restored the existing SSO session without a
+password prompt, returned to Components, and showed the current healthy running
+release. No token lifetime or authentication policy was changed.
 
 ## Next acceptance work
 
