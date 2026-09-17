@@ -103,6 +103,19 @@ base_url = "http://keycloak-http.identity.svc.cluster.local"
 admin_realm = "master"
 client_id = "saas-fabric"
 
+# The audience every client this platform reconciles is given, through the
+# `oidc-audience-mapper` Fabric writes onto each declared public client (ADR
+# 0019, "The audience"; checklist G5 in the application repository). One
+# string per deployment: when the tenant runtime's `[token].audiences` and the
+# authorization front door's issuer registrations are configured, they must
+# name this same value, because a client carries exactly one audience mapper.
+#
+# Required by every saas-fabric build after 0.3.0-preview.10, which refuse to
+# start without it, and refused by 0.3.0-preview.10 and earlier, which do not
+# know the key. So it lands in the same commit that advances an environment
+# past 0.3.0-preview.10, never on its own: a change here rolls the Deployment.
+audience = "saas-fabric"
+
 # No credential. The platform presents the operator's own bearer, so there is
 # nothing here for a deployment to deliver and nothing to rotate.
 http_timeout_seconds = 10
