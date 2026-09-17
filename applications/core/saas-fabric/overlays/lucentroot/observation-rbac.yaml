@@ -1,0 +1,31 @@
+# Read-only deployment evidence for Fabric's Components page.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fabric-deployment-observer
+  namespace: platform-system
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [saas-fabric]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [list]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fabric-deployment-observer
+  namespace: platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fabric-deployment-observer
+subjects:
+  - kind: ServiceAccount
+    name: saas-fabric-control-plane
+    namespace: operator-system

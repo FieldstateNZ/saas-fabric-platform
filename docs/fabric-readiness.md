@@ -73,3 +73,19 @@ configuration together, with automatic updates held. Image-only rollback is
 not sufficient. Review any newly written catalogue/client document shapes
 before returning to older application code. Do not weaken identity validation
 to make the legacy wildcard document parse.
+
+## Deployment observation rollout
+
+The observer-capable application release must be running before enabling the
+LucentRoot observation bindings. They identify the API, console and stopped
+runtime, and use namespaced read-only Roles. The API can get only the named
+Deployments and list Pods/ReplicaSets in operator-system and platform-system.
+The UI service account has no binding. No Secret reads or Kubernetes writes
+are granted. Production has no observation binding or additional permission.
+
+After synchronization, Components must report the active API/console release,
+a healthy deployment sample with a timestamp, and the runtime as stopped.
+Refresh requests new evidence; desired state alone never populates Running.
+A mixed rollout, unavailable API or digest mismatch must not claim convergence.
+A rollback to preview.11 or earlier must remove the observation configuration
+alongside reverting images, because those binaries reject the new section.
