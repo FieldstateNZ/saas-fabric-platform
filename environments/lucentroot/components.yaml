@@ -52,7 +52,4 @@ components:
     - renderer: kustomize-image
       path: applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
       image: runtime
-    hold:
-      reason: paused
-      since: '2026-09-17T05:27:42Z'
-      note: 'Waiting for the control-plane audience to land with the next advance; see #33'
+    hold: null
