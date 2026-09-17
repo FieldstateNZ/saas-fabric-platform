@@ -153,62 +153,57 @@ bao write auth/kubernetes/role/saas-fabric-control-plane \
 through `data` marks the latest version deleted and leaves earlier ones
 readable, which for a private key is not deletion at all.
 
-## Identity: two machine identities, no human credential
+## Identity and bootstrap prerequisites
 
 | Against | Identity | Permission | Established by |
 |---|---|---|---|
-| Keycloak | service account on the `saas-fabric` client, `master` realm | `create-realm` only | one-time bootstrap |
-| OpenBao | the pod's own Kubernetes service account | write within this instance's partition | one-time bootstrap, above |
-| GitHub | an installation of an application the platform created | `contents: write`, `metadata: read` | **an operator, in the product** |
+| Keycloak | the signed-in operator's bearer | `fabric-operator` for Fabric access; master-realm `admin` for realm administration | one-time operator bootstrap |
+| OpenBao | the pod's Kubernetes service account | this instance's partition | bootstrap role and policy above |
+| GitHub | installations of the applications Fabric creates | selected client/platform repositories | an operator connects each integration in Fabric |
 
-`create-realm` is sufficient on its own: creating a realm makes the service
-account that realm's administrator, so no further grant is bootstrapped.
+The current Keycloak adapter borrows the operator's token. It does not mint a
+service-account token. `create-realm` alone cannot support first-pass
+reconciliation: grants earned by creating a realm appear only in later tokens.
 
-The third row is the change. There is no GitHub credential in this repository,
-in OpenBao ahead of time, or in anyone's hands: an operator connects the
-integration through the console, GitHub returns a private key exactly once, and
-the platform writes it into its own partition. Nothing about it is a
-deployment-time prerequisite.
+Before using the console, configure the master realm with:
 
-Operators reach the console through the tailnet and **sign in to Keycloak**.
-Being on the tailnet establishes who someone is; holding the `fabric-operator`
-realm role establishes that they administer this platform, and that is checked
-against a verified token rather than against a header a proxy set.
+- A public `saas-fabric-console` client requiring S256 PKCE and the exact
+  redirect `https://fabric-lucentroot.tail5a7546.ts.net/`.
+- A `fabric-operator` realm role assigned to the operators, and master-realm
+  `admin` authority for operators who reconcile realms.
+- The realm attribute `frontendUrl` set to
+  `https://fabric-lucentroot.tail5a7546.ts.net` (the origin, without `/realms/master`).
 
-The bearer they present is also what the platform acts with when it changes
-Keycloak, which is why the third row above says an operator needs master-realm
-`admin` and not merely `create-realm`.
+The last setting is required on LucentRoot because the browser and the adapter
+reach Keycloak at different addresses. Without a canonical master-realm URL,
+Keycloak rejected a valid operator token on the internal Admin API with 401,
+while accepting the same token with the public origin. Pinning the realm URL
+made internal administrative calls succeed without any permission changes.
+This is a master-realm setting; do not substitute the operator origin for the
+issuers of client realms.
 
-## Current state
+These are currently one-time Keycloak state changes, not resources reconciled
+by this repository. Include them when rebuilding LucentRoot. An authenticated
+console alone does not prove the administrative path: run reconciliation and
+verify its per-client outcome.
 
-The Keycloak half is proven against this cluster: realm, roles and OIDC client
-created, idempotent across repeated sweeps, and drift detected and corrected.
+## Verified baseline
 
-**No Git integration exists yet, and that is now a supported state rather than
-a broken one.** The control plane starts, serves, reports itself as not
-connected, and offers an operator the flow to connect one. Nothing here has to
-be edited for that to happen.
+On 2026-09-17, LucentRoot ran `0.3.0-preview.11` with both operator Deployments
+ready and the Argo CD Application Synced/Healthy. Normal authorization-code +
+PKCE sign-in and the client, catalogue, operator and platform APIs succeeded.
+Acme's exact test callback is `http://acme.lucentroot.internal/`; its former
+wildcard was incompatible with the private-network redirect strategy.
+Reconciliation reached Applied, and a second pass required no further changes.
 
-Two things do still need doing before this deployment is fully healthy, and
-both are one-time operator steps against a running cluster rather than changes
-to this repository:
+Automatic updates were resumed through the console. Fabric's platform GitHub
+App wrote commit `921298aee1b98388283c919f36698bcca8aa3e67`, removing the hold;
+the following platform status reported automatic policy and a successful check.
+The upgrade itself was a coordinated repository change, not proof of a new
+release being advanced by the automatic updater in this verification session.
 
-1. **The OpenBao role and policy above.** Without them the control plane starts
-   and serves, but cannot store what a connection produces.
-2. **The Keycloak master realm needs three things**, and until they exist
-   nobody can sign in — there is no second posture to fall back to:
-
-   | What | Why |
-   |---|---|
-   | a **public** client `saas-fabric-console`, PKCE required, redirect URI `https://fabric-lucentroot.tail5a7546.ts.net/` | the console holds no secret; PKCE replaces one |
-   | a realm role `fabric-operator`, granted to each operator | this is what lets them into the console |
-   | each operator holding master-realm **`admin`** | this is what Keycloak checks when the platform creates a realm as them |
-
-   The last is easy to miss. `create-realm` alone is not enough: creating a
-   realm grants the creator that realm's admin roles into tokens minted
-   *afterwards*, and the platform is using a borrowed token it cannot
-   re-mint — so an operator with only `create-realm` creates a realm and is
-   then refused on the first role inside it.
+See [the readiness record](../../../docs/fabric-readiness.md) for evidence,
+recovery constraints and remaining acceptance work.
 
 ## Dependencies
 
