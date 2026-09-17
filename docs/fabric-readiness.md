@@ -4,7 +4,7 @@ Verified 2026-09-17. LucentRoot is the live development environment. Future
 Workspec and Nexus workloads may share a production Kubernetes environment,
 with either or both applications assigned to a client realm.
 
-## Working operator baseline
+## Bootstrap operator baseline — preview.11
 
 - Application source: `69dc8a7fc561bbb21b2c57e13a5929fc3c1b2017`, released as
   `v0.3.0-preview.11`. Release gates and all three image jobs passed.
@@ -36,29 +36,76 @@ resource today. Rebuild requirements are in the
 [control-plane README](../applications/core/saas-fabric-control-plane/README.md).
 No credentials or access tokens belong in this record.
 
+## Verified automatic upgrade and observation
+
+Application source `3d9c542837463f8329378740a48cedc405090397` published as
+`v0.3.0-preview.12` after all release gates passed. Fabric's own updater wrote
+platform commit `3fa06bcbd48530e683aa265d5b4d816b17258377`, advancing the
+three-image release unit. Argo automatically applied it; both API and console
+rollouts completed. No image pins were manually edited for this upgrade.
+
+Only after that upgrade was healthy, configuration commit
+`41d0f571f73917ac776da641a069e95c0cdec484` enabled observation. The live
+platform API returned desired and running `0.3.0-preview.12`, health `healthy`,
+a current observation timestamp, API and console each 1/1 ready, and the tenant
+runtime `stopped` at 0/0. Acme reconverged to Applied after the API restart.
+Authenticated platform, clients, identity, catalogue and operator reads passed.
+
+Live Kubernetes SubjectAccessReviews confirmed the API account can get its
+named Deployments and list workload evidence, cannot read Secrets or patch
+Deployments, and the UI account cannot list Pods. Use SubjectAccessReview
+bodies naming the account for this check: an impersonation flag through an
+authenticating proxy need not represent the requested account.
+
+Application CI passed the workspace tests, real connector acceptance,
+architecture/dependency/file-size checks, clippy, rustdoc and 140 console tests.
+Platform validation passed locally and in CI: 393 rendered resources, zero
+invalid resources or schema errors, and all repository invariants passing.
+Local broad Rust compilation exhausted disk space; generated build artifacts
+were cleared and the independent full CI suite supplied the Rust result.
+
+## Session recovery follow-up
+
+The final browser check exposed an existing session-lifecycle defect: an API
+401 cleared the token but did not notify the shell, leaving it visibly signed
+in with a permission error. LucentRoot issues 60-second operator access tokens.
+The API continued to refuse the expired token correctly.
+
+Source `f4a39d1c804abd3ebb329f55d05a0317e0c7b098`, published as
+`v0.3.0-preview.13`, connects session rejection to the shell. A rejected current
+token returns to sign-in; no failed request is replayed. A 403 does not end the
+session, and a late rejection of an older token cannot clear a newer sign-in.
+All 143 console tests, type checking, lint and production build passed locally;
+all CI and tagged release gates passed too.
+
+Fabric automatically advanced the release in platform commit
+`ac0985f6e65b59ca9d10682087e8f21dd85ada58`. Before Argo applied it, the live API
+reported desired `0.3.0-preview.13` and running `0.3.0-preview.12`: direct
+evidence that running state is independent of the requested Git version.
+
+Argo then completed both rollouts. The live API and visible Components page
+reported desired and running `0.3.0-preview.13`, healthy API and console at 1/1,
+and the intentionally stopped runtime at 0/0. Acme reconverged to Applied and
+all authenticated management reads returned 200. The loaded console asset
+matched the tested production build. Browser expiry recovery is the last
+interactive acceptance check.
+
 ## Next acceptance work
 
-1. **Observed deployments.** Components currently returns `running: unknown` by
-   design. Define and implement a read-only observation port and deployment
-   adapter. Report actual image/version evidence, rollout health, observation
-   time and stale/unavailable state. A Git commit is not rollout evidence;
-   mixed versions must not be reported as one healthy running version. The
-   paused tenant runtime must remain distinguishable from the running operator
-   deployments.
-2. **Self-update proof.** Publish the next intentional application change and
-   observe Fabric discover it, commit the advance, Argo deploy it, and the
-   application remain usable. Resume success above proves the control/write
-   path, not that entire upgrade sequence. Test recovery within compatible
-   configuration versions before claiming rollback readiness.
-3. **Register and deploy a service.** Define artifact/version, target
+1. **Register and deploy a service.** Define artifact/version, target
    environment, configuration, secret references and dependencies. Reconcile
    them into deployed resources and show observed health. Keep this distinct
    from assigning an application to a realm: a service may serve many realms.
-4. **Realm/application integration.** Resolve private-network catalogue
+2. **Realm/application integration.** Resolve private-network catalogue
    assignments; verify creation, assignment and configuration against real
    desired state. Define how applications consume shared identity, secrets,
    authorization, messaging, data and storage. Application-shell federation is
    a later consumer of these contracts.
+3. **Recovery and durable status.** Test live rollback within compatible
+   configuration versions before claiming rollback readiness. Identity
+   reconciliation observations currently reset to Pending when the API
+   restarts; the provider configuration remains in place, and an operator
+   convergence restores Applied. Persisting those observations is separate work.
 
 This record does not claim the tenant runtime is ready. It remains scaled to
 zero pending publication, connector configuration and the identity edge. It
