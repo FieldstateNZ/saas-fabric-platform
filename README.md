@@ -213,7 +213,11 @@ It then checks the invariants a schema cannot express:
   else catches a typo in it;
 - telemetry pipelines referencing only components that exist, since a bad
   collector config renders and validates perfectly and then crash-loops;
-- every application directory carrying its provenance and licence.
+- every application directory carrying its provenance and licence;
+- every `environments/<environment>/data-sources.yaml` that exists well formed:
+  its schema version, its environment, unique ids, a discriminator column on
+  every shared data source and on nothing else, and no connection carrying
+  anything but a name or a secret reference.
 
 No cluster required, and none should be. CI runs the same script, so a pull
 request that renders invalid manifests cannot merge.

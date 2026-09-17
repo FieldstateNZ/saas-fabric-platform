@@ -24,7 +24,9 @@ Checks, in order of how much damage they prevent:
      actually deploys;
  12. the telemetry pipelines only reference components that exist;
  13. every application directory carries the required documentation;
- 14. a service whose only protection is the operator plane stays on it.
+ 14. a service whose only protection is the operator plane stays on it;
+ 15. `data-sources.yaml` declares only what its own schema and ADR 0006's
+     shared-needs-discriminator rule permit, and never a credential.
 """
 from __future__ import annotations
 
@@ -41,6 +43,42 @@ ENVIRONMENTS = ("lucentroot", "production")
 # the readers, so a manifest that has moved on fails loudly here rather than
 # being half-understood.
 COMPONENTS_SCHEMA_VERSION = 2
+
+# The `environments/<environment>/data-sources.yaml` shape this checker
+# understands (ADR 0023 part 1, application repository). Its own version,
+# independent of COMPONENTS_SCHEMA_VERSION -- it is a different document with
+# its own history, and the two happen to start a generation apart.
+DATA_SOURCES_SCHEMA_VERSION = 1
+
+# `placement`, spelled exactly as the wire's `PlacementClassDocument` spells
+# it -- the reason entries in this file are snake_case where its own envelope,
+# like components.yaml, is camelCase.
+DATA_SOURCE_PLACEMENTS = (
+    "shared", "dedicated", "high_availability", "regulated", "development", "ephemeral",
+)
+
+# A `fabric_core::DataSourceId`: lowercase and DNS-label-like.
+DATA_SOURCE_ID = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+DATA_SOURCE_ENVELOPE_KEYS = {"schemaVersion", "environment", "dataSources"}
+DATA_SOURCE_ENTRY_KEYS = {
+    "id", "revision", "connector", "connection", "placement", "residency",
+    "pool", "capabilities", "discriminator", "labels",
+}
+DATA_SOURCE_REQUIRED_ENTRY_KEYS = {
+    "id", "revision", "connector", "connection", "placement", "residency",
+}
+# A connection names what it holds, never a value: `named` points at a
+# connection the connector process already has, `secret` carries a reference
+# path into wherever secrets live. Keyed by `kind` so a third shape -- or a
+# `value` key beside either -- cannot be smuggled in.
+CONNECTION_KEYS_BY_KIND = {"named": {"kind", "name"}, "secret": {"kind", "reference"}}
+RESIDENCY_KEYS = {"region", "jurisdiction"}
+# Each defaults (20 / 300 / 5) when absent, so only a value someone actually
+# wrote can be checked against the positive-pool rule.
+POOL_KEYS = ("max_connections", "idle_timeout_seconds", "acquire_timeout_seconds")
+CAPABILITIES_KEYS = ("writable", "accepts_new_tenants")
+DISCRIMINATOR_KEYS = {"column"}
 
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
@@ -1701,6 +1739,217 @@ def _check_rendered_images(root: Path, render: Path, manifest: Path, environment
         fail(problems, f"{manifest.relative_to(root)}: asks for {missing}, which nothing in {environment} deploys")
 
 
+def check_data_sources(root: Path, problems: list[str]) -> None:
+    """`data-sources.yaml` is environment desired state for where a tenant's data may live.
+
+    ADR 0023 part 1 (application repository) makes
+    `environments/<environment>/data-sources.yaml` a second machine-managed
+    file beside `components.yaml`: Fabric's Platform Management writes it, a
+    human may edit it under break-glass, and each entry is spelled exactly as
+    the runtime wire spells `data-sources.json`'s `DataSourceDocument` --
+    parsed with the wire's own type rather than a third declaration of the
+    same shape. So a field the wire would refuse is refused here too, and
+    ADR 0006's rule -- a shared data source is the only kind that may carry a
+    discriminator column, and it must -- is checked before anything is
+    written, not discovered when the runtime starts.
+
+    A missing file is not a problem: it reads as nothing declared yet, and the
+    first declaration creates it (see environments/README.md).
+    """
+    for environment in ENVIRONMENTS:
+        manifest = root / "environments" / environment / "data-sources.yaml"
+        if not manifest.is_file():
+            continue
+
+        documents = load_all(manifest, problems)
+        if not documents:
+            continue
+
+        declared = documents[0]
+        named = manifest.relative_to(root)
+
+        if declared.get("schemaVersion") != DATA_SOURCES_SCHEMA_VERSION:
+            fail(problems, f"{named}: schemaVersion is not {DATA_SOURCES_SCHEMA_VERSION}")
+            continue
+
+        if declared.get("environment") != environment:
+            fail(problems, f"{named}: environment is {declared.get('environment')!r}, not {environment!r}")
+            continue
+
+        unknown = set(declared) - DATA_SOURCE_ENVELOPE_KEYS
+        if unknown:
+            fail(problems, f"{named}: unknown key(s) {', '.join(sorted(unknown))}")
+            continue
+
+        entries = declared.get("dataSources")
+        if not isinstance(entries, list):
+            fail(problems, f"{named}: dataSources is not a list")
+            continue
+
+        seen_ids: set[str] = set()
+        for entry in entries:
+            _check_one_data_source(named, entry, seen_ids, problems)
+
+
+def _check_one_data_source(named: Path, entry, seen_ids: set[str], problems: list[str]) -> None:
+    """One `dataSources` entry: field shape, then the discriminator rule."""
+    if not isinstance(entry, dict):
+        fail(problems, f"{named}: a dataSources entry is not a mapping")
+        return
+
+    id_ = entry.get("id")
+    label = id_ if isinstance(id_, str) and id_ else "<data source with no id>"
+
+    def bad(message: str) -> None:
+        fail(problems, f"{named}: {label}: {message}")
+
+    unknown = set(entry) - DATA_SOURCE_ENTRY_KEYS
+    if unknown:
+        bad(f"declares unknown key(s) {', '.join(sorted(unknown))}")
+
+    missing = DATA_SOURCE_REQUIRED_ENTRY_KEYS - set(entry)
+    if missing:
+        bad(f"is missing {', '.join(sorted(missing))}")
+        return
+
+    if not isinstance(id_, str) or not DATA_SOURCE_ID.match(id_):
+        bad("id is not a lowercase, DNS-label-like identifier")
+    elif id_ in seen_ids:
+        bad("id is declared more than once")
+    else:
+        seen_ids.add(id_)
+
+    revision = entry.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        bad("revision must be an integer of 1 or more")
+
+    connector = entry.get("connector")
+    if not isinstance(connector, str) or not connector:
+        bad("connector must be a non-empty string")
+
+    _check_connection(entry.get("connection"), bad)
+
+    placement = entry.get("placement")
+    if placement not in DATA_SOURCE_PLACEMENTS:
+        bad(f"placement {placement!r} is not one of {', '.join(DATA_SOURCE_PLACEMENTS)}")
+
+    _check_residency(entry.get("residency"), bad)
+    _check_pool(entry.get("pool"), bad)
+    _check_capabilities(entry.get("capabilities"), bad)
+    _check_labels(entry.get("labels"), bad)
+
+    discriminator = entry.get("discriminator")
+    if placement == "shared":
+        if discriminator is None:
+            bad("placement is 'shared' but no discriminator is declared (ADR 0006)")
+        else:
+            _check_discriminator(discriminator, bad)
+    elif discriminator is not None:
+        bad(f"placement {placement!r} is not 'shared' but a discriminator is declared (ADR 0006)")
+
+
+def _check_connection(connection, bad) -> None:
+    """`{kind: named, name}` or `{kind: secret, reference}` -- never a value."""
+    if not isinstance(connection, dict):
+        bad("connection must be a mapping")
+        return
+
+    kind = connection.get("kind")
+    allowed = CONNECTION_KEYS_BY_KIND.get(kind)
+    if allowed is None:
+        bad(f"connection.kind {kind!r} is not 'named' or 'secret'")
+        return
+
+    unknown = set(connection) - allowed
+    if unknown:
+        bad(f"connection declares unknown key(s) {', '.join(sorted(unknown))} -- "
+            "a connection carries a name or a reference, never a value")
+        return
+
+    value_key = "name" if kind == "named" else "reference"
+    value = connection.get(value_key)
+    if not isinstance(value, str) or not value:
+        bad(f"connection.{value_key} must be a non-empty string")
+
+
+def _check_residency(residency, bad) -> None:
+    if not isinstance(residency, dict):
+        bad("residency must be a mapping")
+        return
+
+    unknown = set(residency) - RESIDENCY_KEYS
+    if unknown:
+        bad(f"residency declares unknown key(s) {', '.join(sorted(unknown))}")
+
+    region = residency.get("region")
+    if not isinstance(region, str) or not region:
+        bad("residency.region must be a non-empty string")
+
+    jurisdiction = residency.get("jurisdiction")
+    if jurisdiction is not None and (not isinstance(jurisdiction, str) or not jurisdiction):
+        bad("residency.jurisdiction must be a non-empty string when present")
+
+
+def _check_pool(pool, bad) -> None:
+    if pool is None:
+        return
+    if not isinstance(pool, dict):
+        bad("pool must be a mapping")
+        return
+
+    unknown = set(pool) - set(POOL_KEYS)
+    if unknown:
+        bad(f"pool declares unknown key(s) {', '.join(sorted(unknown))}")
+
+    for field in POOL_KEYS:
+        if field not in pool:
+            continue
+        value = pool[field]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            bad(f"pool.{field} must be an integer of 1 or more")
+
+
+def _check_capabilities(capabilities, bad) -> None:
+    if capabilities is None:
+        return
+    if not isinstance(capabilities, dict):
+        bad("capabilities must be a mapping")
+        return
+
+    unknown = set(capabilities) - set(CAPABILITIES_KEYS)
+    if unknown:
+        bad(f"capabilities declares unknown key(s) {', '.join(sorted(unknown))}")
+
+    for field in CAPABILITIES_KEYS:
+        if field in capabilities and not isinstance(capabilities[field], bool):
+            bad(f"capabilities.{field} must be true or false")
+
+
+def _check_labels(labels, bad) -> None:
+    if labels is None:
+        return
+    if not isinstance(labels, dict):
+        bad("labels must be a mapping")
+        return
+
+    for key, value in labels.items():
+        if not isinstance(key, str) or not key or not isinstance(value, str) or not value:
+            bad(f"labels entry {key!r} must be a non-empty string key and value")
+
+
+def _check_discriminator(discriminator, bad) -> None:
+    if not isinstance(discriminator, dict):
+        bad("discriminator must be a mapping")
+        return
+
+    unknown = set(discriminator) - DISCRIMINATOR_KEYS
+    if unknown:
+        bad(f"discriminator declares unknown key(s) {', '.join(sorted(unknown))}")
+
+    column = discriminator.get("column")
+    if not isinstance(column, str) or not column:
+        bad("discriminator.column must be a non-empty string")
+
 
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
@@ -1734,6 +1983,7 @@ def main() -> int:
     check_control_plane_surfaces(root, render, problems)
     check_operator_only_services(root, render, problems)
     check_components_match_what_deploys(root, render, problems)
+    check_data_sources(root, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")
