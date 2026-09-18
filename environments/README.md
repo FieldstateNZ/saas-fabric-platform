@@ -176,6 +176,68 @@ same distinction the Git ref makes above.
 Only LucentRoot has one today, because it is the only environment whose
 component versions move often enough to be worth managing rather than reviewing.
 
+## What a tenant's data may be placed on
+
+`data-sources.yaml` is what an environment declares of the databases a
+tenant's data may live on: which connector reaches each one, how that
+connector is told to reach it, how strongly it isolates a tenant, where it
+resides, and the pool and capability facts the runtime is configured with. It
+is desired state, and only desired state — it does not place a tenant on
+anything, and nothing here is published to the runtime yet. See ADR 0023,
+*Data sources are environment desired state, and placement is recorded rather
+than inferred*, in the application repository (`saas-fabric`); this file is
+that decision's part 1.
+
+It is **machine-managed**, the same way `components.yaml` beside it is. SaaS
+Fabric's Platform Management writes it and rewrites it whole, so a hand edit
+survives as values but not as formatting — including its header comment
+block, which Fabric preserves on every rewrite. Editing it by hand is the same
+break-glass path `components.yaml` has, and is expected to keep working. A
+file that does not exist yet reads as an environment with nothing declared;
+the first declaration creates it, header included, in one commit.
+
+### The fields
+
+Each entry is spelled exactly as the runtime wire spells `data-sources.json`'s
+`DataSourceDocument` in the application repository — `snake_case`, unlike this
+file's own `schemaVersion` / `environment` / `dataSources` envelope, which
+stays `camelCase` like `components.yaml`. That is deliberate: the entry is
+parsed with the wire's own type, so a field this file could accept that the
+wire would refuse is not a shape this checker has to imagine — it is simply
+wrong here too.
+
+| | |
+|---|---|
+| `id` | A unique, DNS-label-like identifier for this data source. |
+| `revision` | Bumped by Fabric on every change; a correction to one data source moves one number, and no tenant placed on it. |
+| `connector` | The connector process id the runtime is configured with. |
+| `connection` | `{kind: named, name}` — the connection that connector process already holds — or `{kind: secret, reference}`, a reference path into wherever secrets live. Never a value. |
+| `placement` | One of `shared`, `dedicated`, `high_availability`, `regulated`, `development`, `ephemeral`. |
+| `residency` | `{region, jurisdiction}` — `jurisdiction` optional. |
+| `pool` | `{max_connections, idle_timeout_seconds, acquire_timeout_seconds}`, each `1` or more. May be omitted; Fabric's defaults are `20` / `300` / `5`. |
+| `capabilities` | `{writable, accepts_new_tenants}`, both booleans. May be omitted; both default to `false`. |
+| `discriminator` | `{column}` — the column every collection on this data source carries. Required when `placement` is `shared`, and refused on every other placement. |
+| `labels` | A map of non-empty strings. May be omitted. |
+
+### A shared data source needs a discriminator; no other placement may have one
+
+ADR 0006, in the same application repository, makes the discriminator column
+the only isolation a `shared` data source may serve, so `discriminator` is required
+exactly when `placement: shared` and refused otherwise — never optional either
+way. It is the one field on an entry that is not on the wire's own
+`DataSource`: it belongs here because it is a fact about the database, not
+about a tenant, and stating it once is what lets a shared source with no
+column be refused before any tenant is placed on it.
+
+### Nothing here is a credential
+
+`connection` never carries a value. A `named` connection points at a
+connection the connector process is already configured with; a `secret`
+connection carries a `reference` — a path into wherever secrets live, not the
+secret itself. `check.py` refuses a `connection` that carries any key beside
+`kind` and `name`, or `kind` and `reference`, so a value cannot be smuggled in
+beside the reference that is meant to be there.
+
 ## Per-application overrides
 
 `config/<application>.yaml` is a Helm values file, read directly from Git by
