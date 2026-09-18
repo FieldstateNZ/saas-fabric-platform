@@ -217,7 +217,11 @@ It then checks the invariants a schema cannot express:
 - every `environments/<environment>/data-sources.yaml` that exists well formed:
   its schema version, its environment, unique ids, a discriminator column on
   every shared data source and on nothing else, and no connection carrying
-  anything but a name or a secret reference.
+  anything but a name or a secret reference;
+- every `environments/<environment>/placements.yaml` that exists well formed:
+  unique (tenant, logical) pairs, every `data_source` it names declared, its
+  `isolation` agreeing with that data source's placement class, and no two
+  placements colliding on the same data source.
 
 No cluster required, and none should be. CI runs the same script, so a pull
 request that renders invalid manifests cannot merge.

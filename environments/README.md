@@ -238,6 +238,60 @@ secret itself. `check.py` refuses a `connection` that carries any key beside
 `kind` and `name`, or `kind` and `reference`, so a value cannot be smuggled in
 beside the reference that is meant to be there.
 
+## Where a tenant is placed
+
+`placements.yaml` is the record of where each tenant's data lives: which data
+source it was placed on, how it is isolated there, and when. It is not
+desired state — nothing here is asked for, and nothing here decides anything.
+It is written once, by the act that allocated the placement, and publication
+copies it into the tenant binding without recomputing it — ADR 0007, in the
+same application repository, is what that meets. See ADR 0023, *Data sources
+are environment desired state, and placement is recorded rather than
+inferred*, in the application repository (`saas-fabric`); this file is that
+decision's part 2.
+
+It is **machine-managed**, the same way `components.yaml` and
+`data-sources.yaml` beside it are. SaaS Fabric writes it when a tenant is
+placed, one commit per placement, and rewrites it whole — a hand edit
+survives as values but not as formatting. Editing it by hand is the same
+break-glass path the other two files have, and **an edit made that way is
+honoured as written**: nothing here is recomputed to check it, because the
+record *is* the fact. A file that does not exist yet reads as an environment
+with nothing placed.
+
+### The fields
+
+Entries are a list, sorted by (`tenant`, `logical`) — there is no map key that
+could disagree with either field the way a mapping key can drift from a field
+repeated inside its value.
+
+| | |
+|---|---|
+| `tenant` | The tenant this placement belongs to, a DNS-label-like identifier. |
+| `logical` | The logical data source this placement fills — `primary`, `audit`. |
+| `data_source` | The id of a data source declared in this environment's `data-sources.yaml`. |
+| `isolation` | `{kind: database}`, `{kind: schema, schema}`, or `{kind: discriminator, column, value}` — exactly those keys for that `kind`, spelled as the runtime wire's `IsolationModelDocument`. |
+| `placed_at` | When the placement was recorded, RFC 3339. |
+
+### A placement's isolation must agree with its data source
+
+`isolation.kind` is `discriminator` exactly when `data_source` names a
+`shared` data source, and then `isolation.column` must be that data source's
+own `discriminator.column` — the two are stating the same fact from two
+files, and `check.py` refuses them for disagreeing. A `dedicated` data source,
+or any other non-`shared` placement class, serves one tenant, so at most one
+placement naming it may carry a non-`discriminator` isolation. On a `shared`
+data source, no two placements may carry the same `discriminator.value`,
+since that value is what a query filters the collection on.
+
+### A dangling reference is refused, not ignored
+
+`data_source` must name a data source this environment declares. If
+`data-sources.yaml` does not exist for this environment, every placement here
+is dangling by construction, and `check.py` says so — a tenant cannot be
+recorded as placed on a database this environment has never declared, even
+under break-glass.
+
 ## Per-application overrides
 
 `config/<application>.yaml` is a Helm values file, read directly from Git by
