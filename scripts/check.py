@@ -62,8 +62,12 @@ DATA_SOURCE_PLACEMENTS = (
     "shared", "dedicated", "high_availability", "regulated", "development", "ephemeral",
 )
 
-# A `fabric_core::DataSourceId`: lowercase and DNS-label-like.
-DATA_SOURCE_ID = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+# A `fabric_core::DataSourceId` (`crates/fabric-core/src/ids/data_source_id.rs`,
+# application repository): parsed with `parse_identifier`, not the DNS-label
+# rule -- an ASCII letter, then up to 62 more ASCII letters, digits, hyphens,
+# or underscores. Mixed case and underscores are both legal; `sql-au-east-03`
+# and `Sql_AU_East_03` are both valid ids.
+DATA_SOURCE_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
 
 DATA_SOURCE_ENVELOPE_KEYS = {"schemaVersion", "environment", "dataSources"}
 DATA_SOURCE_ENTRY_KEYS = {
@@ -93,11 +97,13 @@ PLACEMENTS_SCHEMA_VERSION = 1
 PLACEMENT_ENVELOPE_KEYS = {"schemaVersion", "environment", "placements"}
 PLACEMENT_ENTRY_KEYS = {"tenant", "logical", "data_source", "isolation", "placed_at"}
 
-# A `fabric_core::TenantId`: lowercase and DNS-label-like, the same character
-# class `DATA_SOURCE_ID` encodes, though the two identify different things.
+# A `fabric_core::TenantId`: lowercase and DNS-label-like -- `parse_dns_label`,
+# not `parse_identifier`, so it does not share `DATA_SOURCE_ID`'s character
+# class even though the two regexes once happened to be identical.
 PLACEMENT_TENANT_ID = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-# A `fabric_core::LogicalDataSourceName`: an ASCII letter, then letters,
-# digits, hyphens, or underscores -- `primary`, `audit`, `analytics`.
+# A `fabric_core::LogicalDataSourceName`: `parse_identifier`, the same rule
+# as `DATA_SOURCE_ID` -- an ASCII letter, then letters, digits, hyphens, or
+# underscores -- `primary`, `audit`, `analytics`.
 LOGICAL_DATA_SOURCE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
 
 # `isolation`, spelled exactly as the wire's `IsolationModelDocument` --
@@ -1842,7 +1848,7 @@ def _check_one_data_source(named: Path, entry, seen_ids: set[str], problems: lis
         return
 
     if not isinstance(id_, str) or not DATA_SOURCE_ID.match(id_):
-        bad("id is not a lowercase, DNS-label-like identifier")
+        bad("id is not a valid data source identifier (an ASCII letter, then letters, digits, hyphens, or underscores)")
     elif id_ in seen_ids:
         bad("id is declared more than once")
     else:

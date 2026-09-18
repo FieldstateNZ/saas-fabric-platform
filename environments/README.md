@@ -208,7 +208,7 @@ wrong here too.
 
 | | |
 |---|---|
-| `id` | A unique, DNS-label-like identifier for this data source. |
+| `id` | A unique identifier for this data source: an ASCII letter, then letters, digits, hyphens or underscores, at most 63 bytes — the control plane's own rule. |
 | `revision` | Bumped by Fabric on every change; a correction to one data source moves one number, and no tenant placed on it. |
 | `connector` | The connector process id the runtime is configured with. |
 | `connection` | `{kind: named, name}` — the connection that connector process already holds — or `{kind: secret, reference}`, a reference path into wherever secrets live. Never a value. |
