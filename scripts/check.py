@@ -26,13 +26,18 @@ Checks, in order of how much damage they prevent:
  13. every application directory carries the required documentation;
  14. a service whose only protection is the operator plane stays on it;
  15. `data-sources.yaml` declares only what its own schema and ADR 0006's
-     shared-needs-discriminator rule permit, and never a credential.
+     shared-needs-discriminator rule permit, and never a credential;
+ 16. `placements.yaml` records only a placement whose data source is
+     declared, whose isolation agrees with that data source's placement
+     class, and that does not collide with another placement on the same
+     data source.
 """
 from __future__ import annotations
 
 import re
 import sys
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -57,8 +62,12 @@ DATA_SOURCE_PLACEMENTS = (
     "shared", "dedicated", "high_availability", "regulated", "development", "ephemeral",
 )
 
-# A `fabric_core::DataSourceId`: lowercase and DNS-label-like.
-DATA_SOURCE_ID = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+# A `fabric_core::DataSourceId` (`crates/fabric-core/src/ids/data_source_id.rs`,
+# application repository): parsed with `parse_identifier`, not the DNS-label
+# rule -- an ASCII letter, then up to 62 more ASCII letters, digits, hyphens,
+# or underscores. Mixed case and underscores are both legal; `sql-au-east-03`
+# and `Sql_AU_East_03` are both valid ids.
+DATA_SOURCE_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
 
 DATA_SOURCE_ENVELOPE_KEYS = {"schemaVersion", "environment", "dataSources"}
 DATA_SOURCE_ENTRY_KEYS = {
@@ -79,6 +88,32 @@ RESIDENCY_KEYS = {"region", "jurisdiction"}
 POOL_KEYS = ("max_connections", "idle_timeout_seconds", "acquire_timeout_seconds")
 CAPABILITIES_KEYS = ("writable", "accepts_new_tenants")
 DISCRIMINATOR_KEYS = {"column"}
+
+# The `environments/<environment>/placements.yaml` shape this checker
+# understands (ADR 0023 part 2, application repository). Its own version,
+# independent of the other two schema versions beside it.
+PLACEMENTS_SCHEMA_VERSION = 1
+
+PLACEMENT_ENVELOPE_KEYS = {"schemaVersion", "environment", "placements"}
+PLACEMENT_ENTRY_KEYS = {"tenant", "logical", "data_source", "isolation", "placed_at"}
+
+# A `fabric_core::TenantId`: lowercase and DNS-label-like -- `parse_dns_label`,
+# not `parse_identifier`, so it does not share `DATA_SOURCE_ID`'s character
+# class even though the two regexes once happened to be identical.
+PLACEMENT_TENANT_ID = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+# A `fabric_core::LogicalDataSourceName`: `parse_identifier`, the same rule
+# as `DATA_SOURCE_ID` -- an ASCII letter, then letters, digits, hyphens, or
+# underscores -- `primary`, `audit`, `analytics`.
+LOGICAL_DATA_SOURCE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
+
+# `isolation`, spelled exactly as the wire's `IsolationModelDocument` --
+# keyed by `kind` so a field belonging to a different kind cannot be smuggled
+# in beside it.
+ISOLATION_KEYS_BY_KIND = {
+    "database": {"kind"},
+    "schema": {"kind", "schema"},
+    "discriminator": {"kind", "column", "value"},
+}
 
 # Keys whose value is a credential rather than a reference to one. `existingSecret`,
 # `secretName`, `secretKeyRef` and friends name a secret and are expected.
@@ -1813,7 +1848,7 @@ def _check_one_data_source(named: Path, entry, seen_ids: set[str], problems: lis
         return
 
     if not isinstance(id_, str) or not DATA_SOURCE_ID.match(id_):
-        bad("id is not a lowercase, DNS-label-like identifier")
+        bad("id is not a valid data source identifier (an ASCII letter, then letters, digits, hyphens, or underscores)")
     elif id_ in seen_ids:
         bad("id is declared more than once")
     else:
@@ -1951,6 +1986,239 @@ def _check_discriminator(discriminator, bad) -> None:
         bad("discriminator.column must be a non-empty string")
 
 
+def check_placements(root: Path, problems: list[str]) -> None:
+    """`placements.yaml` is the recorded fact of where a tenant's data lives.
+
+    ADR 0023 part 2 (application repository) makes
+    `environments/<environment>/placements.yaml` a third machine-managed file
+    beside `components.yaml` and `data-sources.yaml`: Fabric writes it when a
+    tenant is placed, and publication copies the record into the tenant
+    binding rather than recomputing it (ADR 0007). A human may edit it under
+    break-glass, and that edit is honoured as written -- this check validates
+    the shape and the cross-file facts, never recomputes a placement.
+
+    Every entry names a `data_source` declared in this environment's
+    `data-sources.yaml`, and its `isolation` must agree with that data
+    source's placement class: `discriminator` exactly when the data source is
+    `shared`, and then with the same `column`; at most one non-discriminator
+    placement per data source, since a `dedicated` data source (or any other
+    non-`shared` class) is one tenant's; and no two discriminator placements
+    on one data source sharing a `value`.
+
+    A missing `placements.yaml` is not a problem. A missing sibling
+    `data-sources.yaml` is, the moment `placements.yaml` names one: a
+    placement with nothing declared to place it on is a dangling reference.
+    """
+    for environment in ENVIRONMENTS:
+        manifest = root / "environments" / environment / "placements.yaml"
+        if not manifest.is_file():
+            continue
+
+        documents = load_all(manifest, problems)
+        if not documents:
+            continue
+
+        declared = documents[0]
+        named = manifest.relative_to(root)
+
+        if declared.get("schemaVersion") != PLACEMENTS_SCHEMA_VERSION:
+            fail(problems, f"{named}: schemaVersion is not {PLACEMENTS_SCHEMA_VERSION}")
+            continue
+
+        if declared.get("environment") != environment:
+            fail(problems, f"{named}: environment is {declared.get('environment')!r}, not {environment!r}")
+            continue
+
+        unknown = set(declared) - PLACEMENT_ENVELOPE_KEYS
+        if unknown:
+            fail(problems, f"{named}: unknown key(s) {', '.join(sorted(unknown))}")
+            continue
+
+        entries = declared.get("placements")
+        if not isinstance(entries, list):
+            fail(problems, f"{named}: placements is not a list")
+            continue
+
+        data_sources = _data_sources_by_id(root, environment, problems)
+
+        seen_tenant_logical: set[tuple[str, str]] = set()
+        data_source_state: dict[str, dict] = defaultdict(lambda: {"non_discriminator": 0, "values": set()})
+        for entry in entries:
+            _check_one_placement(named, entry, seen_tenant_logical, data_source_state, data_sources, problems)
+
+
+def _data_sources_by_id(root: Path, environment: str, problems: list[str]):
+    """The declared data sources for `environment`, by id, as (`placement`,
+    `discriminator.column` or `None`).
+
+    Returns `None` -- a sentinel, not an empty mapping -- when
+    `data-sources.yaml` does not exist: an empty mapping would mean "declares
+    nothing", which is a real state a checked file can be in, so a missing
+    file must read differently. `check_data_sources` validates this same file
+    on its own terms; this only reads the two facts a placement needs to be
+    checked against it.
+    """
+    manifest = root / "environments" / environment / "data-sources.yaml"
+    if not manifest.is_file():
+        return None
+
+    documents = load_all(manifest, problems)
+    if not documents:
+        return {}
+
+    entries = documents[0].get("dataSources")
+    if not isinstance(entries, list):
+        return {}
+
+    by_id: dict[str, tuple] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        id_ = entry.get("id")
+        if not isinstance(id_, str) or not id_:
+            continue
+        discriminator = entry.get("discriminator")
+        column = discriminator.get("column") if isinstance(discriminator, dict) else None
+        by_id[id_] = (entry.get("placement"), column)
+    return by_id
+
+
+def _check_one_placement(named: Path, entry, seen: set, data_source_state: dict, data_sources, problems: list[str]) -> None:
+    """One `placements` entry: field shape, then agreement with its data source."""
+    if not isinstance(entry, dict):
+        fail(problems, f"{named}: a placements entry is not a mapping")
+        return
+
+    tenant = entry.get("tenant")
+    logical = entry.get("logical")
+    if isinstance(tenant, str) and tenant and isinstance(logical, str) and logical:
+        label = f"{tenant}/{logical}"
+    else:
+        label = "<placement with no tenant/logical>"
+
+    def bad(message: str) -> None:
+        fail(problems, f"{named}: {label}: {message}")
+
+    unknown = set(entry) - PLACEMENT_ENTRY_KEYS
+    if unknown:
+        bad(f"declares unknown key(s) {', '.join(sorted(unknown))}")
+
+    missing = PLACEMENT_ENTRY_KEYS - set(entry)
+    if missing:
+        bad(f"is missing {', '.join(sorted(missing))}")
+        return
+
+    tenant_ok = isinstance(tenant, str) and bool(PLACEMENT_TENANT_ID.match(tenant))
+    if not tenant_ok:
+        bad("tenant is not a lowercase, DNS-label-like identifier")
+
+    logical_ok = isinstance(logical, str) and bool(LOGICAL_DATA_SOURCE_NAME.match(logical))
+    if not logical_ok:
+        bad("logical is not a valid logical data source name")
+
+    if tenant_ok and logical_ok:
+        key = (tenant, logical)
+        if key in seen:
+            bad("tenant and logical are declared more than once")
+        else:
+            seen.add(key)
+
+    data_source = entry.get("data_source")
+    source_info = None
+    if not isinstance(data_source, str) or not data_source:
+        bad("data_source must be a non-empty string")
+    elif data_sources is None:
+        bad(f"data_source {data_source!r} is not declared -- this environment has no data-sources.yaml")
+    elif data_source not in data_sources:
+        bad(f"data_source {data_source!r} is not declared in this environment's data-sources.yaml")
+    else:
+        source_info = data_sources[data_source]
+
+    placed_at = entry.get("placed_at")
+    if not isinstance(placed_at, str) or not _is_rfc3339(placed_at):
+        bad("placed_at is not an RFC 3339 timestamp")
+
+    isolation = entry.get("isolation")
+    kind = _check_isolation(isolation, bad)
+
+    if source_info is None or kind is None:
+        return
+
+    placement_class, discriminator_column = source_info
+    if placement_class == "shared":
+        if kind != "discriminator":
+            bad(f"data_source {data_source!r} is 'shared', which requires isolation.kind 'discriminator', not {kind!r}")
+        elif isolation.get("column") != discriminator_column:
+            bad(f"isolation.column {isolation.get('column')!r} does not match data_source {data_source!r}'s "
+                f"discriminator column {discriminator_column!r}")
+    elif kind == "discriminator":
+        bad(f"isolation.kind is 'discriminator' but data_source {data_source!r}'s placement is "
+            f"{placement_class!r}, not 'shared'")
+
+    state = data_source_state[data_source]
+    if kind == "discriminator":
+        value = isolation.get("value")
+        if isinstance(value, str) and value:
+            if value in state["values"]:
+                bad(f"another placement already uses discriminator value {value!r} on data_source {data_source!r}")
+            else:
+                state["values"].add(value)
+    else:
+        state["non_discriminator"] += 1
+        if state["non_discriminator"] > 1:
+            bad(f"data_source {data_source!r} already has a non-discriminator placement -- a "
+                f"{placement_class!r} data source serves one tenant")
+
+
+def _check_isolation(isolation, bad):
+    """`{kind: database}` | `{kind: schema, schema}` | `{kind: discriminator, column, value}`.
+
+    Returns the validated `kind`, or `None` when the shape itself is wrong --
+    the caller cannot check agreement with a data source against an isolation
+    that is not even well formed.
+    """
+    if not isinstance(isolation, dict):
+        bad("isolation must be a mapping")
+        return None
+
+    kind = isolation.get("kind")
+    allowed = ISOLATION_KEYS_BY_KIND.get(kind)
+    if allowed is None:
+        bad(f"isolation.kind {kind!r} is not 'database', 'schema', or 'discriminator'")
+        return None
+
+    unknown = set(isolation) - allowed
+    if unknown:
+        bad(f"isolation declares unknown key(s) {', '.join(sorted(unknown))} for kind {kind!r}")
+        return None
+
+    if kind == "schema":
+        schema = isolation.get("schema")
+        if not isinstance(schema, str) or not schema:
+            bad("isolation.schema must be a non-empty string")
+            return None
+    elif kind == "discriminator":
+        column = isolation.get("column")
+        if not isinstance(column, str) or not column:
+            bad("isolation.column must be a non-empty string")
+            return None
+        value = isolation.get("value")
+        if not isinstance(value, str) or not value:
+            bad("isolation.value must be a non-empty string")
+            return None
+
+    return kind
+
+
+def _is_rfc3339(value: str) -> bool:
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        datetime.fromisoformat(candidate)
+    except ValueError:
+        return False
+    return True
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -1984,6 +2252,7 @@ def main() -> int:
     check_operator_only_services(root, render, problems)
     check_components_match_what_deploys(root, render, problems)
     check_data_sources(root, problems)
+    check_placements(root, problems)
 
     if problems:
         print(f"{len(problems)} problem(s):\n")
