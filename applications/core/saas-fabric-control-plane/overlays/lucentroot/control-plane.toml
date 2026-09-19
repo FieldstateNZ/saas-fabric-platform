@@ -95,6 +95,29 @@ reconciliation_interval_seconds = 60
 # never the registry credential; a boundary that does not exist cannot be
 # conflated with one that does.
 
+# Where the runtime publisher writes (ADR 0023 §4 in the application
+# repository). It composes the runtime's three documents from declared data
+# sources, recorded placements and the derived catalogue, and writes them as
+# ConfigMaps straight to the API server with this deployment's own identity --
+# never through Git. `namespace` must be the namespace `applications/core/saas-fabric`
+# runs in and mounts its three ConfigMap volumes from, and the Role this
+# deployment's ServiceAccount holds there
+# (`applications/core/saas-fabric/overlays/lucentroot/publication-rbac.yaml`)
+# is scoped to exactly the three names the adapter ever writes. A publication
+# that changes nothing writes nothing, so sixty seconds -- the same
+# integration-environment reasoning as `reconciliation_interval_seconds`
+# above -- costs a comparison against the held ConfigMaps on every sweep that
+# finds nothing to do, and nothing more.
+#
+# Required by every saas-fabric-control-plane build that understands
+# `publication`, and refused by `0.3.0-preview.13` and every build before it,
+# which deny unknown fields under `[platform_management]`. So it lands in the
+# same commit that advances this environment past `0.3.0-preview.13`, never
+# on its own -- exactly the rule `audience` below already follows.
+[platform_management.publication]
+namespace = "platform-system"
+interval_seconds = 60
+
 [identity_provider]
 mode = "keycloak"
 # Cluster-local. Keycloak's administrative API is not published on any plane,
