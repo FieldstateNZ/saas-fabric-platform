@@ -31,10 +31,18 @@ the artifact cannot move under the pin — but the Deployment stays at
 `replicas: 0`.
 
 The reason is no longer a missing image. The runtime plane reads its tenants,
-data sources and catalogue from files, and **none of them exists on any
-environment yet** — they are a reconciliation target beside Keycloak, and the
-control plane does not publish them yet. A replica would start, fail to find
-them, and refuse to serve. Zero states that honestly.
+data sources and catalogue from three ConfigMaps a publisher in the control
+plane writes directly to the API server (ADR 0023 §4 in the application
+repository) — `fabric-runtime-tenants`, `fabric-runtime-data-sources` and
+`fabric-runtime-catalog`, each mounted below at its own whole-volume
+directory. This platform repository's part is wiring, not data: the Role that
+lets the publisher write them, and the mounts that let this Deployment read
+them. It declares none of the three ConfigMaps themselves, so nothing here
+can revert what the publisher wrote. **None of them holds a real document on
+any environment yet** — the publisher needs a control-plane build that
+understands `[platform_management.publication]`, which has not shipped — so a
+replica would start, fail to find them, and refuse to serve. Zero states that
+honestly.
 
 **This Application reporting Healthy does not mean SaaS Fabric is serving.** It
 means the cluster matches Git, and Git currently asks for zero replicas.
@@ -59,6 +67,9 @@ Promote to production only after LucentRoot has run the tag — see
 - ServiceAccount;
 - non-secret runtime configuration, and the *references* to secret
   configuration;
+- the Role and RoleBinding that let the control plane's runtime publisher
+  write the three ConfigMaps this Deployment mounts, and the mounts
+  themselves — never the ConfigMaps' content, which is the publisher's;
 - autoscaling, when a load profile exists — see below.
 
 ## What the platform does not own
@@ -82,7 +93,7 @@ configured and are not, which is worse than being unconfigured.
 | Setting | Value |
 |---|---|
 | `token.mode` | `trusted_ingress` — the gateway authenticates, the runtime consumes the identity it established |
-| `tenants_path`, `data_sources_path`, `catalog_path` | files reconciliation writes and the runtime reads |
+| `tenants_path`, `data_sources_path`, `catalog_path` | one path per ConfigMap the runtime publisher writes and this pod mounts, under `/etc/fabric/state/` |
 | `[[connectors]]` | none yet, and the application refuses to start with an empty list |
 
 That refusal is correct: a runtime plane with no connector can execute nothing,

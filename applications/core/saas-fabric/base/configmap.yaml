@@ -23,13 +23,21 @@ data:
     [token]
     mode = "trusted_ingress"
 
-    # The files reconciliation writes and the runtime reads. **None of them
-    # exists on any environment yet**, which is why this Deployment is held at
-    # zero replicas — see README.md. Publishing them is a reconciliation target
-    # beside Keycloak, not a control-plane mutation reaching into a registry.
-    tenants_path = "/etc/fabric/state/tenants.json"
-    data_sources_path = "/etc/fabric/state/data-sources.json"
-    catalog_path = "/etc/fabric/state/catalog.json"
+    # The files the runtime publisher writes and this pod reads: one path per
+    # ConfigMap the publisher owns (ADR 0018 in the application repository),
+    # each mounted below at its own whole-volume directory rather than a
+    # shared one -- three ConfigMap volumes cannot share a directory, and
+    # `subPath` is refused for the reason the Deployment's own comment gives.
+    # **None of the three holds a real document on any environment yet**,
+    # which is why this Deployment is held at zero replicas — see README.md.
+    # The control plane's publisher (ADR 0023 §4) composes them from declared
+    # data sources, recorded placements and the derived catalogue and writes
+    # them directly to the API server; nothing in this repository declares
+    # the ConfigMaps themselves, so their presence and their content are
+    # Fabric's fact, never Git's.
+    tenants_path = "/etc/fabric/state/tenants/tenants.json"
+    data_sources_path = "/etc/fabric/state/data-sources/data-sources.json"
+    catalog_path = "/etc/fabric/state/catalog/catalog.json"
 
     # Deliberately empty, and the application refuses to start with an empty
     # list. That refusal is correct: a runtime plane with no connector can
