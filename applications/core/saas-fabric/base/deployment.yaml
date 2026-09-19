@@ -73,6 +73,31 @@ spec:
             - name: config
               mountPath: /etc/fabric
               readOnly: true
+
+            # `fabric-runtime-tenants`, one of the runtime publisher's three
+            # ConfigMaps (ADR 0023 §4 in the application repository). A
+            # whole-volume mount, never `subPath` — a `subPath` mount is
+            # resolved once at pod start and never updated, which would leave
+            # this pod holding whatever tenant document existed when it
+            # started while the ConfigMap moved on underneath it (ADR 0018).
+            # Its own directory, because a ConfigMap volume owns the whole
+            # directory it is mounted at and three ConfigMaps cannot share
+            # one. Nothing in this repository declares this ConfigMap, so no
+            # Argo sync can ever revert a publication by writing over it.
+            - name: state-tenants
+              mountPath: /etc/fabric/state/tenants
+              readOnly: true
+
+            # `fabric-runtime-data-sources`, the publisher's second document.
+            # Same reasoning as tenants above: its own whole-volume directory.
+            - name: state-data-sources
+              mountPath: /etc/fabric/state/data-sources
+              readOnly: true
+
+            # `fabric-runtime-catalog`, the publisher's third document.
+            - name: state-catalog
+              mountPath: /etc/fabric/state/catalog
+              readOnly: true
           livenessProbe:
             httpGet:
               # `/health` and `/ready`, which is what the application serves.
@@ -104,3 +129,23 @@ spec:
         - name: config
           configMap:
             name: saas-fabric-config
+
+        # Not `optional: true`, on any of the three below. ADR 0023 §5 raises
+        # this Deployment's replica count only once the controller reports a
+        # complete publication, so by the time a real pod is asked to start,
+        # every document should already exist -- and if one does not, that is
+        # exactly the case this Deployment must not paper over. An optional
+        # ConfigMap volume mounts as empty when absent, which would let a pod
+        # start, serve nothing correctly, and fail closed at the first
+        # request instead of at admission, which is the later and worse place
+        # to discover a publication never finished. Absent the ConfigMap, the
+        # kubelet holds the pod at `ContainerCreating` instead.
+        - name: state-tenants
+          configMap:
+            name: fabric-runtime-tenants
+        - name: state-data-sources
+          configMap:
+            name: fabric-runtime-data-sources
+        - name: state-catalog
+          configMap:
+            name: fabric-runtime-catalog

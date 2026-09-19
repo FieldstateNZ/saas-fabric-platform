@@ -30,7 +30,10 @@ Checks, in order of how much damage they prevent:
  16. `placements.yaml` records only a placement whose data source is
      declared, whose isolation agrees with that data source's placement
      class, and that does not collide with another placement on the same
-     data source.
+     data source;
+ 17. no rendered manifest declares a `fabric-runtime-*` ConfigMap in
+     `platform-system` -- the runtime publisher owns those, and Git must not
+     be able to revert a publication (ADR 0023 §4, application repository).
 """
 from __future__ import annotations
 
@@ -95,7 +98,14 @@ DISCRIMINATOR_KEYS = {"column"}
 PLACEMENTS_SCHEMA_VERSION = 1
 
 PLACEMENT_ENVELOPE_KEYS = {"schemaVersion", "environment", "placements"}
-PLACEMENT_ENTRY_KEYS = {"tenant", "logical", "data_source", "isolation", "placed_at"}
+PLACEMENT_REQUIRED_ENTRY_KEYS = {"tenant", "logical", "data_source", "isolation", "placed_at"}
+# `revision` is the one optional entry key: a break-glass edit to a record
+# that predates it, or one nobody has ever hand-edited, still parses -- the
+# application repository defaults it to 1 when absent
+# (`fabric_core::BindingRevision`'s `first_revision`), so this checker must
+# accept its absence the same way rather than demanding a field the runtime
+# does not.
+PLACEMENT_ENTRY_KEYS = PLACEMENT_REQUIRED_ENTRY_KEYS | {"revision"}
 
 # A `fabric_core::TenantId`: lowercase and DNS-label-like -- `parse_dns_label`,
 # not `parse_identifier`, so it does not share `DATA_SOURCE_ID`'s character
@@ -408,6 +418,40 @@ def check_no_duplicate_resources(render: Path, problems: list[str]) -> None:
             if len(sources) > 1:
                 where = ", ".join(sorted(set(sources)))
                 fail(problems, f"{environment}: {identity[1]}/{identity[3]} defined in {where}")
+
+
+def check_no_runtime_publication_configmaps(render: Path, problems: list[str]) -> None:
+    """Nothing in Git may declare a `fabric-runtime-*` ConfigMap in `platform-system`.
+
+    `fabric-runtime-tenants`, `fabric-runtime-data-sources` and
+    `fabric-runtime-catalog` are written directly to the API server by the
+    control plane's runtime publisher (ADR 0023 §4, application repository) --
+    created and replaced over plain HTTPS, never through a commit. A rendered
+    manifest that declared one of the three, even with content that happened
+    to match, would hand Argo CD's self-heal a reason to overwrite whatever
+    the publisher last wrote with whatever this repository last said, which is
+    exactly the revert this decision exists to make structurally impossible.
+    The absence of a Git source is the guarantee, so this checker looks for
+    one and fails the build if it ever finds it.
+    """
+    for environment in ENVIRONMENTS:
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "ConfigMap":
+                    continue
+                metadata = document.get("metadata") or {}
+                name = metadata.get("name")
+                if (
+                    metadata.get("namespace") == "platform-system"
+                    and isinstance(name, str)
+                    and name.startswith("fabric-runtime-")
+                ):
+                    fail(
+                        problems,
+                        f"{environment}: {path.name} declares ConfigMap {name!r} in "
+                        "platform-system -- the runtime publisher owns fabric-runtime-* "
+                        "and Git must not be able to revert its writes",
+                    )
 
 
 def check_applications_match_their_project(render: Path, problems: list[str]) -> None:
@@ -2103,10 +2147,15 @@ def _check_one_placement(named: Path, entry, seen: set, data_source_state: dict,
     if unknown:
         bad(f"declares unknown key(s) {', '.join(sorted(unknown))}")
 
-    missing = PLACEMENT_ENTRY_KEYS - set(entry)
+    missing = PLACEMENT_REQUIRED_ENTRY_KEYS - set(entry)
     if missing:
         bad(f"is missing {', '.join(sorted(missing))}")
         return
+
+    if "revision" in entry:
+        revision = entry.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            bad("revision must be an integer of 1 or more")
 
     tenant_ok = isinstance(tenant, str) and bool(PLACEMENT_TENANT_ID.match(tenant))
     if not tenant_ok:
@@ -2231,6 +2280,7 @@ def main() -> int:
         check_no_plaintext_secrets(root / directory, problems)
     check_no_plaintext_secrets(render, problems)
     check_no_duplicate_resources(render, problems)
+    check_no_runtime_publication_configmaps(render, problems)
     check_applications_match_their_project(render, problems)
     check_no_client_resources(render, problems)
     check_service_references(render, problems)

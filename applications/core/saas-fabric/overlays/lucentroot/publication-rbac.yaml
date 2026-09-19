@@ -1,0 +1,52 @@
+# Write access for the runtime publisher's Kubernetes adapter (ADR 0023 §4 in
+# the application repository), scoped to exactly the three ConfigMaps it ever
+# addresses and nothing else in this namespace.
+#
+# `create` cannot be scoped by `resourceNames` — Kubernetes checks a name
+# against the request path, and a create request names no existing object —
+# so the unscoped `create` below is what lets the adapter make a document's
+# ConfigMap the first time it is published. `get` and `update` are scoped to
+# the three fixed names (`crates/fabric-publication-kubernetes/src/object.rs`
+# in the application repository): the adapter reads each one to learn its
+# `resourceVersion` and to detect a stale or divergent publication, then
+# `PUT`s a whole replacement over the version it read. A `get` on a name this
+# Role lists is authorized whether or not the object exists yet, so the
+# adapter's first read of a document nobody has published sees a clean `404`
+# rather than a `403` — required, because it must tell "not held" apart from
+# "not permitted".
+#
+# No `delete`: the adapter never removes a ConfigMap, and an emptied document
+# is an empty list inside one, never the object's absence. No `list`, `watch`
+# or `patch` either — the adapter never discovers objects, it only reads and
+# writes the three it already knows by name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: saas-fabric-runtime-publication
+  namespace: platform-system
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [fabric-runtime-tenants, fabric-runtime-data-sources, fabric-runtime-catalog]
+    verbs: [get, update]
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [create]
+---
+# Bound to the control plane's own identity, not a new account: the publisher
+# runs inside the same API process that already holds `saas-fabric-control-plane`
+# in `operator-system`, and a second identity for one process is a second
+# credential to reason about for no isolation gained.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: saas-fabric-runtime-publication
+  namespace: platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: saas-fabric-runtime-publication
+subjects:
+  - kind: ServiceAccount
+    name: saas-fabric-control-plane
+    namespace: operator-system
