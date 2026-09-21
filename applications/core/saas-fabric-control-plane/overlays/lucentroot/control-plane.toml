@@ -111,9 +111,10 @@ reconciliation_interval_seconds = 60
 #
 # Required by every saas-fabric-control-plane build that understands
 # `publication`, and refused by `0.3.0-preview.13` and every build before it,
-# which deny unknown fields under `[platform_management]`. So it lands in the
-# same commit that advances this environment past `0.3.0-preview.13`, never
-# on its own -- exactly the rule `audience` below already follows.
+# which deny unknown fields under `[platform_management]`. So it lands only
+# after the commit that advances this environment past `0.3.0-preview.13`
+# (the control plane's own sweep writes that one), never before it -- the
+# same rule `audience` below already followed.
 [platform_management.publication]
 namespace = "platform-system"
 interval_seconds = 60
