@@ -228,12 +228,16 @@ is not a silent `500` either.** If the client or its secret did not already
 exist by the time this policy synced, Envoy Gateway would mark the policy
 `Accepted: False, reason: Invalid`, and Argo CD would surface that as a
 Degraded Application at sync time, loudly, before any operator is affected.
-That ordering is now an Application-wave guarantee rather than a wave inside
-this one: `master-instance` (wave `30`) is Healthy — its convergence `Job`
-(an ordinary one, not a sync hook; see `../master-instance/base/job.yaml`'s
-own comment for why) has reached `Complete` — before this Application
-(wave `40`) syncs at all. See `../master-instance/README.md`'s
-"Rollout order".
+That ordering is an Application-wave guarantee rather than a wave inside
+this one, and it holds when the app-of-apps first brings an environment up:
+it does not create this Application (wave `40`) until `master-instance`
+(wave `30`) is Healthy — its convergence `Job` (an ordinary one, not a sync
+hook; see `../master-instance/base/job.yaml`'s own comment) has reached
+`Complete`. On an environment that already exists each Application syncs
+its own source on its own, and this one does not wait on `master-instance`'s
+health — observed on LucentRoot on 2026-09-22, when this Application synced
+while `master-instance` was Degraded. See `../master-instance/README.md`'s
+"What the wave gate holds, and when", and #44.
 
 The `500` failure mode is still real, and reached the same way as before: if
 this Secret is deleted or its key corrupted *after* the policy has already
