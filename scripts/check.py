@@ -757,7 +757,8 @@ def check_control_plane_is_operator_only(render: Path, problems: list[str]) -> N
 
 
 def check_forwarded_proto_is_asserted_once(render: Path, problems: list[str]) -> None:
-    """Only Keycloak's operator route may restate the scheme.
+    """Only Keycloak's operator route, and a listener-wide policy on the
+    operator listener itself, may restate the scheme.
 
     That route sets `X-Forwarded-Proto: https` because Envoy is an edge proxy
     and overwrites the header the operator ingress set, leaving Keycloak told
@@ -771,6 +772,24 @@ def check_forwarded_proto_is_asserted_once(render: Path, problems: list[str]) ->
     plaintext, which is the check the header exists to preserve. So this
     asserts both halves: nothing else sets it, and this route still does.
     Losing it is silent until an operator cannot sign in.
+
+    A `ClientTrafficPolicy` earns the identical exception, for the identical
+    reason, when it targets the `platform` Gateway's `operator` listener: that
+    listener's downstream is *always* the same TLS-terminating ingress, so
+    asserting `https` there states the same fact this file already lets
+    Keycloak's route state. One targeting any other listener or any other
+    Gateway is exactly the product-plane mistake above, one level up -- a
+    LAN client's connection can genuinely be plaintext, and a policy is a
+    blunter instrument than a route for making that mistake cluster-wide.
+
+    The policy must also live in `platform-system` itself. A `targetRefs`
+    entry carries no `namespace` -- Gateway API's local policy attachment
+    resolves a target within the policy's own namespace only -- so a `name:
+    platform` targeting a Gateway from some *other* namespace would resolve
+    to whatever that namespace's own "platform" happens to be, not to this
+    one. Requiring the policy's namespace is what makes "the platform
+    Gateway's operator listener" mean the one this repository actually
+    deploys, not any object a coincidental name collision could produce.
     """
     for environment in ENVIRONMENTS:
         asserted = []
@@ -778,43 +797,77 @@ def check_forwarded_proto_is_asserted_once(render: Path, problems: list[str]) ->
 
         for path in sorted((render / environment).rglob("*.yaml")):
             for document in load_all(path, problems):
-                if document.get("kind") != "HTTPRoute":
+                kind = document.get("kind")
+                if kind == "HTTPRoute":
+                    metadata = document["metadata"]
+                    if (metadata["name"], metadata["namespace"]) == ("keycloak-operator", "identity"):
+                        present = True
+                    for rule in document["spec"].get("rules", []):
+                        for filter_ in rule.get("filters", []):
+                            modifier = filter_.get("requestHeaderModifier") or {}
+                            for header in (modifier.get("set") or []) + (modifier.get("add") or []):
+                                if header.get("name", "").lower() == "x-forwarded-proto":
+                                    asserted.append((path, document, header.get("value")))
+                elif kind == "ClientTrafficPolicy":
+                    early = ((document.get("spec") or {}).get("headers") or {}).get(
+                        "earlyRequestHeaders"
+                    ) or {}
+                    for header in (early.get("set") or []) + (early.get("add") or []):
+                        if header.get("name", "").lower() == "x-forwarded-proto":
+                            asserted.append((path, document, header.get("value")))
+
+        for path, resource, value in asserted:
+            metadata = resource["metadata"]
+            kind = resource["kind"]
+            where = f"{environment}/{path.name}: {kind}/{metadata['name']}"
+
+            if kind == "HTTPRoute":
+                if (metadata["name"], metadata["namespace"]) != ("keycloak-operator", "identity"):
+                    fail(
+                        problems,
+                        f"{where} sets X-Forwarded-Proto; only keycloak-operator"
+                        " may, because only its listener is reached through an"
+                        " ingress that has already terminated TLS",
+                    )
                     continue
-                metadata = document["metadata"]
-                if (metadata["name"], metadata["namespace"]) == ("keycloak-operator", "identity"):
-                    present = True
-                for rule in document["spec"].get("rules", []):
-                    for filter_ in rule.get("filters", []):
-                        modifier = filter_.get("requestHeaderModifier") or {}
-                        for header in (modifier.get("set") or []) + (modifier.get("add") or []):
-                            if header.get("name", "").lower() == "x-forwarded-proto":
-                                asserted.append((path, document, header.get("value")))
 
-        for path, route, value in asserted:
-            metadata = route["metadata"]
-            where = f"{environment}/{path.name}: HTTPRoute/{metadata['name']}"
+                sections = {
+                    parent.get("sectionName")
+                    for parent in resource["spec"].get("parentRefs", [])
+                }
+                if sections != {OPERATOR_LISTENER}:
+                    fail(
+                        problems,
+                        f"{where} sets X-Forwarded-Proto but attaches to"
+                        f" {sorted(str(s) for s in sections)}; on any listener but"
+                        f" '{OPERATOR_LISTENER}' that labels a plaintext client"
+                        " https",
+                    )
 
-            if (metadata["name"], metadata["namespace"]) != ("keycloak-operator", "identity"):
-                fail(
-                    problems,
-                    f"{where} sets X-Forwarded-Proto; only keycloak-operator"
-                    " may, because only its listener is reached through an"
-                    " ingress that has already terminated TLS",
+            else:  # ClientTrafficPolicy
+                targets = list(resource["spec"].get("targetRefs") or [])
+                single = resource["spec"].get("targetRef")
+                if single:
+                    targets.append(single)
+                on_operator_listener = (
+                    metadata["namespace"] == "platform-system"
+                    and any(
+                        target.get("kind") == "Gateway"
+                        and target.get("name") == "platform"
+                        and target.get("sectionName") == OPERATOR_LISTENER
+                        for target in targets
+                    )
                 )
-                continue
-
-            sections = {
-                parent.get("sectionName")
-                for parent in route["spec"].get("parentRefs", [])
-            }
-            if sections != {OPERATOR_LISTENER}:
-                fail(
-                    problems,
-                    f"{where} sets X-Forwarded-Proto but attaches to"
-                    f" {sorted(str(s) for s in sections)}; on any listener but"
-                    f" '{OPERATOR_LISTENER}' that labels a plaintext client"
-                    " https",
-                )
+                if not on_operator_listener:
+                    fail(
+                        problems,
+                        f"{where} sets X-Forwarded-Proto; only a"
+                        " ClientTrafficPolicy in platform-system targeting the"
+                        f" platform Gateway's '{OPERATOR_LISTENER}' listener"
+                        " may, because only that listener is reached through"
+                        " an ingress that has already terminated TLS",
+                    )
+                    continue
 
             if value != "https":
                 fail(problems, f"{where} sets X-Forwarded-Proto to '{value}', not https")

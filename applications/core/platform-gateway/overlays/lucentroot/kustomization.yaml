@@ -5,3 +5,4 @@ kind: Kustomization
 # There is no certificate authority for *.lucentroot.internal.
 resources:
   - ../../base
+  - operator-scheme.yaml
