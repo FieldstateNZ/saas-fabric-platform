@@ -108,14 +108,14 @@ hand-made master-realm step; this resource is what removed it.
 
 Named in
 [`overlays/lucentroot/master-instance-config.yaml`](overlays/lucentroot/master-instance-config.yaml),
-by Keycloak username. **Empty today.** The lead is obtaining LucentRoot's
-operator's username; until a name is added there, this convergence grants
-nobody `fabric-operator` or master-realm `admin` — those two grants are still
-the hand-made ones they always were, on whatever account was granted them
-before this module existed. This is stated as a fact in that file, not left
-as a `TODO`: an empty roster is a valid, intentional state this module
-converges correctly (it grants nothing, to nobody, and changes nothing about
-who can already sign in), not a placeholder blocking a sync.
+by Keycloak username. One name today, the product owner's, declared on
+2026-09-22; the grants it carries on LucentRoot were made by hand before this
+module existed and are now converged, so they can never drift from the
+file. Adding an operator is adding a name; the next sync grants both roles.
+Removing a name revokes nothing — the grant is `exhaustive = false`, a
+partial assignment — so revocation is still an act in Keycloak, and that is
+the one thing about operators this module does not yet do. An empty roster
+is a valid state: it grants nothing, to nobody, and blocks no sync.
 
 The module's `keycloak_user` lookup resolves by username only, not by email —
 see `base/module/main.tf`'s comment on `data.keycloak_user.operator` for why

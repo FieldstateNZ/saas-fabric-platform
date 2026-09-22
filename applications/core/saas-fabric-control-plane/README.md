@@ -338,7 +338,7 @@ own sign-in, running on LucentRoot, before this merges.
 
 | Against | Identity | Permission | Established by |
 |---|---|---|---|
-| Keycloak | the signed-in operator's bearer | `fabric-operator` for Fabric access; master-realm `admin` for realm administration | [`master-instance`](../master-instance/), from the operator roster it declares — **empty today**, so both grants are still the hand-made ones they always were, on whatever account was granted them before this module existed, until a name is added |
+| Keycloak | the signed-in operator's bearer | `fabric-operator` for Fabric access; master-realm `admin` for realm administration | [`master-instance`](../master-instance/), from the operator roster it declares |
 | OpenBao | the pod's Kubernetes service account | this instance's partition | bootstrap role and policy above |
 | GitHub | installations of the applications Fabric creates | selected client/platform repositories | an operator connects each integration in Fabric |
 
