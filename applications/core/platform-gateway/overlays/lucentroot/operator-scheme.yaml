@@ -1,0 +1,147 @@
+# The operator listener asserts its own scheme, for every route on it.
+#
+# The listener is plain HTTP behind Tailscale's TLS-terminating ingress (see
+# `../../base/gateway.yaml` and `platform-operator-edge` in
+# `operator-edge.yaml`). Envoy's default -- `use_remote_address: true`, zero
+# trusted hops -- treats that ingress as an untrusted downstream: the
+# connection manager overwrites `X-Forwarded-Proto` with the protocol of its
+# own hop, which is plain, and derives the pseudo-header `:scheme` from that
+# before a route is even matched.
+#
+# That is invisible until something reads `:scheme` rather than the visible
+# header. Envoy's own OAuth2 filter does exactly that: it builds the post-login
+# return URL (`original_url`, signed into `state`) and the post-logout
+# `post_logout_redirect_uri` from `:scheme`, on this listener, for the
+# `saas-fabric-control-plane` OIDC policy. Read as `http`, every sign-in would
+# return to `http://fabric-lucentroot.tail5a7546.ts.net/...` -- an origin the
+# Tailscale Ingress does not serve at all -- and `/logout` would hand Keycloak
+# a plain-HTTP redirect it refuses.
+#
+# A route-level `RequestHeaderModifier`, the fix Keycloak's own route already
+# uses, cannot reach this: the router that runs route filters sits *after* the
+# connection manager has already derived `:scheme`, and after the OAuth2
+# filter has already read it. Only something the connection manager itself
+# consults before that point -- which is what a `ClientTrafficPolicy` on the
+# listener configures -- runs early enough.
+#
+# # One mechanism, not two independent ones
+#
+# `clientIPDetection.xForwardedFor` and `headers.earlyRequestHeaders` read as
+# separate settings doing separate jobs, and they are not: each is half of a
+# single fix, and neither alone achieves the fix -- `clientIPDetection` by
+# itself correctly does what it says it does, client-IP detection, which is
+# not the problem this file exists to solve.
+#
+# Configuring `clientIPDetection.xForwardedFor` at all is what makes Envoy
+# Gateway install Envoy's `original_ip_detection.xff` extension for this
+# listener -- and, because an IP-detection extension is now present, Envoy
+# Gateway sets the connection manager's `use_remote_address: false` (Envoy
+# Gateway 1.9.0, `internal/xds/translator/listener.go`, ~196-206 and
+# ~370-374; this is Envoy Gateway's own translation behaviour, not a switch
+# this policy sets directly). With `use_remote_address: false`, the branch
+# that overwrites `X-Forwarded-Proto` from the connection's own transport
+# never runs at all -- not "trusts what a trusted hop sent instead of
+# overwriting it", but doesn't execute, full stop.
+#
+# `headers.earlyRequestHeaders.set` is what fills the gap that leaves. It
+# applies `X-Forwarded-Proto: https` (`OVERWRITE_IF_EXISTS_OR_ADD`) at the top
+# of Envoy's request-header mutation, before routing, before tracing, before
+# the connection manager would otherwise have derived `:scheme` -- so by the
+# time anything downstream reads either the header or the pseudo-header, this
+# is the value that is there, and nothing later in the pipeline overwrites it
+# back, because the branch that used to do that is the one `numTrustedHops`
+# just switched off.
+#
+# `numTrustedHops: 1` is set because the CRD requires a value under
+# `xForwardedFor` to configure the extension at all; `1` reflects that this
+# listener has exactly one downstream hop, the Tailscale ingress. Its actual
+# effect on client-IP detection is a side effect of reaching for this
+# mechanism, not the goal -- see below.
+#
+# **Deleting `earlyRequestHeaders` while keeping `clientIPDetection` regresses
+# silently.** `use_remote_address: false` would still be set, so the old
+# overwrite-to-http branch would still not run -- but nothing would assert
+# `https` either. Whatever `X-Forwarded-Proto` the request arrives with (which
+# for this listener is nothing, since the Tailscale ingress sends none) is
+# what `:scheme` would then derive from, on a plaintext connection: `http`.
+# The failure mode this file exists to close would return, without either
+# setting appearing to be missing.
+#
+# # The side effect on client-IP detection
+#
+# `use_remote_address: false` also changes how Envoy picks a client IP for
+# this listener's access logs and anything that later reads one: with
+# `numTrustedHops: 1`, Envoy trusts the rightmost entry of whatever
+# `X-Forwarded-For` a request arrives with, rather than verifying it against
+# the TCP peer. `platform-operator-edge` is a `ClusterIP` Service with no
+# network policy in front of it, so any in-cluster caller that reaches it
+# directly -- not only the Tailscale ingress -- can supply an
+# `X-Forwarded-For` of its choosing and have Envoy record it as the client.
+# Nothing in this repository keys on client IP today, so this is a gap worth
+# knowing about rather than one worth closing here. `X-Forwarded-Proto` is not
+# exposed to the same forgery: the early `set` above overwrites it
+# unconditionally, so no caller's own header survives into `:scheme` either
+# way.
+#
+# `xForwardedFor.trustedCIDRs` is the alternative not taken here: it also
+# routes through `use_remote_address: false`, the same as `numTrustedHops`
+# does, but has Envoy trust an `X-Forwarded-For` entry only when it comes
+# from an address within given CIDR ranges, closing the in-cluster-caller gap
+# above instead of accepting it. Not used here because it would need the
+# cluster's pod CIDR -- environment state this file, scoped to one overlay's
+# listener policy, does not own and should not hardcode. Worth adopting once
+# something does key on client IP, from wherever that environment state is
+# introduced.
+#
+# # Why the config dump is checked, and why a sign-in is checked too
+#
+# The derivation above also assumes the downstream speaks HTTP/1.1, which has
+# no `:scheme` of its own on the wire for Envoy to synthesise from headers.
+# An h2c downstream would carry an explicit `:scheme: http` pseudo-header from
+# the client, which this mechanism does not rewrite. So confirming this
+# listener's `HttpConnectionManager` actually has `use_remote_address: false`
+# and the `early_header_mutation_extensions` entry (Envoy's own config dump,
+# checked directly, needs nothing this Application does not already provide)
+# proves the mechanism loaded as intended -- and a later, real sign-in
+# returning to an `https://` URL is still what proves it produces the right
+# outcome under an actual HTTP/1.1 request end to end. See `../../README.md`
+# for both checks and the order they resolve in.
+#
+# Safe only on this listener, for the same reason
+# `scripts/check.py`'s `check_forwarded_proto_is_asserted_once` already
+# applies to Keycloak's route rather than to the product plane: the operator
+# listener's downstream is *always* the TLS-terminating Tailscale ingress --
+# there is no other way in. The product listener's downstream can genuinely be
+# a plaintext LAN client, and asserting `https` there would launder that
+# client's own claim about itself. `check_forwarded_proto_is_asserted_once` is
+# extended alongside this file to hold a `ClientTrafficPolicy` to the same
+# rule it already holds Keycloak's route to, including that it must be this
+# namespace's policy on this Gateway -- a same-named `Gateway` elsewhere must
+# not borrow the exception.
+#
+# Keycloak's route keeps its own `X-Forwarded-Proto` filter for now. Removing
+# it is a separate, later change, made only after a sign-in through this
+# listener has actually been observed returning to an `https://` URL -- not
+# bundled with introducing this policy, and not triggered by this policy
+# merely being present and Synced.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: platform-operator-scheme
+  namespace: platform-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: platform
+      sectionName: operator
+
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: 1
+
+  headers:
+    earlyRequestHeaders:
+      set:
+        - name: X-Forwarded-Proto
+          value: https
