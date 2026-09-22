@@ -1,0 +1,75 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: master-instance
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: kustomize
+    fieldstate.nz/class: core
+  annotations:
+    # Wave 30, with SaaS Fabric's own runtime -- after Keycloak (wave 20) is
+    # Healthy, so the admin REST API this Job drives actually answers; after
+    # ../master-instance-credential (wave 10), so the gateway secret it sets
+    # on the client already exists; and, since Argo CD does not order
+    # Applications within one wave against each other, racing SaaS Fabric's
+    # runtime rather than waiting on it -- the two have no dependency on one
+    # another, only a shared one on wave 20 (docs/adding-an-application.md:
+    # "if two things in one wave race, they probably have a dependency that
+    # should be expressed by moving one to the next wave", which is not the
+    # case here). Before ../saas-fabric-control-plane at wave 40: its OIDC
+    # `SecurityPolicy` reads the client this Job sets a secret on, and this
+    # Application's own health is what wave 40 actually waits on -- the
+    # Job's own health (Progressing while it runs, Healthy once it succeeds,
+    # Degraded once backoffLimit is exhausted), not a hook's completion. An
+    # earlier draft used a sync hook for this Job, which does not gate
+    # anything: Argo CD excludes hook resources from an Application's health
+    # rollup (argo-cd#9861), so a hook Job running or even failed would have
+    # let this Application report Healthy regardless. See
+    # base/job.yaml's own comment, and
+    # ../saas-fabric-control-plane/README.md's "Rollout order".
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  source:
+    repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+    targetRevision: PLACEHOLDER
+    path: applications/core/master-instance/overlays/PLACEHOLDER
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: operator-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    # No `ApplyOutOfSyncOnly=true`, and this may never gain it.
+    # base/job.yaml's convergence Job re-runs every sync only because Argo CD
+    # applies every resource in this Application on every sync operation,
+    # whether or not that resource actually changed -- `Replace=true,Force=true`
+    # on the Job then turns that unconditional re-apply into a delete and
+    # recreate. `ApplyOutOfSyncOnly=true` would make Argo CD skip resources
+    # showing no diff, which is exactly this Job on any sync where nothing in
+    # Git changed -- the one case its own re-convergence exists to cover.
+    syncOptions:
+      - CreateNamespace=true
+    # The same labels ../saas-fabric-control-plane and
+    # ../master-instance-credential both declare for this namespace --
+    # identical by design across all three, so that no Application's own
+    # labels depend on which of them happens to create the namespace first.
+    # See that Application's own comment for the same statement.
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+        fieldstate.nz/plane: operator
+        fieldstate.nz/operator-gateway-access: "true"
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

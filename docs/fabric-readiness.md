@@ -36,6 +36,14 @@ resource today. Rebuild requirements are in the
 [control-plane README](../applications/core/saas-fabric-control-plane/README.md).
 No credentials or access tokens belong in this record.
 
+**Superseded 2026-09-22.** `applications/core/master-instance`'s module now
+owns the master realm's `frontendUrl` attribute (ADR 0025), so a rebuilt
+LucentRoot no longer needs the step above performed separately. The
+observation stands as recorded — this note describes what changed
+afterward, not what was verified on 2026-09-17. See
+[`master-instance`'s own README](../applications/core/master-instance/README.md),
+"The realm itself".
+
 ## Verified automatic upgrade and observation
 
 Application source `3d9c542837463f8329378740a48cedc405090397` published as

@@ -54,6 +54,11 @@ spec:
       namespace: operator-system
     - server: https://kubernetes.default.svc
       namespace: identity
+    # applications/core/master-instance's own OpenTofu state, and nothing
+    # else -- see that namespace's own manifest for why it exists apart from
+    # operator-system.
+    - server: https://kubernetes.default.svc
+      namespace: master-instance-state
     - server: https://kubernetes.default.svc
       namespace: secrets
     - server: https://kubernetes.default.svc

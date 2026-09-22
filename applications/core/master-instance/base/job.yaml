@@ -1,0 +1,172 @@
+# The convergence itself: the repository's first Job.
+#
+# **A normal Job, not a sync hook -- this was wrong in an earlier draft, and
+# the fix is the reason for the comment.** A hook Job's completion does not
+# gate anything: Argo CD excludes hook resources from an Application's health
+# rollup (argo-cd#9861), and `argocd/runtime/application-health.yaml` gates
+# every wave on the *child Application's* health -- so a hook Job, running or
+# even failed, would have let this Application report Healthy the moment its
+# RBAC and ConfigMap landed, and wave `40` would have proceeded regardless.
+# There would have been no gate at all, silently.
+#
+# A normal `batch/v1` Job has no such gap: Argo CD's built-in health check for
+# `Job` is Progressing while it runs, Healthy once it succeeds, Degraded once
+# it exhausts `backoffLimit` -- exactly the gate `../saas-fabric-control-plane`
+# (wave `40`) needs on this Application (wave `30`). A failed convergence
+# leaves this Application Degraded and wave `40` unsynced, loudly, which is
+# the property a hook never gave it.
+#
+# `Replace=true,Force=true` -- **both**, not `Replace=true` alone -- is what
+# makes a normal Job re-run on every sync in the hook's place. `spec.template`
+# is immutable on an ordinary Job: `Replace=true` on its own makes
+# gitops-engine issue a `kubectl replace` (a `PUT`), which the API server
+# refuses on an immutable-field change exactly as it would refuse a `PATCH`.
+# `Force` is not a fallback tried after that refusal -- gitops-engine derives
+# `Replace` and `Force` independently from this annotation and, with both
+# set, calls `ReplaceResource` with force requested from the start:
+# `kubectl replace --force` deletes the object and creates it again
+# unconditionally, the same two steps every time, not a retry path taken
+# only when a plain replace would have failed. This is Argo CD's own
+# documented recipe for "a Job that should run every sync". Together the two
+# options give back the property the hook's `BeforeHookCreation` (hook-only,
+# gone along with the hook annotations) used to provide, through
+# an ordinary, health-tracked resource instead of one Argo CD does not track
+# for health at all.
+#
+# **This only re-runs the Job because Argo CD applies every resource in this
+# Application on every sync, not only the ones that changed.** A sync that
+# changes nothing in Git still re-applies this Job (and gets a delete +
+# recreate from the annotations above) alongside everything else; that is
+# the actual mechanism behind "re-converges on every sync", not a property of
+# `Replace`/`Force` in isolation. **`ApplyOutOfSyncOnly=true` must never be
+# added to this Application's `syncPolicy`** -- it makes Argo CD skip
+# resources that show no diff, which is exactly the resources this Job's
+# reconvergence depends on being re-applied regardless of diff. See
+# ../application.yaml's own comment on this.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: master-instance-converge
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true,Force=true
+spec:
+  backoffLimit: 2
+  # A hung Keycloak -- unreachable, or answering too slowly to matter -- must
+  # fail this Job outright rather than pin it running forever: nothing else
+  # here has its own timeout, and a Job with no bound holds this
+  # Application Progressing indefinitely instead of Degraded, which blocks
+  # wave `40` exactly as hard as a real failure but without ever saying so.
+  # Ten minutes is generous for three Keycloak API round trips and a handful
+  # of role grants; anything short of a request that never returns finishes
+  # in a small fraction of that.
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: master-instance
+      # Needed for the `kubernetes` backend's own in-cluster authentication
+      # (module/main.tf's `in_cluster_config = true`) -- the only thing this
+      # identity is for now that the Keycloak admin credential arrives as an
+      # ordinary mirrored Secret (see the `KEYCLOAK_USER`/`KEYCLOAK_PASSWORD`
+      # env below) rather than being read over the API by an init container.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        # 65532 ("nonroot" in distroless images generally) stated
+        # numerically because the kubelet cannot check a *name* -- see
+        # ../../saas-fabric-control-plane/base/deployment-api.yaml's own
+        # comment on this for the failure mode a bare `runAsNonRoot: true`
+        # produces without it. `ghcr.io/opentofu/opentofu:1.12.6` declares no
+        # image-level user, so nothing here depends on the image agreeing
+        # with this number the way the control plane's distroless image
+        # does -- it starts as whatever UID this securityContext asserts.
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: converge
+          image: ghcr.io/opentofu/opentofu:1.12.6
+          command: [/bin/sh, /module/apply.sh]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            # The image declares no HOME for a non-root UID it never
+            # anticipated, and the root filesystem is read-only -- so
+            # anything that would default to `$HOME` (an rc file, a provider
+            # plugin cache) is redirected onto the one writable place this
+            # Pod has, the same `work` volume the module itself is copied
+            # into. No `TF_PLUGIN_CACHE_DIR`: it would need the directory to
+            # already exist, and `work` is a fresh `emptyDir` every run --
+            # `tofu init` already creates its own provider directory under
+            # `/work/.terraform` without one, so declaring a cache path here
+            # would only add a directory nothing ever reuses across runs.
+            - name: HOME
+              value: /work
+            - name: TMPDIR
+              value: /work
+            - name: KEYCLOAK_URL
+              value: http://keycloak-http.identity.svc.cluster.local
+            - name: KEYCLOAK_CLIENT_ID
+              value: admin-cli
+            - name: KEYCLOAK_REALM
+              value: master
+            - name: KEYCLOAK_USER
+              valueFrom:
+                secretKeyRef:
+                  # ../../master-instance-credential's sibling ExternalSecret,
+                  # mirroring identity/keycloak-admin into this namespace.
+                  name: keycloak-admin
+                  key: username
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-admin
+                  key: password
+            - name: TF_VAR_gateway_secret
+              valueFrom:
+                secretKeyRef:
+                  # ../../master-instance-credential
+                  name: saas-fabric-gateway-oidc
+                  key: client-secret
+            - name: TF_VAR_public_base_url
+              valueFrom:
+                configMapKeyRef:
+                  # overlays/lucentroot/master-instance-config.yaml
+                  name: master-instance-config
+                  key: publicBaseUrl
+            - name: TF_VAR_operators
+              valueFrom:
+                configMapKeyRef:
+                  name: master-instance-config
+                  key: operators
+            - name: TF_VAR_adopt_existing
+              valueFrom:
+                configMapKeyRef:
+                  name: master-instance-config
+                  key: adoptExisting
+          volumeMounts:
+            - name: module
+              mountPath: /module
+              readOnly: true
+            - name: work
+              mountPath: /work
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: module
+          configMap:
+            # Generated by this directory's kustomization.yaml from
+            # module/*.tf, module/.terraform.lock.hcl and module/apply.sh;
+            # kustomize rewrites this name to the generated, content-hashed
+            # one.
+            name: master-instance-module
+        - name: work
+          emptyDir: {}

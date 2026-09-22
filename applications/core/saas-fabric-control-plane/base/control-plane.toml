@@ -27,8 +27,21 @@ public_base_url = "PLACEHOLDER"
 mode = "oidc"
 issuer = "PLACEHOLDER"
 reachable_at = "PLACEHOLDER"
-client_id = "saas-fabric-console"
+
+# The client every verified bearer is issued to, once an instance signs in
+# at the gateway rather than in the console (ADR 0024). This base file is not
+# itself a running instance — it is what `overlays/production` renders as-is,
+# and production has no operator plane to sign anyone in on — so this states
+# the client a gateway OIDC policy issues, without asserting that this
+# environment runs one. LucentRoot's overlay does; see its own `oidc.yaml`.
+client_id = "saas-fabric-gateway"
 required_role = "fabric-operator"
+
+# Where the console is served. `/api/session` returns this value for the
+# browser to redirect back to; the console has no history fallback, so
+# anything beneath the origin would answer 404. Retires alongside
+# `/api/session` in ADR 0024 slice 2, once no instance's console signs
+# itself in any more.
 redirect_uri = "PLACEHOLDER"
 
 [control_plane.reconciliation]

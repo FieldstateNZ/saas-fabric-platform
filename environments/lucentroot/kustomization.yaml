@@ -20,6 +20,14 @@ resources:
   # docs/architecture.md#exposure-planes.
   - ../../applications/core/tailscale
   - ../../applications/core/operator-access
+  # The master realm's own sign-in surface for the operator plane above: a
+  # generated client secret, then the convergence that sets it on the
+  # Keycloak client it also creates. Environment-listed for the same reason
+  # as the operator plane itself -- production has no operator plane yet, so
+  # it has no gateway sign-in for either to provision. See
+  # ../../applications/core/master-instance/README.md, "Rollout order".
+  - ../../applications/core/master-instance-credential
+  - ../../applications/core/master-instance
   - ../../applications/catalogue
 
 components:

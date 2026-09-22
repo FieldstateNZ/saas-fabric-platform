@@ -1,0 +1,6 @@
+# Not a platform service in its own right. See docs/platform-services.md.
+#
+# The generated client secret for the master realm's `saas-fabric-gateway`
+# client, which master-instance sets on the client it converges and the
+# control plane's gateway SecurityPolicy reads to redeem a code.
+componentOf: saas-fabric-control-plane

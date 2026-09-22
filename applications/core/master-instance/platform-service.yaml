@@ -1,0 +1,7 @@
+# Not a platform service in its own right. See docs/platform-services.md.
+#
+# The convergence that provisions the master realm's own instance resources --
+# the gateway's and console's Keycloak clients, the fabric-operator role, and
+# each declared operator's grants -- the sign-in surface
+# ../saas-fabric-control-plane administers itself and cannot create.
+componentOf: saas-fabric-control-plane

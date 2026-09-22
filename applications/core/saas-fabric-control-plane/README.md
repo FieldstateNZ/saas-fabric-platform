@@ -153,11 +153,192 @@ bao write auth/kubernetes/role/saas-fabric-control-plane \
 through `data` marks the latest version deleted and leaves earlier ones
 readable, which for a private key is not deletion at all.
 
+## Sign-in moves to the gateway
+
+ADR 0024 ("An instance is a realm, signed in at the gateway, and product
+surfaces are federated modules") makes this the first instance the gateway
+signs in for. A `SecurityPolicy` on this Application's `HTTPRoute`
+(`overlays/lucentroot/oidc.yaml`) runs Envoy's OIDC filter against the master
+realm in front of both backends it routes to — `/api` and `/` alike — so
+nothing behind it, API or console, is reachable by a browser Envoy has not
+already put through the authorization-code flow.
+
+**The browser never holds a token.** Envoy holds the session in its own
+HMAC-signed cookies and forwards the verified access token upstream as
+`Authorization: Bearer`, which is exactly the shape the operator posture
+already verifies — issuer, `azp`, the `fabric-operator` realm role. Nothing
+about that verification changes; what changes is who redeems the code.
+
+The master realm's access tokens are short-lived, so a signed-in operator's
+session depends on Envoy refreshing them often — `oidc.yaml` states
+`refreshToken: true` for exactly this. A refresh failure — the refresh token
+itself expiring from disuse, or Keycloak being briefly unreachable — drops
+the operator back to sign-in on their next request rather than surfacing as
+an error partway through one.
+
+**Two paths belong to the filter now, not to this deployment.**
+`/oauth2/callback` is where Keycloak returns the browser after login, and
+`/logout` clears the session; both are matched ahead of this Application's own
+rules, on the same route, and neither reaches the `saas-fabric-control-plane`
+API or the `saas-fabric-control-plane-ui` bundle.
+
+`/logout` has a nuisance worth knowing rather than a bug worth fixing: the
+filter clears the session cookies on *any* request that reaches that path,
+not only one an operator meant as a sign-out — there is no CSRF token or
+confirmation step in front of it. It is reachable only from the tailnet, on
+an instance with one operator today, which is why this is documented rather
+than mitigated.
+
+### Provisioned by master-instance
+
+The platform automates all of it now (ADR 0025 in the application
+repository; see [Identity and bootstrap prerequisites](#identity-and-bootstrap-prerequisites)
+below for what this policy does not itself need). Before this policy can
+complete a sign-in, the master realm needs the resources
+[`../master-instance`](../master-instance/) converges on every sync, using the
+Keycloak bootstrap administrator the platform already generates
+([`../keycloak-credentials`](../keycloak-credentials/)):
+
+- A confidential client `saas-fabric-gateway` — standard flow on, client
+  authentication on, valid redirect URI
+  `https://fabric-lucentroot.tail5a7546.ts.net/oauth2/callback`, valid
+  post-logout redirect URI `https://fabric-lucentroot.tail5a7546.ts.net/*`,
+  and realm roles left in the access token (the default — this is what puts
+  `fabric-operator` in `realm_access.roles` for the operator posture to
+  check). No web origins entry: this client is driven server-side, by Envoy,
+  never by a script running in a browser on some other origin.
+- The `fabric-operator` realm role, and its grant to each operator the
+  environment declares — the client being configured right does not by
+  itself grant anyone the role the operator posture checks for.
+- The client's default client scopes are left holding Keycloak's own
+  defaults, which include `profile` — `master-instance` does not touch client
+  scopes at all, and Keycloak's default is what already carries it.
+  `oidc.yaml` requests `profile` explicitly, and it is the one of the
+  policy's three scopes that is load-bearing rather than convenient: it is
+  what puts `preferred_username` in the token at all. Without it, every audit
+  record this deployment writes falls back to the subject's UUID, which is
+  correct but unreadable.
+- Its secret, generated in-cluster by
+  [`../master-instance-credential`](../master-instance-credential/) and set
+  on the client by `master-instance` — the same Secret the `SecurityPolicy`
+  below reads, never a value anyone chooses or types.
+
+**Envoy Gateway does not fail open, but an unresolved reference at sync time
+is not a silent `500` either.** If the client or its secret did not already
+exist by the time this policy synced, Envoy Gateway would mark the policy
+`Accepted: False, reason: Invalid`, and Argo CD would surface that as a
+Degraded Application at sync time, loudly, before any operator is affected.
+That ordering is now an Application-wave guarantee rather than a wave inside
+this one: `master-instance` (wave `30`) is Healthy — its convergence `Job`
+(an ordinary one, not a sync hook; see `../master-instance/base/job.yaml`'s
+own comment for why) has reached `Complete` — before this Application
+(wave `40`) syncs at all. See `../master-instance/README.md`'s
+"Rollout order".
+
+The `500` failure mode is still real, and reached the same way as before: if
+this Secret is deleted or its key corrupted *after* the policy has already
+synced successfully once, Envoy already has a working policy programmed
+rather than one waiting to resolve — so losing the secret it depends on
+breaks something that was working, on every route the policy targets, `/api`
+and `/` alike. That is the state worth watching for once this is running (an
+`ExternalSecret` going unhealthy) — not something a pre-merge check needs to
+guard against any more, since nothing here is written by hand for a check to
+verify ahead of it.
+
+Confirm the Secret and the policy's own health once synced:
+
+```console
+$ kubectl -n operator-system get secret saas-fabric-gateway-oidc \
+    -o jsonpath='{.data.client-secret}' | wc -c
+$ kubectl -n operator-system get securitypolicy saas-fabric-control-plane-oidc \
+    -o jsonpath='{.status.ancestors[*].conditions}'
+```
+
+A count of `0` on the first means `master-instance-credential` has not
+synced. Anything but `Accepted: True` on the second means Argo CD should
+already be reporting this Application Degraded — check there first, and then
+`../master-instance`'s own Job logs.
+
+### Rollout order
+
+**The operator listener's own scheme-assertion policy
+(`platform-gateway`'s `overlays/lucentroot/operator-scheme.yaml`, a separate
+change) has to merge first, and its own observation made — before this
+one.** That observation does not need a sign-in and so does not need this
+PR: it is Envoy's own config dump, showing the operator listener's
+`HttpConnectionManager` with `use_remote_address: false` and the early
+`X-Forwarded-Proto: https` mutation actually loaded (see that Application's
+README for the exact check). Confirming that first is what breaks the
+circularity a sign-in-only verification would otherwise create — this PR
+cannot itself prove the scheme policy works, since a sign-in exercises both
+changes at once.
+
+Once that is confirmed, merge this PR. **The first sign-in through the
+console after that is the end-to-end observation of both changes together —
+there has been no earlier point at which it could be tested.** It either
+returns to an `https://` URL, proving both, or it returns to `http://`. If
+it returns to `http://` despite the config dump above having shown the
+right configuration, the scheme policy is still the suspect — revert this
+`SecurityPolicy`, not it, first: without this policy the operator route
+returns to exactly what it is today, reachable only from the tailnet, with
+no sign-in in front of it at all. An absent sign-in is the safe direction to
+fail in while the scheme policy gets debugged; a broken one, with operators
+mid-flow, is not. Merging this PR before the scheme policy's own
+observation is not a smaller version of that risk — without it `:scheme` on
+this listener is `http` from the start, and Envoy's OAuth2 filter builds
+both the post-login return URL and `post_logout_redirect_uri` from
+`:scheme`, so this `SecurityPolicy` would sync healthy and break every
+sign-in at runtime regardless. This is a hard ordering, not a
+recommendation.
+
+**The rollout order that matters is between Applications now, not inside this
+one:**
+
+1. [`../master-instance-credential`](../master-instance-credential/) syncs
+   (wave `10`) — the gateway's secret is generated.
+2. Keycloak (wave `20`) is Healthy.
+3. [`../master-instance`](../master-instance/) syncs (wave `30`): its
+   convergence `Job` (an ordinary one, replaced every sync, not a sync hook)
+   converges the master realm's client, role and grants, and its own drift
+   check proves convergence. Argo CD reports it Healthy once the Job reaches
+   `Complete`.
+4. This Application (wave `40`) syncs. Its `SecurityPolicy` now targets a
+   client that already exists, with a secret that already matches — nothing
+   about its own sync depends on a person having done anything between steps
+   1 and 3.
+5. **The first sign-in through the console is the observation.** Before
+   `master-instance` existed, a missing or mis-keyed OpenBao value could
+   leave this Application unable to deploy at all — a real failure mode a
+   pre-merge `bao kv get` check existed to catch ahead of time. That check is
+   gone because the thing it was guarding against — a person's hand-written
+   value being wrong or late — no longer exists: `master-instance`'s own
+   drift check is what now proves the realm converged, before this
+   Application ever syncs.
+
+**Once the scheme policy is merged and observed, and this PR has followed it:
+the console build carrying the gateway short-circuit has to be the one
+LucentRoot is already running before this merges — its overlay's image tag
+will have advanced past
+`0.3.0-preview.14` (see `overlays/lucentroot/kustomization.yaml`).**
+`client_id` in `control-plane.toml` fires the moment this merges and syncs,
+whether or not the console has caught up: it now names `saas-fabric-gateway`,
+not `saas-fabric-console` — the client every verified bearer is actually
+issued to, once the gateway is what redeems codes. An old console build does
+not know that. It still starts its own PKCE sign-in on load, which would ask
+Keycloak to authorize the code against `saas-fabric-gateway` — a confidential
+client — and this deployment holds no secret for it to redeem the code with
+(see [This deployment supplies no credential](#this-deployment-supplies-no-credential)
+above). That sign-in would fail every time, for every operator, regardless of
+whether the `SecurityPolicy` above is even healthy. The ADR's own build order
+(item 1, "what is built first") exists for exactly this: land the console
+build that finds `GET /api/operator` already answering and skips redoing its
+own sign-in, running on LucentRoot, before this merges.
+
 ## Identity and bootstrap prerequisites
 
 | Against | Identity | Permission | Established by |
 |---|---|---|---|
-| Keycloak | the signed-in operator's bearer | `fabric-operator` for Fabric access; master-realm `admin` for realm administration | one-time operator bootstrap |
+| Keycloak | the signed-in operator's bearer | `fabric-operator` for Fabric access; master-realm `admin` for realm administration | [`master-instance`](../master-instance/), from the operator roster it declares |
 | OpenBao | the pod's Kubernetes service account | this instance's partition | bootstrap role and policy above |
 | GitHub | installations of the applications Fabric creates | selected client/platform repositories | an operator connects each integration in Fabric |
 
@@ -165,27 +346,44 @@ The current Keycloak adapter borrows the operator's token. It does not mint a
 service-account token. `create-realm` alone cannot support first-pass
 reconciliation: grants earned by creating a realm appear only in later tokens.
 
-Before using the console, configure the master realm with:
+Before using the console, the master realm needs:
 
 - A public `saas-fabric-console` client requiring S256 PKCE and the exact
   redirect `https://fabric-lucentroot.tail5a7546.ts.net/`.
 - A `fabric-operator` realm role assigned to the operators, and master-realm
   `admin` authority for operators who reconcile realms.
-- The realm attribute `frontendUrl` set to
-  `https://fabric-lucentroot.tail5a7546.ts.net` (the origin, without `/realms/master`).
 
-The last setting is required on LucentRoot because the browser and the adapter
-reach Keycloak at different addresses. Without a canonical master-realm URL,
-Keycloak rejected a valid operator token on the internal Admin API with 401,
-while accepting the same token with the public origin. Pinning the realm URL
-made internal administrative calls succeed without any permission changes.
-This is a master-realm setting; do not substitute the operator origin for the
-issuers of client realms.
+Both are [provisioned by master-instance](#provisioned-by-master-instance)
+now, from the same convergence that provisions the gateway's own client —
+one module, both clients, ADR 0025. The operator roster it grants is a line
+in `applications/core/master-instance/overlays/lucentroot/master-instance-config.yaml`,
+not a person clicking either grant into place.
 
-These are currently one-time Keycloak state changes, not resources reconciled
-by this repository. Include them when rebuilding LucentRoot. An authenticated
-console alone does not prove the administrative path: run reconciliation and
-verify its per-client outcome.
+**No setting is left hand-made any more.** The realm attribute `frontendUrl`
+— set to `https://fabric-lucentroot.tail5a7546.ts.net`, the origin, without
+`/realms/master` — used to be the one exception: required on LucentRoot
+because the browser and the adapter reach Keycloak at different addresses,
+and without a canonical master-realm URL Keycloak rejected a valid operator
+token on the internal Admin API with 401 while accepting the same token on
+the public origin. `master-instance`'s module now owns the master realm
+itself as well as the resources inside it (`resource "keycloak_realm"
+"master"`, imported rather than created, since the realm already exists in
+every environment) for exactly this one attribute — see
+`../master-instance/README.md`, "The realm itself", for what it declares and
+what it deliberately ignores.
+
+This is now a converged resource, not a one-time Keycloak state change — it
+is included in every apply this Job runs, not merely in a rebuild checklist.
+An authenticated console alone does not prove the administrative path: run
+reconciliation and verify its per-client outcome.
+
+The `saas-fabric-console` client above is what the console used to sign
+itself in with, directly. [Sign-in moves to the
+gateway](#sign-in-moves-to-the-gateway) above adds a second, confidential
+client the gateway signs in with instead; the console's own PKCE flow against
+this one retires in ADR 0024 slice 2, alongside `/api/session` — and
+`master-instance`'s own module stops converging this client in that same
+slice, not before it.
 
 ## Verified baseline
 
@@ -214,6 +412,7 @@ recovery constraints and remaining acceptance work.
 | [Keycloak](../keycloak/) | `20` | the system it reconciles into |
 | [Operator access](../operator-access/) | `20` | the only plane it is published on |
 | [SaaS Fabric](../saas-fabric/) | `30` | the runtime half of the same product |
+| [`master-instance`](../master-instance/) | `30` | provisions the master-realm client this Application's `SecurityPolicy` targets |
 
 Wave `40` places it after everything it administers.
 
