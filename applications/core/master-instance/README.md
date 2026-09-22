@@ -108,10 +108,13 @@ hand-made master-realm step; this resource is what removed it.
 
 Named in
 [`overlays/lucentroot/master-instance-config.yaml`](overlays/lucentroot/master-instance-config.yaml),
-by Keycloak username. One name today, the product owner's, declared on
-2026-09-22; the grants it carries on LucentRoot were made by hand before this
-module existed and are now converged, so they can never drift from the
-file. Adding an operator is adding a name; the next sync grants both roles.
+by Keycloak username. One name today: `admin`, the bootstrap administrator
+Keycloak created from the credential the platform generated, and the only
+account the master realm holds. The hand-made `fabric-operator` grant issue
+#70 described was made on that account, and since this module's first
+successful run the file owns it, so it can never drift from the file. Adding
+an operator is adding a name, once their account exists; the next sync
+grants both roles.
 Removing a name revokes nothing — the grant is `exhaustive = false`, a
 partial assignment — so revocation is still an act in Keycloak, and that is
 the one thing about operators this module does not yet do. An empty roster
@@ -137,6 +140,18 @@ with the control plane for now, and whether operator *accounts* are
 provisioned the same declarative way this module provisions their grants is
 a question this Application leaves open, not one it has quietly answered by
 omission.
+
+This Application learned that the expensive way. Its first roster named the
+product owner, who has no master-realm account, and the first three runs on
+LucentRoot (2026-09-22) failed at plan time on exactly that lookup — nothing
+else was harmed, which is what failing at plan time is for, but the
+Application sat `Degraded` until the roster said something true. Karo's
+answer is brokering rather than creating: its master realm trusts Entra as an
+OIDC identity provider, a mapper turns an upstream role into realm authority
+at each sign-in, and when no upstream is configured "the bootstrap admin
+remains the way in". Whether SaaS Fabric's operators arrive the same way, and
+from which upstream, is the decision ADR 0025 leaves open; until it is made,
+the bootstrap administrator is the operator, and the roster says so.
 
 ## Adopting LucentRoot's hand-made history
 
@@ -175,14 +190,19 @@ what has to happen in order on a realm with this history. In order:
    creates it outright, with the secret
    [`../master-instance-credential`](../master-instance-credential/)
    generated ahead of this Application's own sync.
-3. **Grant.** Each declared operator (today: none — see "Who the operators
-   are" above) is looked up and, if found, granted `fabric-operator` and
-   master-realm `admin`.
-4. **Sign in.** Only once 1–3 have all succeeded and this Job has reached
-   `Complete` does [`../saas-fabric-control-plane`](../saas-fabric-control-plane/)
-   (wave `40`) sync at all — and only then is the first sign-in through the
-   console the true end-to-end observation, of the whole chain above, not
-   merely of the gateway client's own secret matching.
+3. **Grant.** Each declared operator (today: the bootstrap administrator —
+   see "Who the operators are" above) is looked up and, if found, granted
+   `fabric-operator` and master-realm `admin`; on LucentRoot both are grants
+   it already held, so this step changes nothing and owns what it finds.
+4. **Sign in.** On a fresh environment the wave order holds this whole chain
+   before the first sign-in: the app-of-apps does not create
+   [`../saas-fabric-control-plane`](../saas-fabric-control-plane/) (wave `40`)
+   until this Application (wave `30`) is Healthy, and this Application is
+   Healthy only once 1–3 have succeeded and the Job is `Complete`. On an
+   environment that already exists the gate is weaker — see "What the wave
+   gate holds, and when" under "The Job" — so the first sign-in through the
+   gateway is the end-to-end observation of the whole chain only once this
+   Application reports Healthy, not merely once wave `40` has synced.
 
 ## The Job
 
@@ -199,11 +219,33 @@ all, silently.
 
 An ordinary Job has no such gap. Argo CD's built-in health check for `Job` is
 Progressing while it runs, Healthy once it succeeds, Degraded once it
-exhausts `backoffLimit` — exactly the gate
+exhausts `backoffLimit` — so this Application's health *is* the Job's, which
+is the one thing wave `40` can gate on at all. A failed convergence leaves
+this Application Degraded, loudly — the property the hook never gave it.
+What that gate holds back, and when, is the next section.
+
+### What the wave gate holds, and when
+
+Sync waves order what one sync applies. The app-of-apps applies the child
+`Application` objects, so on a fresh environment it does not create
 [`../saas-fabric-control-plane`](../saas-fabric-control-plane/) (wave `40`)
-needs on this Application (wave `30`). A failed convergence now leaves this
-Application Degraded and wave `40` unsynced, loudly — the property the hook
-never gave it.
+until this Application (wave `30`) is Healthy — until the Job has
+succeeded — and that is the order ADR 0025's "in wave order" describes. On
+an environment that already exists both `Application`s already do; each
+carries `automated` sync and reconciles its own source on its own, and
+nothing makes one wait on a sibling's health, because a change under
+`applications/core/saas-fabric-control-plane/` changes nothing in the
+parent's own manifests for a wave to order. Observed on LucentRoot,
+2026-09-22: this Application went Degraded at 09:06:22Z on the roster
+failure described under "Who the operators are", and
+`saas-fabric-control-plane` synced anyway at 09:06:57Z, attaching its OIDC
+`SecurityPolicy` to a gateway client the Job's first run had already
+created — harmless that day, and not a gate. A failed convergence on an
+existing environment is therefore loud but does not hold wave `40` back. The
+mechanism that would — an ApplicationSet `RollingSync` strategy, which
+sequences the children by step and waits on each step's health on every
+sync, not only at creation — is the one `argocd/applicationsets/README.md`
+set aside, and is #44 rather than a claim made here.
 
 **`argocd.argoproj.io/sync-options: Replace=true,Force=true`** — both, not
 `Replace=true` alone — is what makes an ordinary Job re-run on every sync in
@@ -231,8 +273,9 @@ cover. See `application.yaml`'s own comment.
 
 **`activeDeadlineSeconds: 600`** bounds a hung Keycloak. Without it, a Job
 that never returns holds this Application Progressing indefinitely rather
-than Degraded — which blocks wave `40` exactly as hard as a real failure, but
-without ever saying so.
+than Degraded — which, where the wave gate holds (a fresh environment; see
+"What the wave gate holds, and when"), blocks wave `40` exactly as hard as a
+real failure, but without ever saying so.
 
 **Re-running is safe because the apply is idempotent, and the drift check is
 the proof.** `base/module/apply.sh` ends every run with
@@ -475,10 +518,13 @@ made the change.
 4. [`../saas-fabric-control-plane`](../saas-fabric-control-plane/) (wave `40`)
    syncs. Its `SecurityPolicy` now targets a client that already exists, with
    a secret that already matches — nothing about its own sync waits on a
-   human between steps 3 and 4.
-5. **The first sign-in through the console is the end-to-end observation of
-   the whole chain above**, the same way it is for a client instance under
-   Karo's model — not merely of the gateway client's own secret matching.
+   human between steps 3 and 4. On a fresh environment step 4 does not begin
+   until step 3 is Healthy; on an existing one it syncs on its own schedule
+   (see "What the wave gate holds, and when").
+5. **The first sign-in through the gateway is the end-to-end observation of
+   the whole chain above** once this Application reports Healthy, the same
+   way it is for a client instance under Karo's model — not merely of the
+   gateway client's own secret matching.
 
 ## Dependencies
 

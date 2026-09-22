@@ -33,8 +33,22 @@ data:
   # `keycloak_user` lookup resolves by username only, never by email -- see
   # main.tf's comment on data.keycloak_user.operator.
   #
-  # One operator today, named by the product owner on 2026-09-22. Adding an
-  # operator is adding a name here; the next sync grants the two roles.
-  # Removing a name revokes nothing (the grant is `exhaustive = false`), which
-  # is stated in this Application's README, "Who the operators are".
-  operators: '["brett@fieldstate.nz"]'
+  # One operator today: `admin`, the bootstrap administrator Keycloak created
+  # from the credential the platform generated (ADR 0025), and the only
+  # account the master realm holds. The hand-made `fabric-operator` grant
+  # issue #70 described was made on this account; this line is what owns it
+  # now. The product owner has no account in this realm: the first roster
+  # named one anyway (`brett@fieldstate.nz`, 2026-09-22) and the convergence
+  # failed three times at plan time on that lookup -- exactly what
+  # module/main.tf's comment on `data.keycloak_user.operator` says a name
+  # with no account must do, because this module grants roles to accounts
+  # and does not create them. Karo's answer to the same question is
+  # brokering, not creating: its master realm trusts an upstream identity
+  # provider and a role mapper grants authority at sign-in, with "the
+  # bootstrap admin remains the way in" as its own fallback until an upstream
+  # exists. That fallback is this line, until SaaS Fabric decides its
+  # upstream. Adding an operator is adding a name here once their account
+  # exists; the next sync grants the two roles. Removing a name revokes
+  # nothing (the grant is `exhaustive = false`), which is stated in this
+  # Application's README, "Who the operators are".
+  operators: '["admin"]'
