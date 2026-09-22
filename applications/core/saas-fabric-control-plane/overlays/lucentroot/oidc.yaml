@@ -1,0 +1,303 @@
+# Sign-in for the control-plane instance moves to the gateway (ADR 0024,
+# "what is built first", item 1). Envoy runs the authorization-code flow
+# against the master realm before a request ever reaches the console or the
+# API; the browser holds a session cookie, never a token, and the operator
+# posture keeps verifying the bearer Envoy forwards exactly as it does today.
+#
+# **Depends on the operator listener's own scheme-assertion policy
+# (`platform-gateway`'s `overlays/lucentroot/operator-scheme.yaml`, a
+# separate change) having merged, with its config-dump observation made —
+# that Application's proxy actually loaded `use_remote_address: false` and
+# the early `X-Forwarded-Proto: https` mutation on the operator listener; see
+# that Application's README.** That observation needs no sign-in and so does
+# not depend on this file. This file is what closes the loop: once it merges
+# too, the *first* sign-in through the console is the end-to-end observation
+# of both changes together — it either returns to an `https://` URL, or it
+# doesn't. If it doesn't, the scheme policy is the suspect, not this one:
+# revert this `SecurityPolicy` and the operator route returns to what it is
+# today, reachable only from the tailnet, with no sign-in in front of it —
+# not a broken sign-in, an absent one, which is the safe direction to fail in
+# while the scheme policy is debugged.
+#
+# The console's own sign-in — the PKCE pair in `sessionStorage`, the
+# `GET`/`POST /api/session` round trip — is unaffected by this file and still
+# runs beneath it. It retires in slice 2, once the console short-circuits its
+# own sign-in when `GET /api/operator` already answers. See this directory's
+# README for the rollout order that makes this safe to merge before that
+# happens.
+#
+# Three documents, and the order among them matters — though not for the
+# reason a first read suggests. Envoy Gateway does not fail open, but it also
+# does not answer `500` the instant a reference is unresolved: an unresolved
+# `clientSecret` or `backendRefs` leaves the `SecurityPolicy` itself
+# `Accepted: False, reason: Invalid`, which Argo CD surfaces as a Degraded
+# Application — loud, at sync time, not a silent request failure. What the
+# ordering below actually buys is different: it keeps the operator route from
+# ever being live *with no policy attached at all*, and it keeps the policy
+# from landing before what it depends on exists. A `500` on every route this
+# policy targets is a real failure mode, but it is reached a different way —
+# see the `ExternalSecret` document below for when.
+#
+# That ordering has a cost, stated rather than left implicit: Argo CD waits
+# for wave `-1` to be Healthy before applying wave `0`, so a missing,
+# mis-keyed or sealed `platform/saas-fabric-gateway-oidc` now blocks the
+# Deployments, Services, ConfigMap and route in this Application as well —
+# on a fresh rebuild the control plane would not deploy at all; on a running
+# cluster an image bump would not roll — where before this file existed, a
+# secret problem here blocked nothing outside this policy. Deliberate,
+# because the alternative is a window with the operator route unprotected,
+# and the pre-merge `bao kv get` check in the README is what keeps this
+# theoretical rather than something discovered at sync time.
+---
+# The one crossing this Application makes into another project namespace.
+#
+# A route can always live beside the service it backs — which is why
+# `operator-access/base/keycloak-routes.yaml` puts Keycloak's operator route
+# in `identity` rather than granting itself a reference into it. A
+# `SecurityPolicy` cannot do that: it has to live beside the `HTTPRoute` it
+# targets (`targetRefs` is local-namespace only), and this one targets a
+# route in `operator-system`, while the realm it authenticates against is
+# reached, for the token exchange, at `keycloak-http` in `identity`.
+#
+# It cannot live in `operator-access` either, despite that Application
+# already holding the one other grant this repository documents into
+# `identity`: `operator-access` syncs at wave `50`, after this Application's
+# own wave `40`, so the policy below would exist before a grant in a
+# later-waved Application could authorise it. Unresolved, that leaves the
+# policy `Accepted: False` — a Degraded Application, not a request failure —
+# but a degraded sign-in policy is still worth not shipping deliberately.
+# `identity` is in `saas-fabric-platform`'s project destinations (see
+# `argocd/projects/saas-fabric-platform.yaml`), so this Application may hold
+# a resource there directly; keeping the grant with the policy it authorises,
+# ordered against it explicitly, is what keeps that sequencing true rather
+# than assumed.
+#
+# Drawn as narrowly as the crossing: one policy kind, from one namespace, to
+# one named Service — not every `SecurityPolicy` anywhere, and not every
+# Service in `identity`.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: saas-fabric-control-plane-oidc
+  namespace: identity
+  annotations:
+    # `-1`, not `0`: the policy below deliberately shares wave `0` with the
+    # `HTTPRoute` it targets, so that route is never live without a policy
+    # attached (see this file's opening document). This grant, and the
+    # `ExternalSecret` beside it, have to exist a wave *before* that shared
+    # wave, not merely a lower number than the policy's own. Argo CD does
+    # order resources within a wave — by kind, then by name where the kind
+    # itself carries no explicit priority, which is the case for both
+    # `HTTPRoute` and `SecurityPolicy` here, and happens to sort the route
+    # ahead of the policy by name alone. What it does not do within a wave is
+    # wait for one resource to become healthy before applying the next —
+    # so sharing wave `0` with the policy would apply this grant in the same
+    # breath as the policy that needs it already resolved, not before it.
+    # Only a wave boundary makes Argo CD wait.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  from:
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: operator-system
+  to:
+    - group: ""
+      kind: Service
+      name: keycloak-http
+---
+# The client secret `saas-fabric-gateway` authenticates with. Nothing about
+# this workload writes here — this is the one delivery direction OpenBao's
+# platform partition already supports (see
+# `../../../external-secrets/README.md`) — so this is ordinary read-only
+# projection, unlike the control plane's own instance partition.
+#
+# An explicit `data` entry, not `dataFrom.extract`: `extract` takes every key
+# under the path and stays silent about which ones it expected, so a typo in
+# the OpenBao key — `client_secret` for `client-secret`, say — produces a
+# Secret with the wrong key in it rather than a failure. The `SecurityPolicy`
+# would then find its `clientSecret` reference unresolved, which surfaces as
+# that policy going `Accepted: False` (a Degraded Application), with nothing
+# pointing at why. Naming the key both sides — `remoteRef.property` against
+# what's actually in OpenBao, `secretKey` for what lands in the Secret —
+# makes that typo an `ExternalSecret` sync failure instead, visible on the
+# object that has it.
+#
+# **When the `500` actually happens.** Not at first sync with a missing or
+# malformed Secret — that is the `Accepted: False` case above, caught by Argo
+# CD's health check before any traffic is affected. It happens if this Secret
+# is deleted or its `client-secret` key corrupted *after* the policy has
+# already synced successfully once: Envoy has a working `SecurityPolicy`
+# already programmed and is not merely waiting on one, so losing the secret
+# it depends on now breaks something that was working, on every route the
+# policy targets, `/api` and `/` alike — not a sign-in error, a `500` on the
+# whole instance. That is the case worth treating carefully once this is
+# running, and it is a reason to notice an `ExternalSecret` going unhealthy
+# promptly, not a reason to distrust the first sync.
+#
+# The value has to exist at `secret/platform/saas-fabric-gateway-oidc` under
+# key `client-secret` before this policy can complete a sign-in; it is
+# hand-written, because the master realm's client is hand-made too. See this
+# directory's README for how to confirm the OpenBao value before merging —
+# this Secret does not exist yet at that point, so checking *it* is circular
+# — and the rendered Secret and the policy's own status once synced.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: saas-fabric-gateway-oidc
+  namespace: operator-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: saas-fabric-gateway-oidc
+    creationPolicy: Owner
+  data:
+    - secretKey: client-secret
+      remoteRef:
+        key: platform/saas-fabric-gateway-oidc
+        property: client-secret
+---
+# A `gateway.envoyproxy.io/v1alpha1` `SecurityPolicy` in `operator-system`,
+# targeting the console's route, not Keycloak's. Putting the provider's own
+# route behind this policy would ask a signed-out browser to authenticate
+# before it could reach the realm endpoints that authenticate it.
+#
+# No explicit sync-wave: this stays at Argo CD's default, `0`, deliberately
+# the same wave as the `HTTPRoute` it targets (also unannotated). The two
+# syncing together is what keeps the operator route from ever being live
+# with no policy attached — a window that staggering them, even with the
+# policy one wave *ahead*, would still leave open for however long that
+# wave took. The `ReferenceGrant` and `ExternalSecret` this policy depends on
+# sync at wave `-1`, a full wave earlier, because a shared wave gets them
+# applied together with this policy, not resolved before it — see the
+# `ReferenceGrant`'s own annotation for why a wave boundary, specifically,
+# is what Argo CD actually waits on.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: saas-fabric-control-plane-oidc
+  namespace: operator-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: saas-fabric-control-plane
+
+  oidc:
+    provider:
+      # The issuer and the two browser-facing endpoints are the public
+      # origin, because Keycloak stamps whatever host a request arrived on
+      # into the tokens it issues and into the pages it renders. A browser
+      # sent anywhere else would receive a token this policy then refuses,
+      # or a login page whose form posts to an address it cannot reach.
+      issuer: https://fabric-lucentroot.tail5a7546.ts.net/realms/master
+      authorizationEndpoint: https://fabric-lucentroot.tail5a7546.ts.net/realms/master/protocol/openid-connect/auth
+      endSessionEndpoint: https://fabric-lucentroot.tail5a7546.ts.net/realms/master/protocol/openid-connect/logout
+
+      # The token endpoint is different: it is Envoy, not the browser,
+      # that calls it to redeem a code, so it is reached in-cluster —
+      # exactly as the control plane's own `reachable_at` already does for
+      # the same realm. Envoy never leaves the cluster to complete a
+      # sign-in.
+      tokenEndpoint: http://keycloak-http.identity.svc.cluster.local/realms/master/protocol/openid-connect/token
+
+      # An issuer and three endpoints are given explicitly rather than left
+      # to discovery. A discovery fetch would run in-cluster, against the
+      # issuer above — a tailnet hostname the cluster cannot resolve — so
+      # the fallback that usually makes this section optional cannot fire
+      # here.
+      #
+      # Crossing into `identity` for this Service reference is what the
+      # `ReferenceGrant` in this file's second document authorises, a wave
+      # ahead of this policy.
+      backendRefs:
+        - name: keycloak-http
+          namespace: identity
+          port: 80
+
+    clientID: saas-fabric-gateway
+
+    # The Secret the `ExternalSecret` above projects. Envoy reads the client
+    # secret from a fixed key on it, `client-secret` — that key name is not
+    # a field this policy sets, it is the CRD's own contract for the
+    # Secret's shape, which is why the projection above names it explicitly
+    # rather than trusting an OpenBao key to already be spelled that way.
+    clientSecret:
+      name: saas-fabric-gateway-oidc
+
+    # Explicit, because the default template computes
+    # "%REQ(x-forwarded-proto)%://%REQ(:authority)%/oauth2/callback" from
+    # `X-Forwarded-Proto`, which is why this depends on the operator
+    # listener's own scheme-assertion policy noted at the top of this file:
+    # until that policy lands, the Tailscale hop asserts nothing on this
+    # listener, and the computed value would be `http://` — not a redirect
+    # URI the master realm's client has been given. Once that policy is
+    # observed working, `X-Forwarded-Proto` would in fact already read
+    # `https` here, and stating the value explicitly becomes belt-and-braces
+    # rather than the only thing making it correct — worth keeping anyway,
+    # since it is one fewer thing to get right at the provider.
+    redirectURL: https://fabric-lucentroot.tail5a7546.ts.net/oauth2/callback
+    logoutPath: /logout
+
+    # `openid` is the protocol; Envoy adds it if omitted, and it is named
+    # here anyway so the list reads complete rather than implicitly
+    # extended. `profile` and `email` are what the token needs to carry for
+    # `/api/operator` to answer with more than a subject: `profile` is the
+    # one of the two that is load-bearing rather than merely nice to have —
+    # it is what puts `preferred_username` in the token at all, and without
+    # it every audit record this deployment writes falls back to the
+    # subject's UUID, which is correct but unreadable. `email` is a
+    # convenience on top of that, not a second load-bearing claim.
+    scopes: [openid, profile, email]
+
+    # The control plane keeps verifying the bearer it is handed — issuer,
+    # `azp`, the `fabric-operator` realm role — exactly as it does today.
+    # It does not check `aud` (`validate_aud = false` in the operator
+    # adapter's `verification.rs`), so nothing here changes what that
+    # verification checks; only who redeems the code does. The gateway
+    # forwards the token, it does not vouch for it by forwarding it.
+    forwardAccessToken: true
+
+    # A browser fetch() and a top-level navigation both arrive here without
+    # tokens; only one of them should be bounced to Keycloak. `sec-fetch-mode`
+    # tells them apart: `cors` and `same-origin` are what a script-initiated
+    # fetch() sends, and denying the redirect for those turns a stale session
+    # into a same-origin `401` instead of a cross-origin login page a
+    # fetch() cannot follow anyway. The console already navigates to `/` on
+    # `401`, which is where the gateway's own sign-in begins.
+    denyRedirect:
+      headers:
+        - name: sec-fetch-mode
+          type: Exact
+          value: cors
+        - name: sec-fetch-mode
+          type: Exact
+          value: same-origin
+
+    # `Lax` rather than `Strict`: Keycloak returns the browser with a
+    # top-level `GET` to this same host after login, which `Lax` allows and
+    # `Strict` would not (a `Strict` cookie is withheld on the very
+    # navigation that is supposed to carry the session home). `Lax` still
+    # withholds the cookie from a cross-site `POST`, which is the case that
+    # matters here.
+    #
+    # `cookieDomain` is deliberately unset rather than pinned to
+    # `.tail5a7546.ts.net`: every node on the tailnet shares that suffix, so
+    # a domain cookie would be sent to every one of them, not only this
+    # instance. Left unset, Envoy scopes the cookie to this exact host,
+    # which is the narrower and correct default for a shell of one instance
+    # per hostname.
+    cookieConfig:
+      sameSite: Lax
+
+    # The CRD default, stated rather than omitted: this deployment relies on
+    # refresh actually happening, so the value it is relying on is written
+    # down instead of inherited silently. The master realm's access tokens
+    # are short-lived, so a signed-in operator's session depends on Envoy
+    # refreshing often — a refresh failure (the refresh token itself
+    # expiring, or Keycloak becoming unreachable) drops the operator back to
+    # sign-in on their next request, not to an error in the middle of one.
+    refreshToken: true

@@ -39,7 +39,12 @@ issuer = "https://fabric-lucentroot.tail5a7546.ts.net/realms/master"
 # token is not from this realm.
 reachable_at = "http://keycloak-http.identity.svc.cluster.local/realms/master"
 
-client_id = "saas-fabric-console"
+# The gateway's client, not the console's. Since sign-in moved to Envoy's
+# OIDC filter (ADR 0024, `oidc.yaml` in this directory), every bearer this
+# posture sees was issued to `saas-fabric-gateway` and carries it as `azp` —
+# so that is what this pins against, whether the request came through the
+# console or, later, any other module the shell loads on this instance.
+client_id = "saas-fabric-gateway"
 
 # Being on the tailnet establishes who someone is. This establishes that they
 # administer this platform, and it is checked against a verified token rather
@@ -48,6 +53,14 @@ required_role = "fabric-operator"
 
 # The console's origin root, not a path beneath it: the console is served with
 # no history fallback, so a redirect to /callback would answer 404.
+#
+# Still consumed today. `/api/session` returns this value, and the console's
+# own sign-in still calls that endpoint on load until the build carrying the
+# gateway short-circuit is what LucentRoot runs (see this directory's
+# README, "Rollout order"). Once it is, `/api/session` is never called — the
+# console finds it is already signed in and skips its own flow — and this
+# value retires alongside that endpoint in ADR 0024 slice 2, not in this
+# change.
 redirect_uri = "https://fabric-lucentroot.tail5a7546.ts.net/"
 
 [control_plane.reconciliation]
