@@ -27,21 +27,21 @@ components:
   saas-fabric:
     artifact:
       type: oci
-      sourceRevision: 5f686f3668548085dba133f31936db1cc1d3e3e6
+      sourceRevision: 5320432978535fec8fd8f03ad6164f0656567edf
       images:
         console:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane-ui
-          digest: sha256:1430abdcd8ebfea3bdf23b13e6916c158034759945687f53fd25c92977dae812
+          digest: sha256:6c35ebad390689ccb802441165ae6b204e2aaf58399c2b487bdd4a9bceb7664e
         controlPlane:
           repository: ghcr.io/fieldstatenz/saas-fabric-control-plane
-          digest: sha256:decabba9ef7962a851fd349b6148e53f006c8ddd64541163773b03ff1bc8d878
+          digest: sha256:73e8fa217787a1ef088ac74abc7faa25ce43a376e0a656c0032fc00dc32732ec
         runtime:
           repository: ghcr.io/fieldstatenz/saas-fabric
-          digest: sha256:af7b1669f3d59ba1dea7996a281abfb808be30ff9cb7a89162e1e8c750ce8569
+          digest: sha256:d05887f1bb8724204a4c6e28d4101195e31ad3d706ef1d5903d6cd728aea1d2b
     channel: preview
     update: automatic
     desired:
-      version: 0.3.0-preview.14
+      version: 0.3.0-preview.15
     pinnedIn:
     - renderer: kustomize-image
       path: applications/core/saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml
