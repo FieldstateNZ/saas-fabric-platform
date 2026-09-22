@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - gateway-secret.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: saas-fabric-control-plane
+      fieldstate.nz/system: saas-fabric
+      fieldstate.nz/layer: platform

@@ -1,0 +1,195 @@
+# Mirrors identity/keycloak-admin into this Application's own namespace, so
+# the Job in ../base/job.yaml reads it as an ordinary same-namespace Secret
+# (KEYCLOAK_USER/KEYCLOAK_PASSWORD) instead of over the Kubernetes API from an
+# init container.
+#
+# An earlier draft used the second shape: a Role/RoleBinding letting the
+# Job's own ServiceAccount `get` the Secret in `identity`, read by a
+# `rancher/kubectl` init container. That pulled a third-party image into the
+# render for a value External Secrets, already deployed here, can mirror on
+# its own -- so it is gone, and this file replaces it with the ESO
+# Kubernetes-provider shape (https://external-secrets.io/latest/provider/kubernetes/),
+# the same product every other Secret in this platform already flows
+# through, rather than a second, bespoke path.
+#
+# **What ESO's own docs require, reproduced exactly**: a Role in the *target*
+# namespace granting `get` on the one named Secret. A ServiceAccount bound to
+# that Role is what the `SecretStore` authenticates as; `auth.serviceAccount`
+# does carry a `namespace` field in the provider's schema, but it is honoured
+# only when the store is a *cluster-scoped* `ClusterSecretStore` -- this one
+# is an ordinary namespaced `SecretStore`, which already has exactly one
+# namespace, so the ServiceAccount it authenticates as is implicitly that
+# namespace's own. That is why this ServiceAccount lives beside the
+# `SecretStore`, in `operator-system`, and not beside the Secret it reads.
+#
+# **`selfsubjectrulesreviews` needs a `ClusterRole`, not the namespaced Role
+# above.** ESO's Kubernetes provider calls `create` on it during its own
+# `Validate()`, and `SelfSubjectRulesReview` is a cluster-scoped API type --
+# a namespaced `Role`/`RoleBinding` rule naming it is syntactically legal but
+# never matched by the authorizer, because there is no namespace for the
+# request to be evaluated against. Left that way, this `SecretStore` would
+# never reach `Ready`, and Argo CD's own health check for `SecretStore` would
+# report this Application Degraded at wave `30` -- blocking wave `40` exactly
+# as hard as a failed Job, but from a cause nothing in the Job's own logs
+# would explain. The `ClusterRole`/`ClusterRoleBinding` below grant nothing
+# but that one `create`; they confer no read on any object.
+#
+# **What this file does not need to grant, and the evidence for that.** The
+# External Secrets controller itself (`external-secrets` in `secrets`,
+# deployed by ../../../external-secrets) needs its own permission to mint a
+# short-lived token for the ServiceAccount below via the
+# `serviceaccounts/token` subresource, cluster-wide, since it runs in a
+# namespace neither this ServiceAccount nor the Secret it reads is in. This
+# was checked, not assumed: the pinned chart's own render
+# (`.render/lucentroot/applications/external-secrets.yaml`) already contains
+#
+#     ClusterRole/external-secrets-controller:
+#       - apiGroups: [""]
+#         resources: ["serviceaccounts/token"]
+#         verbs: ["create"]
+#
+# unscoped, cluster-wide -- the Kubernetes provider's whole model rests on
+# the controller being able to impersonate any ServiceAccount an operator
+# points it at, with the actual security boundary drawn by what that
+# ServiceAccount is itself authorized to do (the Role and ClusterRole here),
+# not by which ServiceAccounts the controller may impersonate.
+#
+# Wave `-1`, the same idiom `../../saas-fabric-control-plane/overlays/
+# lucentroot/oidc.yaml` used to use for the same reason: a shared wave with
+# the Job gets this mirror applied *alongside* it, not resolved before it,
+# and only a wave boundary makes Argo CD wait. Every object below is at
+# `-1` together -- none of them has an external dependency on another within
+# this group, only the Job (default wave `0`) depends on all of them.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: master-instance-keycloak-admin-reader
+  namespace: operator-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+# Never mounted into a pod -- nothing runs as this identity. External Secrets
+# mints a short-lived token for it through the Kubernetes TokenRequest API and
+# uses that, which is why no pod anywhere references this ServiceAccount by
+# name in a `serviceAccountName` field.
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: master-instance-keycloak-admin-reader
+  namespace: identity
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+rules:
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [keycloak-admin]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: master-instance-keycloak-admin-reader
+  namespace: identity
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: master-instance-keycloak-admin-reader
+subjects:
+  - kind: ServiceAccount
+    name: master-instance-keycloak-admin-reader
+    namespace: operator-system
+---
+# selfsubjectrulesreviews is cluster-scoped, so this is a ClusterRole rather
+# than a second rule on the namespaced Role above -- see this file's opening
+# comment for why that Role's own copy of this rule would have been inert.
+# It grants exactly one verb on one API type that confers no read on
+# anything: creating a SelfSubjectRulesReview only ever answers "what can I
+# do", it does not do anything.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: master-instance-keycloak-admin-reader-ssrr
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+rules:
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectrulesreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: master-instance-keycloak-admin-reader-ssrr
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: master-instance-keycloak-admin-reader-ssrr
+subjects:
+  - kind: ServiceAccount
+    name: master-instance-keycloak-admin-reader
+    namespace: operator-system
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: master-instance-keycloak-admin
+  namespace: operator-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: identity
+      server:
+        url: https://kubernetes.default.svc
+        # No `namespace:` on caProvider -- that field is only meaningful (and
+        # only valid) on a ClusterSecretStore, whose caProvider can otherwise
+        # point anywhere; a namespaced SecretStore's caProvider is implicitly
+        # read from the SecretStore's own namespace, operator-system, where
+        # this ConfigMap is auto-populated the same as everywhere else.
+        caProvider:
+          type: ConfigMap
+          # Populated into every namespace automatically since Kubernetes
+          # 1.20 -- not a resource this repository creates or owns.
+          name: kube-root-ca.crt
+          key: ca.crt
+      auth:
+        serviceAccount:
+          name: master-instance-keycloak-admin-reader
+---
+# refreshInterval "0": deliberately not the usual "keep this fresh" default.
+# The value behind identity/keycloak-admin only ever changes if that Secret
+# is regenerated (../../keycloak-credentials's own `refreshInterval: "0"`,
+# for the reason its README gives), so refreshing this mirror on any interval
+# would only ever either find nothing new or -- the one case that matters --
+# race a regeneration there. Rotation is a re-sync of both Applications, not
+# a timer.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: keycloak-admin
+  namespace: operator-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshInterval: "0"
+  secretStoreRef:
+    name: master-instance-keycloak-admin
+    kind: SecretStore
+  target:
+    name: keycloak-admin
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: keycloak-admin
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: keycloak-admin
+        property: password

@@ -26,28 +26,21 @@
 # README for the rollout order that makes this safe to merge before that
 # happens.
 #
-# Three documents, and the order among them matters — though not for the
-# reason a first read suggests. Envoy Gateway does not fail open, but it also
-# does not answer `500` the instant a reference is unresolved: an unresolved
-# `clientSecret` or `backendRefs` leaves the `SecurityPolicy` itself
-# `Accepted: False, reason: Invalid`, which Argo CD surfaces as a Degraded
-# Application — loud, at sync time, not a silent request failure. What the
-# ordering below actually buys is different: it keeps the operator route from
-# ever being live *with no policy attached at all*, and it keeps the policy
-# from landing before what it depends on exists. A `500` on every route this
-# policy targets is a real failure mode, but it is reached a different way —
-# see the `ExternalSecret` document below for when.
-#
-# That ordering has a cost, stated rather than left implicit: Argo CD waits
-# for wave `-1` to be Healthy before applying wave `0`, so a missing,
-# mis-keyed or sealed `platform/saas-fabric-gateway-oidc` now blocks the
-# Deployments, Services, ConfigMap and route in this Application as well —
-# on a fresh rebuild the control plane would not deploy at all; on a running
-# cluster an image bump would not roll — where before this file existed, a
-# secret problem here blocked nothing outside this policy. Deliberate,
-# because the alternative is a window with the operator route unprotected,
-# and the pre-merge `bao kv get` check in the README is what keeps this
-# theoretical rather than something discovered at sync time.
+# Two documents now, not three. The master realm's own client and its secret
+# used to be a person's job — a confidential client created by hand in
+# Keycloak, its secret written into OpenBao — and this file carried a third
+# document, an `ExternalSecret` against that OpenBao path, ordered a wave
+# ahead of the `SecurityPolicy` below so a slow or missing OpenBao value could
+# not leave the policy landing unresolved. ADR 0025 in the application
+# repository removes the hand-made half of that: `../../../master-instance`
+# converges the client and its secret before this Application ever syncs
+# (wave `30`, ahead of this Application's own wave `40`), so by the time this
+# Application's own resources are applied, the Secret the `SecurityPolicy`
+# below reads already exists and already matches the value on the Keycloak
+# client. There is nothing left inside this Application's own sync for a
+# wave gap to protect against — the ordering that matters now is the one
+# between Applications, in `../../../master-instance/README.md`'s "Rollout
+# order", not a sub-wave inside this one.
 ---
 # The one crossing this Application makes into another project namespace.
 #
@@ -63,14 +56,27 @@
 # already holding the one other grant this repository documents into
 # `identity`: `operator-access` syncs at wave `50`, after this Application's
 # own wave `40`, so the policy below would exist before a grant in a
-# later-waved Application could authorise it. Unresolved, that leaves the
-# policy `Accepted: False` — a Degraded Application, not a request failure —
-# but a degraded sign-in policy is still worth not shipping deliberately.
-# `identity` is in `saas-fabric-platform`'s project destinations (see
+# later-waved Application could authorise it. `identity` is in
+# `saas-fabric-platform`'s project destinations (see
 # `argocd/projects/saas-fabric-platform.yaml`), so this Application may hold
-# a resource there directly; keeping the grant with the policy it authorises,
-# ordered against it explicitly, is what keeps that sequencing true rather
-# than assumed.
+# a resource there directly instead.
+#
+# No sync-wave annotation, deliberately, and sharing the `SecurityPolicy`'s
+# own default wave `0` rather than sitting a wave ahead of it. `Gateway`-API
+# reference authorisation is a controller-reconciled property, not an
+# apply-order one: Envoy Gateway re-evaluates every `SecurityPolicy`
+# targeting a grant whenever that grant changes, so this object does not need
+# to exist microseconds before the policy that depends on it, only to exist —
+# and applying them in the same burst, sorted by kind ahead of `SecurityPolicy`
+# by nothing more than alphabetical accident, already gets there within
+# moments. The wave gap this object used to need was for a different reason
+# entirely: the `ExternalSecret` that used to sit beside it depended on
+# OpenBao, an external system with its own sync latency, and *that* absence
+# is what could leave the policy landing unresolved. That `ExternalSecret` is
+# gone (see this file's opening document) — the Secret the policy reads now
+# comes from `../../../master-instance-credential`, converged by
+# `../../../master-instance` a full Application-wave before this one starts,
+# so there is nothing left here for a wave to wait on.
 #
 # Drawn as narrowly as the crossing: one policy kind, from one namespace, to
 # one named Service — not every `SecurityPolicy` anywhere, and not every
@@ -80,21 +86,6 @@ kind: ReferenceGrant
 metadata:
   name: saas-fabric-control-plane-oidc
   namespace: identity
-  annotations:
-    # `-1`, not `0`: the policy below deliberately shares wave `0` with the
-    # `HTTPRoute` it targets, so that route is never live without a policy
-    # attached (see this file's opening document). This grant, and the
-    # `ExternalSecret` beside it, have to exist a wave *before* that shared
-    # wave, not merely a lower number than the policy's own. Argo CD does
-    # order resources within a wave — by kind, then by name where the kind
-    # itself carries no explicit priority, which is the case for both
-    # `HTTPRoute` and `SecurityPolicy` here, and happens to sort the route
-    # ahead of the policy by name alone. What it does not do within a wave is
-    # wait for one resource to become healthy before applying the next —
-    # so sharing wave `0` with the policy would apply this grant in the same
-    # breath as the policy that needs it already resolved, not before it.
-    # Only a wave boundary makes Argo CD wait.
-    argocd.argoproj.io/sync-wave: "-1"
 spec:
   from:
     - group: gateway.envoyproxy.io
@@ -105,76 +96,19 @@ spec:
       kind: Service
       name: keycloak-http
 ---
-# The client secret `saas-fabric-gateway` authenticates with. Nothing about
-# this workload writes here — this is the one delivery direction OpenBao's
-# platform partition already supports (see
-# `../../../external-secrets/README.md`) — so this is ordinary read-only
-# projection, unlike the control plane's own instance partition.
-#
-# An explicit `data` entry, not `dataFrom.extract`: `extract` takes every key
-# under the path and stays silent about which ones it expected, so a typo in
-# the OpenBao key — `client_secret` for `client-secret`, say — produces a
-# Secret with the wrong key in it rather than a failure. The `SecurityPolicy`
-# would then find its `clientSecret` reference unresolved, which surfaces as
-# that policy going `Accepted: False` (a Degraded Application), with nothing
-# pointing at why. Naming the key both sides — `remoteRef.property` against
-# what's actually in OpenBao, `secretKey` for what lands in the Secret —
-# makes that typo an `ExternalSecret` sync failure instead, visible on the
-# object that has it.
-#
-# **When the `500` actually happens.** Not at first sync with a missing or
-# malformed Secret — that is the `Accepted: False` case above, caught by Argo
-# CD's health check before any traffic is affected. It happens if this Secret
-# is deleted or its `client-secret` key corrupted *after* the policy has
-# already synced successfully once: Envoy has a working `SecurityPolicy`
-# already programmed and is not merely waiting on one, so losing the secret
-# it depends on now breaks something that was working, on every route the
-# policy targets, `/api` and `/` alike — not a sign-in error, a `500` on the
-# whole instance. That is the case worth treating carefully once this is
-# running, and it is a reason to notice an `ExternalSecret` going unhealthy
-# promptly, not a reason to distrust the first sync.
-#
-# The value has to exist at `secret/platform/saas-fabric-gateway-oidc` under
-# key `client-secret` before this policy can complete a sign-in; it is
-# hand-written, because the master realm's client is hand-made too. See this
-# directory's README for how to confirm the OpenBao value before merging —
-# this Secret does not exist yet at that point, so checking *it* is circular
-# — and the rendered Secret and the policy's own status once synced.
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: saas-fabric-gateway-oidc
-  namespace: operator-system
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-spec:
-  secretStoreRef:
-    name: openbao
-    kind: ClusterSecretStore
-  target:
-    name: saas-fabric-gateway-oidc
-    creationPolicy: Owner
-  data:
-    - secretKey: client-secret
-      remoteRef:
-        key: platform/saas-fabric-gateway-oidc
-        property: client-secret
----
 # A `gateway.envoyproxy.io/v1alpha1` `SecurityPolicy` in `operator-system`,
 # targeting the console's route, not Keycloak's. Putting the provider's own
 # route behind this policy would ask a signed-out browser to authenticate
 # before it could reach the realm endpoints that authenticate it.
 #
-# No explicit sync-wave: this stays at Argo CD's default, `0`, deliberately
-# the same wave as the `HTTPRoute` it targets (also unannotated). The two
-# syncing together is what keeps the operator route from ever being live
-# with no policy attached — a window that staggering them, even with the
-# policy one wave *ahead*, would still leave open for however long that
-# wave took. The `ReferenceGrant` and `ExternalSecret` this policy depends on
-# sync at wave `-1`, a full wave earlier, because a shared wave gets them
-# applied together with this policy, not resolved before it — see the
-# `ReferenceGrant`'s own annotation for why a wave boundary, specifically,
-# is what Argo CD actually waits on.
+# No explicit sync-wave: this stays at Argo CD's default, `0`, the same wave
+# as the `HTTPRoute` it targets (also unannotated) and the same wave as the
+# `ReferenceGrant` above. The `HTTPRoute` and this policy syncing together is
+# what keeps the operator route from ever being live with no policy attached
+# — a window that staggering them, even with the policy one wave *ahead*,
+# would still leave open for however long that wave took. See the
+# `ReferenceGrant`'s own comment for why it no longer needs a wave of its
+# own either.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
@@ -211,8 +145,7 @@ spec:
       # here.
       #
       # Crossing into `identity` for this Service reference is what the
-      # `ReferenceGrant` in this file's second document authorises, a wave
-      # ahead of this policy.
+      # `ReferenceGrant` in this file's first document authorises.
       backendRefs:
         - name: keycloak-http
           namespace: identity
@@ -220,11 +153,14 @@ spec:
 
     clientID: saas-fabric-gateway
 
-    # The Secret the `ExternalSecret` above projects. Envoy reads the client
-    # secret from a fixed key on it, `client-secret` — that key name is not
-    # a field this policy sets, it is the CRD's own contract for the
-    # Secret's shape, which is why the projection above names it explicitly
-    # rather than trusting an OpenBao key to already be spelled that way.
+    # The Secret `../../../master-instance-credential` generates and
+    # `../../../master-instance` sets on the Keycloak client of the same
+    # name, converged a full Application-wave before this one syncs. Envoy
+    # reads the client secret from a fixed key on it, `client-secret` — that
+    # key name is not a field this policy sets, it is the CRD's own contract
+    # for the Secret's shape, which is why the `ExternalSecret` that
+    # generates it names the key explicitly rather than leaving it to an
+    # upstream value already being spelled that way.
     clientSecret:
       name: saas-fabric-gateway-oidc
 

@@ -1,0 +1,75 @@
+# The `kubernetes` backend's own access, in its own namespace
+# (state-namespace.yaml, a wave ahead of this).
+#
+# OpenTofu's `kubernetes` backend (`base/module/main.tf`'s
+# `backend "kubernetes"`) stores state as a Kubernetes Secret named
+# `tfstate-<workspace>-<secret_suffix>` -- `tfstate-default-master-instance`
+# here, since this module never selects a workspace -- and coordinates
+# locking during apply through a `coordination.k8s.io` `Lease` named
+# `lock-tfstate-<workspace>-<secret_suffix>`. Both names are the backend's
+# own derivation, not this repository's choice, and the `get`/`update`/
+# `delete` rules below are scoped to them by `resourceNames`: a `get` on a
+# name this Role lists is authorized whether or not the object exists yet,
+# so a wrong guess here would surface as a clean, immediate `403` on the
+# Job's very first read.
+#
+# `create` on both kinds is unscoped, on purpose: Kubernetes checks a name
+# against the request path, and a create request names no existing object,
+# so `resourceNames` cannot narrow it (the same constraint
+# ../../saas-fabric/overlays/lucentroot/publication-rbac.yaml documents for
+# its own `create`). No `patch` -- the backend only ever `get`s and `update`s
+# whole objects, never a partial merge.
+#
+# `list` on secrets is unscoped too, and is the one grant this whole
+# namespace exists to contain: `tofu init` calls the backend's own
+# `Workspaces()` unconditionally, which issues a label-selector `List`
+# against Secrets in this namespace regardless of whether this module
+# selects a workspace. `list` cannot be scoped by `resourceNames` and
+# returns whole object bodies, not names -- so it is granted here, where the
+# only Secret that exists is the state itself, rather than in
+# `operator-system`, where it would also return
+# `saas-fabric-gateway-oidc` and `keycloak-admin`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: master-instance-state
+  namespace: master-instance-state
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+rules:
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [tfstate-default-master-instance]
+    verbs: [get, update, delete]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [create, list]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [lock-tfstate-default-master-instance]
+    verbs: [get, update, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+---
+# The Job's own ServiceAccount stays in `operator-system` -- it is this
+# Application's one workload identity, and it needs no home in a namespace
+# that exists only to hold state -- so this binding names it across the
+# namespace boundary, the same cross-namespace shape
+# keycloak-admin-mirror.yaml already uses for the Secret mirror's own
+# ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: master-instance-state
+  namespace: master-instance-state
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: master-instance-state
+subjects:
+  - kind: ServiceAccount
+    name: master-instance
+    namespace: operator-system

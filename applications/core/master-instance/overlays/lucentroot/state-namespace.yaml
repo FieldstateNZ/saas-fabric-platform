@@ -1,0 +1,44 @@
+# A namespace of its own, holding nothing but this module's Terraform state.
+#
+# OpenTofu's `kubernetes` backend calls the backend's own `Workspaces()` on
+# every `tofu init` (confirmed against OpenTofu 1.12.6's `meta_backend.go`,
+# `selectWorkspace`) -- a label-selector `List` of Secrets in the backend's
+# namespace, unconditionally, even though `base/module/main.tf` never selects
+# a workspace of its own. `list` cannot be scoped by `resourceNames`, and it
+# returns whole objects, not names -- granting it in `operator-system` would
+# let this identity read the *content* of every Secret there, including
+# `saas-fabric-gateway-oidc` and the mirrored `keycloak-admin`. Giving the
+# state its own namespace is what keeps that unavoidable `list` from
+# granting anything beyond itself: there is nothing else here to list.
+#
+# Wave `-2`, a wave ahead of `state-rbac.yaml`'s wave `-1`: the Role and
+# RoleBinding that target this namespace need it to exist first, and only a
+# wave boundary makes Argo CD wait for that rather than merely sort a
+# `Namespace` ahead of a `Role` by kind within one shared wave.
+#
+# No `fieldstate.nz/layer: platform` label, deliberately -- unlike every
+# other platform namespace. That label is exactly what
+# `../../secret-store/base/cluster-secret-store.yaml`'s `namespaceSelector`
+# admits to the OpenBao `ClusterSecretStore`, and what
+# `check_secret_store_is_bounded` defends as the platform secret store's own
+# boundary. A namespace that exists only to narrow one RBAC grant to a
+# Terraform state Secret has no ExternalSecret to make and no business being
+# admitted to that read path -- carrying the label anyway would widen the
+# platform secret store's reach for zero benefit to this namespace itself.
+# `fieldstate.nz/system: saas-fabric` stays, as plain inventory: it says
+# whose namespace this is without asserting membership in anything.
+#
+# `Prune=false`: removing this Application, or dropping this manifest from
+# Git, must not delete this Namespace and take
+# `tfstate-default-master-instance` down with it -- pruning a Namespace
+# deletes everything inside it. See this Application's README, "Resources
+# unsafe to prune".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: master-instance-state
+  labels:
+    fieldstate.nz/system: saas-fabric
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: Prune=false

@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Identical in every environment that runs it: a generated credential has
+# nothing environment-specific about it. LucentRoot is the only environment
+# that runs this today -- see environments/lucentroot/kustomization.yaml,
+# where this Application is listed alongside ../../tailscale and
+# ../../operator-access, for the same reason: production has no operator
+# plane yet, so it has nothing for this client's secret to protect.
+resources:
+  - ../../base

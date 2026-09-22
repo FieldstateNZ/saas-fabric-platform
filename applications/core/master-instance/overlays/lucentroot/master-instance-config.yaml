@@ -1,0 +1,42 @@
+# LucentRoot's master-instance convergence input.
+#
+# Lives here, not under environments/lucentroot/config/ the way ../../keycloak
+# or ../../openbao read their per-environment values: this Application is
+# Kustomize-sourced, not Helm-sourced, and kustomize's own file-load security
+# boundary refuses a `configMapGenerator` or a bare-file `resources` entry
+# that reaches outside the overlay reading it -- verified directly against
+# this repository's kustomize version, the same way
+# ../../saas-fabric-control-plane keeps its own environment-specific
+# `control-plane.toml` inside its own overlay rather than reaching into that
+# directory. No `namespace:` transformer applies here (see this directory's
+# kustomization.yaml), so this ConfigMap states its own.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: master-instance-config
+  namespace: operator-system
+data:
+  publicBaseUrl: https://fabric-lucentroot.tail5a7546.ts.net
+
+  # True only because LucentRoot's master realm predates this module: its
+  # fabric-operator role and saas-fabric-console client were created by hand
+  # before ADR 0025, and `main.tf` adopts rather than re-creates them on that
+  # history (see module/main.tf's comment on `keycloak_role.fabric_operator`
+  # and this Application's README, "What this does not decide"). A fresh
+  # environment has no such history and leaves this `false`.
+  adoptExisting: "true"
+
+  # TF_VAR_operators reads this value verbatim, so it has to be valid JSON --
+  # Terraform decodes a TF_VAR_* environment variable as HCL/JSON for
+  # anything but a plain string, and `operators` is `set(string)`
+  # (module/variables.tf). One Keycloak username per entry; the module's
+  # `keycloak_user` lookup resolves by username only, never by email -- see
+  # main.tf's comment on data.keycloak_user.operator.
+  #
+  # Empty today. The lead is obtaining the LucentRoot operator's username;
+  # until a name is added here, this convergence grants nobody
+  # fabric-operator or master-realm admin -- those two grants are still the
+  # hand-made ones they always were, on whatever account was granted them
+  # before this module existed. See this Application's README, "Who the
+  # operators are".
+  operators: "[]"

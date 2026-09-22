@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: master-instance-credential
+  namespace: argocd
+  labels:
+    fieldstate.nz/source: kustomize
+    fieldstate.nz/class: core
+  annotations:
+    # Wave 10, with keycloak-credentials: the same reasoning applies verbatim.
+    # The generator is local, so unlike the secret store it does not wait on
+    # OpenBao being initialised -- there is nothing here for OpenBao to be
+    # initialised before. Argo CD gates wave 30 on wave 20 (Keycloak) and
+    # wave 20 on wave 10 -- so this value exists long before master-instance
+    # ever sets it on the client.
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: saas-fabric-platform
+
+  source:
+    repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+    targetRevision: PLACEHOLDER
+    path: applications/core/master-instance-credential/overlays/PLACEHOLDER
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: operator-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The External Secrets CRDs arrive in this same wave, on a fresh cluster.
+      - SkipDryRunOnMissingResource=true
+    # The same labels ../saas-fabric-control-plane's and ../master-instance's
+    # own Applications declare for this namespace -- identical across all
+    # three by design, not a subset and not "close enough". This Application
+    # syncs first (wave 10, long before control-plane's wave 40) and so is
+    # what actually creates operator-system on a fresh cluster; a namespace's
+    # security boundary (`operator-gateway-access` and not `gateway-access`
+    # -- see that Application's README, "Operator plane only, structurally")
+    # must not depend on which Application happened to create it first, or
+    # the boundary is a race rather than a property.
+    managedNamespaceMetadata:
+      labels:
+        fieldstate.nz/system: saas-fabric
+        fieldstate.nz/layer: platform
+        fieldstate.nz/plane: operator
+        fieldstate.nz/operator-gateway-access: "true"
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 10m

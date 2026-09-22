@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: operator-system
+
+resources:
+  - serviceaccount.yaml
+  - job.yaml
+
+# state-rbac.yaml is not here -- it targets master-instance-state, a
+# namespace of its own (see ../overlays/lucentroot/state-namespace.yaml), and
+# the `namespace: operator-system` transformer above would silently force it
+# out of that namespace the same way it would force any other explicitly-
+# namespaced resource. It lives in the overlay instead, beside
+# state-namespace.yaml and keycloak-admin-mirror.yaml -- the same reason
+# those two live there and not here.
+#
+# This means base/ alone does not deploy a working Application: the Job
+# above has nowhere to put its Terraform state and no path to
+# identity/keycloak-admin without the overlay's own resources beside it. A
+# second environment needs its own copies of state-namespace.yaml,
+# state-rbac.yaml and keycloak-admin-mirror.yaml, not merely a reference to
+# this base -- the same shape every other environment-specific overlay in
+# this repository already has, just with more in it than most.
+
+# A generator rather than a plain resource, so the ConfigMap's name carries a
+# content hash and kustomize rewrites ../job.yaml's volume reference to match.
+# Not load-bearing the way it is for a Deployment -- the Job is replaced on
+# every sync regardless (`Replace=true,Force=true`, not a name change; see
+# ../job.yaml) -- but a stale mount because a name didn't change is still a
+# mistake worth not making available.
+configMapGenerator:
+  - name: master-instance-module
+    files:
+      - module/main.tf
+      - module/variables.tf
+      - module/apply.sh
+      - module/.terraform.lock.hcl
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: saas-fabric-control-plane
+      fieldstate.nz/system: saas-fabric
+      fieldstate.nz/layer: platform

@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# No `namespace:` transformer here, deliberately -- unlike ../../base, which
+# sets one because every resource it carries belongs in operator-system. This
+# overlay additionally carries resources that do not:
+# keycloak-admin-mirror.yaml's Role/RoleBinding, which have to live in
+# identity beside the Secret they grant access to, and
+# master-instance-config.yaml, which states its own namespace for the same
+# reason a raw file in a shared-namespace overlay always has to here. A
+# transformer would silently force both into operator-system.
+# ../../saas-fabric-control-plane/overlays/lucentroot/kustomization.yaml is
+# the precedent: its own base sets the namespace, and its overlay adds
+# oidc.yaml's identity-namespace ReferenceGrant beside it, unmodified.
+resources:
+  - ../../base
+  - keycloak-admin-mirror.yaml
+  - master-instance-config.yaml
+  - state-namespace.yaml
+  - state-rbac.yaml

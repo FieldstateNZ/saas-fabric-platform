@@ -10,28 +10,35 @@ Checks, in order of how much damage they prevent:
   3. every chart repository an Application uses is allowed by its AppProject;
   4. every chart version is pinned exactly, never a range;
   5. every Application's destination namespace is allowed by its AppProject;
-  6. no client-scoped resource has crept into a platform environment;
-  7. the two exposure planes stay separate: product traffic on Gateway API
+  6. every namespaced resource an Application actually renders lands in a
+     namespace that Application's project permits, not merely the one
+     namespace it declares as its own destination;
+  7. no client-scoped resource has crept into a platform environment;
+  8. the two exposure planes stay separate: product traffic on Gateway API
      routes attached to a listener that exists from a namespace allowed to,
      operator traffic on Tailscale Ingresses, and no third routing authority;
-  8. no administrative surface on the product plane;
-  9. the Argo CD runtime configuration the platform depends on is present;
- 10. the platform secret store is bounded to platform namespaces, and nothing
+  9. no administrative surface on the product plane;
+ 10. the Argo CD runtime configuration the platform depends on is present;
+ 11. the platform secret store is bounded to platform namespaces, and nothing
      reads a client secret path through it;
- 11. LucentRoot's OpenBao initialises and unseals itself, against a seal that
+ 12. LucentRoot's OpenBao initialises and unseals itself, against a seal that
      does not depend on OpenBao;
- 11. every in-cluster service reference resolves to something this repository
+ 13. LucentRoot's master realm converges its own instance resources the same
+     way -- a generated client secret and a convergence Job, never a person
+     creating a client in Keycloak and writing its secret into OpenBao
+     (ADR 0025, application repository);
+ 14. every in-cluster service reference resolves to something this repository
      actually deploys;
- 12. the telemetry pipelines only reference components that exist;
- 13. every application directory carries the required documentation;
- 14. a service whose only protection is the operator plane stays on it;
- 15. `data-sources.yaml` declares only what its own schema and ADR 0006's
+ 15. the telemetry pipelines only reference components that exist;
+ 16. every application directory carries the required documentation;
+ 17. a service whose only protection is the operator plane stays on it;
+ 18. `data-sources.yaml` declares only what its own schema and ADR 0006's
      shared-needs-discriminator rule permit, and never a credential;
- 16. `placements.yaml` records only a placement whose data source is
+ 19. `placements.yaml` records only a placement whose data source is
      declared, whose isolation agrees with that data source's placement
      class, and that does not collide with another placement on the same
      data source;
- 17. no rendered manifest declares a `fabric-runtime-*` ConfigMap in
+ 20. no rendered manifest declares a `fabric-runtime-*` ConfigMap in
      `platform-system` -- the runtime publisher owns those, and Git must not
      be able to revert a publication (ADR 0023 §4, application repository).
 """
@@ -499,6 +506,70 @@ def check_applications_match_their_project(render: Path, problems: list[str]) ->
                     problems,
                     f"{environment}: {name} targets namespace {namespace},"
                     f" not allowed by {spec['project']}",
+                )
+
+
+def check_namespaced_resources_stay_in_project_destinations(render: Path, problems: list[str]) -> None:
+    """An Application can render into more than the one namespace it declares.
+
+    check_applications_match_their_project, immediately above, checks only an
+    Application's own `spec.destination.namespace` -- the one namespace it
+    states. check_projects_permit_what_apps_deploy separately covers
+    cluster-scoped kinds. Neither looks at where an Application's own rendered,
+    namespaced resources actually land -- a `Role` or a `Secret` crossing into
+    a namespace this Application's project does not list in `destinations`
+    (`identity`, `master-instance-state`, and so on) is exactly the shape this
+    platform uses deliberately and repeatedly, and exactly the shape a typo in
+    a namespace can turn into an application that syncs cleanly in this script
+    and is refused by the cluster.
+
+    A namespace an Application renders into but its project does not permit is
+    an Argo CD sync failure today, not a CI one -- discovered only once a
+    cluster refuses the resource. This is what makes it one here instead.
+    """
+    for environment in ENVIRONMENTS:
+        projects: dict[str, dict] = {}
+        applications = []
+        for name in ("bootstrap.yaml", "platform.yaml"):
+            for document in load_all(render / environment / name, problems):
+                if document.get("kind") == "AppProject":
+                    projects[document["metadata"]["name"]] = document["spec"]
+                elif document.get("kind") == "Application":
+                    applications.append(document)
+
+        destinations = _destination_namespaces(render, environment, problems)
+
+        for application in applications:
+            name = application["metadata"]["name"]
+            spec = application["spec"]
+            project = projects.get(spec["project"])
+            if project is None:
+                continue  # reported by check_applications_match_their_project
+
+            permitted = {d.get("namespace") for d in project.get("destinations", [])}
+            if "*" in permitted:
+                continue
+
+            rendered = render / environment / "applications" / f"{name}.yaml"
+            if not rendered.is_file():
+                continue
+
+            reported: set[str] = set()
+            for document in load_all(rendered, problems):
+                group = _group_of(document.get("apiVersion", ""))
+                kind = document.get("kind", "")
+                if not kind or (group, kind) in CLUSTER_SCOPED_KINDS:
+                    continue
+                namespace = _resource_namespace(document, rendered, destinations)
+                if not namespace or namespace in permitted or namespace in reported:
+                    continue
+                reported.add(namespace)
+                fail(
+                    problems,
+                    f"{environment}: {name} renders resources into namespace"
+                    f" {namespace}, which project {spec['project']} does not"
+                    " permit -- an Argo CD sync failure today, not a CI one,"
+                    " discovered only once a cluster refuses the resource",
                 )
 
 
@@ -1183,6 +1254,125 @@ def check_openbao_bootstraps_itself(render: Path, problems: list[str]) -> None:
             f"{environment}: OpenBao self-init references the client secret"
             " space, which belongs to client provisioning",
         )
+
+
+def check_master_realm_bootstraps_itself(render: Path, problems: list[str]) -> None:
+    """The master realm's own instance resources must need no human either.
+
+    ADR 0025 (application repository) applies check_openbao_bootstraps_itself's
+    rule a second time: LucentRoot's master realm -- the gateway's confidential
+    client, its secret, the fabric-operator role, each operator's grants --
+    converges itself, using the Keycloak bootstrap administrator the platform
+    already generates. The plan this replaced had a person create
+    saas-fabric-gateway in Keycloak by hand and write its secret into OpenBao;
+    if either half of that reappears, a human is back in the master realm's
+    lifecycle exactly where the product owner ruled nobody may be.
+
+    None of this is checkable by a schema, and all of it is silently absent
+    when wrong: a render missing the generator or the convergence Job still
+    produces a working-looking SecurityPolicy right up until the Secret it
+    reads turns out to be one nobody created.
+    """
+    environment = DISPOSABLE_OPENBAO_ENVIRONMENT
+    documents: list[tuple[Path, dict]] = [
+        (path, document)
+        for path in sorted((render / environment).rglob("*.yaml"))
+        for document in load_all(path, problems)
+    ]
+
+    # Requires the generator wiring itself, not merely the absence of a store
+    # reference -- an ExternalSecret with neither a secretStoreRef nor a
+    # generatorRef is not a credential source at all, and a render that
+    # dropped the dataFrom block by accident would otherwise pass this check
+    # while producing an empty Secret.
+    generator_found = False
+    for _, document in documents:
+        if document.get("kind") != "ExternalSecret":
+            continue
+        metadata = document.get("metadata", {})
+        if metadata.get("name") != "saas-fabric-gateway-oidc":
+            continue
+        if metadata.get("namespace") != "operator-system":
+            continue
+        spec = _external_secret_spec(document)
+        if (spec.get("secretStoreRef") or {}).get("name"):
+            continue
+        has_generator_ref = any(
+            (entry.get("sourceRef") or {}).get("generatorRef")
+            for entry in spec.get("dataFrom") or []
+        )
+        if has_generator_ref:
+            generator_found = True
+
+    if not generator_found:
+        fail(
+            problems,
+            f"{environment}: no generated saas-fabric-gateway-oidc credential"
+            " (applications/core/master-instance-credential) -- without it,"
+            " a person has to create the saas-fabric-gateway client's secret"
+            " by hand and put it somewhere this platform can read it",
+        )
+
+    # A normal Job, matched by name and namespace -- not a sync hook. An
+    # earlier draft of this check looked for an
+    # `argocd.argoproj.io/hook: Sync` annotation, which was wrong for the
+    # same reason the Job itself stopped using one (see
+    # applications/core/master-instance/base/job.yaml): a hook is excluded
+    # from Argo CD's own health rollup, so matching on it here would have
+    # certified a shape that provably cannot gate anything.
+    job_found = False
+    for _, document in documents:
+        if document.get("kind") != "Job":
+            continue
+        metadata = document.get("metadata", {})
+        if metadata.get("name") == "master-instance-converge" and metadata.get(
+            "namespace"
+        ) == "operator-system":
+            job_found = True
+
+    if not job_found:
+        fail(
+            problems,
+            f"{environment}: no master-instance convergence Job"
+            " (applications/core/master-instance) -- without it, a person has"
+            " to create the master realm's saas-fabric-gateway and"
+            " saas-fabric-console clients, the fabric-operator role, and each"
+            " operator's role grant by hand in the Keycloak admin console",
+        )
+
+    # The hand path this replaces: an ExternalSecret in operator-system
+    # reading a gateway-shaped client secret out of OpenBao. Matched broadly
+    # -- any remote path under `platform/` that mentions "gateway" -- rather
+    # than the one exact key this platform happens to use today, because the
+    # thing this check exists to catch is a person writing to OpenBao and
+    # pointing an ExternalSecret at it, and a slightly different key name is
+    # still exactly that regression. The trade-off taken deliberately: a
+    # legitimate future ExternalSecret reading some unrelated
+    # platform/*gateway*-shaped OpenBao path in operator-system would also
+    # fail here, wrongly -- accepted, because the cost of a false positive
+    # (someone reads this message and renames their key, or narrows this
+    # match) is far smaller than the cost of a false negative letting the
+    # hand path back in unnoticed.
+    for path, document in documents:
+        if document.get("kind") != "ExternalSecret":
+            continue
+        if document.get("metadata", {}).get("namespace") != "operator-system":
+            continue
+        spec = _external_secret_spec(document)
+        entries = list(spec.get("data") or []) + list(spec.get("dataFrom") or [])
+        for entry in entries:
+            for remote in _remote_paths(entry):
+                normalised = remote.lstrip("/")
+                if normalised.startswith("platform/") and "gateway" in normalised.lower():
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: an ExternalSecret reads"
+                        f" '{remote}' from OpenBao -- that is the hand path"
+                        " this platform replaced: a person creating"
+                        " saas-fabric-gateway in Keycloak and writing its"
+                        " secret into OpenBao by hand. The secret must come"
+                        " from master-instance-credential instead",
+                    )
 
 
 def check_seal_key_does_not_need_openbao(render: Path, problems: list[str]) -> None:
@@ -2335,6 +2525,7 @@ def main() -> int:
     check_no_duplicate_resources(render, problems)
     check_no_runtime_publication_configmaps(render, problems)
     check_applications_match_their_project(render, problems)
+    check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)
     check_service_references(render, problems)
     check_exposure_planes(render, problems)
@@ -2347,6 +2538,7 @@ def main() -> int:
     check_projects_permit_what_apps_deploy(render, problems)
     check_platform_secrets_stay_platform(render, problems)
     check_openbao_bootstraps_itself(render, problems)
+    check_master_realm_bootstraps_itself(render, problems)
     check_seal_key_does_not_need_openbao(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
