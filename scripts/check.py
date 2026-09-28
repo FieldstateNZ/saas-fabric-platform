@@ -54,10 +54,19 @@ import yaml
 
 ENVIRONMENTS = ("lucentroot", "production")
 
-# The `components.yaml` shape this checker understands. Bumped together with
+# The `components.yaml` shapes this checker understands. Moved together with
 # the readers, so a manifest that has moved on fails loudly here rather than
-# being half-understood.
-COMPONENTS_SCHEMA_VERSION = 2
+# being half-understood. Schema 3 adds the `described` artifact type -- a
+# component read through the component descriptor attached to its primary image
+# (ADR 0026, application repository) -- and a file may be either version: Fabric
+# writes back the version it read, so a schema 2 file stays schema 2 until the
+# pull request that switches a component to `described` moves the whole file.
+COMPONENTS_SCHEMA_VERSIONS = (2, 3)
+# The artifact types this checker reads, and the schema each first appears in.
+# Both render images by role and digest, so both are held to the same pins and
+# the same rendered output. A Helm component is read by Fabric but not yet by
+# this checker, and is refused here rather than waved through.
+COMPONENT_ARTIFACT_TYPES = {"oci": 2, "described": 3}
 
 # The `environments/<environment>/data-sources.yaml` shape this checker
 # understands (ADR 0023 part 1, application repository). Its own version,
@@ -1905,8 +1914,10 @@ def check_components_match_what_deploys(root: Path, render: Path, problems: list
             continue
 
         declared = documents[0]
-        if declared.get("schemaVersion") != COMPONENTS_SCHEMA_VERSION:
-            fail(problems, f"{manifest.relative_to(root)}: schemaVersion is not {COMPONENTS_SCHEMA_VERSION}")
+        schema = declared.get("schemaVersion")
+        if schema not in COMPONENTS_SCHEMA_VERSIONS:
+            fail(problems, f"{manifest.relative_to(root)}: schemaVersion is not one of"
+                           f" {', '.join(str(version) for version in COMPONENTS_SCHEMA_VERSIONS)}")
             continue
 
         roots = declared.get("managedRoots") or []
@@ -1939,10 +1950,28 @@ def check_components_match_what_deploys(root: Path, render: Path, problems: list
             images = artifact.get("images") or {}
 
             # Schema 2 separates what a component is published as from where a
-            # version is written. Only the OCI kind renders images, so only it
-            # has rendered output to agree with.
-            if artifact.get("type") != "oci":
+            # version is written. The image kinds render images, so only they
+            # have rendered output to agree with.
+            kind = artifact.get("type")
+            if kind not in COMPONENT_ARTIFACT_TYPES:
                 fail(problems, f"{manifest.relative_to(root)}: {component} declares no artifact this checker reads")
+                continue
+
+            if schema < COMPONENT_ARTIFACT_TYPES[kind]:
+                # The version is what lets an older Fabric refuse the file by
+                # naming it, rather than failing on a type it has never seen.
+                fail(problems, f"{manifest.relative_to(root)}: {component} is '{kind}', which needs"
+                               f" schemaVersion {COMPONENT_ARTIFACT_TYPES[kind]} or later")
+                continue
+
+            # A described component is found by the image its component
+            # descriptor is attached to, so that role has to be one of its own.
+            # Its descriptor's digest is deliberately not recorded here: a digest
+            # typed into this file is a fact nothing proved, and Fabric names it
+            # in the commit that advances the component instead.
+            if kind == "described" and artifact.get("primary") not in images:
+                fail(problems, f"{manifest.relative_to(root)}: {component} names primary"
+                               f" {artifact.get('primary')!r}, which is not one of its images")
                 continue
 
             if not version or not images or not artifact.get("sourceRevision"):

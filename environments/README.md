@@ -78,15 +78,24 @@ contract**; the header deliberately does not try to become it.
 
 | | |
 |---|---|
-| `schemaVersion` | The shape of the document. A reader written against an older one refuses rather than half-understanding a field that has moved. |
+| `schemaVersion` | The shape of the document, `2` or `3`. A reader written against an older one refuses rather than half-understanding a field that has moved. Fabric writes back the version it read. |
 | `environment` | Which environment this describes, checked against the path it was read from. |
 | `managedRoots` | The only directories any `pinnedIn` may point into. See below. |
+| `artifact.type` | What the component is published as. `oci`: images by role, a version eligible when every role's repository carries its tag and every image agrees on its commit. `helm`: a chart, pinned by chart version (Fabric reads it; `scripts/check.py` does not yet). `described` (schema 3 only): images by role, read through the component descriptor attached to the primary image (ADR 0026, application repository). |
+| `artifact.primary` | `described` only: the role whose image carries the component descriptor. It must be one of the component's images. |
+| `artifact.sourceRevision` | The commit every image was built from, verified against each image's `org.opencontainers.image.revision` before a version is eligible. The only place Git records where an artifact came from. |
+| `artifact.images.<role>` | One image of the component: its repository and the digest asked for. A promotion changes the digests and nothing else about them. |
 | `channel` | The release stream newer versions are drawn from. `preview` admits SemVer prereleases, which no other environment may run. |
 | `update` | `automatic` — the newest eligible version is selected without asking. `manual` — an update is surfaced and an operator chooses it. `locked` — nothing moves without changing the constraint itself. |
 | `desired.version` | The version, **once**. Not repeated per image: three images claiming a version separately is three places for them to disagree, and disagreement is what makes a release unit incomplete rather than eligible. |
-| `desired.sourceRevision` | The commit every image was built from, verified against each image's `org.opencontainers.image.revision` before a version is eligible. The only place Git records where an artifact came from. |
-| `desired.images.<role>` | One image of the component: where it is published, the digest asked for, and where that pin is rendered. |
+| `pinnedIn` | Which files pin the component's versions, and how each is rewritten. See below. |
 | `hold` | Present while automatic advancement is paused. |
+
+A `described` component's component descriptor digest is deliberately **not**
+recorded here. A digest typed into this file by hand is a fact nothing proved,
+and every break-glass edit of the version would then need one looked up. Fabric
+re-reads the component descriptor on every advance and rollback, and names its
+digest in the commit it writes.
 
 ### `hold` pauses advancement without changing policy
 
@@ -113,14 +122,14 @@ force rather than pointing at something nothing runs.
 
 ### `pinnedIn` is why this repository keeps its own layout
 
-Each image declares which files pin it:
+A component declares which files pin its versions, and the renderer that
+rewrites each one — a closed list, never a caller-supplied path expression:
 
 ```yaml
-runtime:
-  repository: ghcr.io/fieldstatenz/saas-fabric
-  digest: sha256:...
-  pinnedIn:
-    - applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
+pinnedIn:
+  - renderer: kustomize-image
+    path: applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml
+    image: runtime
 ```
 
 Fabric may write this manifest and exactly the paths it declares, and nothing
