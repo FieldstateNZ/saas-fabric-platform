@@ -53,6 +53,12 @@ initializeStanza: |
       data      = { kubernetes_host = "https://kubernetes.default.svc" }
     }
 
+    # External Secrets reads the platform's secrets, and must never read SaaS
+    # Fabric's own instance partition beneath them: that partition holds the
+    # control plane's integration credentials -- its Git applications' keys and
+    # the registry tokens an operator registers -- and nothing is ever delivered
+    # to a workload from it (ADR 0026 section 6, application repository). A
+    # `deny` on the longer path outranks the platform-wide `read`.
     request "platform-policy" {
       operation = "update"
       path      = "sys/policies/acl/platform-secrets"
@@ -60,6 +66,8 @@ initializeStanza: |
         policy = <<-POLICY
           path "secret/data/platform/*"     { capabilities = ["read"] }
           path "secret/metadata/platform/*" { capabilities = ["read", "list"] }
+          path "secret/data/platform/saas-fabric/instances/*"     { capabilities = ["deny"] }
+          path "secret/metadata/platform/saas-fabric/instances/*" { capabilities = ["deny"] }
         POLICY
       }
     }

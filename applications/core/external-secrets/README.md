@@ -161,6 +161,8 @@ bao write auth/kubernetes/config \
 bao policy write platform-secrets - <<'POLICY'
 path "secret/data/platform/*"     { capabilities = ["read"] }
 path "secret/metadata/platform/*" { capabilities = ["read", "list"] }
+path "secret/data/platform/saas-fabric/instances/*"     { capabilities = ["deny"] }
+path "secret/metadata/platform/saas-fabric/instances/*" { capabilities = ["deny"] }
 POLICY
 bao write auth/kubernetes/role/external-secrets \
   bound_service_account_names=external-secrets \
@@ -172,6 +174,14 @@ The policy grants read on the **platform prefix only**. A new platform workload
 still needs no OpenBao policy change — its secret goes under
 `secret/platform/<name>` and the existing grant covers it — while
 `secret/clients/` stays outside what this token can reach at all.
+
+One path beneath the platform prefix is denied: SaaS Fabric's own instance
+partition, `secret/platform/saas-fabric/instances/`. The control plane keeps its
+integration credentials there — its Git applications' keys, and the registry
+tokens an operator registers — and none of them is ever delivered to a workload
+(ADR 0026, application repository). The longer path's `deny` outranks the
+prefix's `read`. `scripts/check.py` asserts the deny for LucentRoot and refuses
+any `ExternalSecret` that could select a path beneath the partition.
 
 That is the trade worth making: convenience within the platform's own space, and
 a hard wall at the tenancy boundary.

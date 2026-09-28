@@ -106,8 +106,24 @@ under `secret/platform/saas-fabric/instances/master/`:
 
 | Name | Holds |
 |---|---|
-| `git/app-private-key` | the application's private key, which GitHub returns exactly once |
-| `git/integration` | the record: application id, slug, installation, repository |
+| `git/app-private-key` | the client-configuration application's private key, which GitHub returns exactly once |
+| `git/integration` | its record: application id, slug, installation, repository |
+| `integrations/platform-management/app-private-key` | the Platform Management application's private key |
+| `integrations/platform-management/integration` | its record |
+| `integrations/registries/…` | image registries an operator registers, and the tokens given for them (ADR 0026, application repository) |
+
+**Nothing is ever delivered from this partition.** External Secrets reads
+`secret/platform/*`, which contains it, so the `platform-secrets` policy denies
+`secret/data/platform/saas-fabric/instances/*` and its metadata path
+outright, and `scripts/check.py` refuses any `ExternalSecret` that could select
+a path beneath it — by key, or by a `find` over a prefix containing it. A
+registry token an operator types into the console is Fabric's read credential;
+it must never become a cluster's image pull secret.
+
+An OpenBao that was initialised before the deny was added keeps the old
+`platform-secrets` policy until LucentRoot is next rebuilt, because the
+`initialize` stanza runs once. Until then the check is what holds: nothing in
+this repository can declare an `ExternalSecret` that reads the partition.
 
 It authenticates with the **pod's own Kubernetes identity**, so there is still
 no static credential for anybody to create, transport or rotate. That is why

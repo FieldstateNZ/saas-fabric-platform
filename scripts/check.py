@@ -20,7 +20,8 @@ Checks, in order of how much damage they prevent:
   9. no administrative surface on the product plane;
  10. the Argo CD runtime configuration the platform depends on is present;
  11. the platform secret store is bounded to platform namespaces, and nothing
-     reads a client secret path through it;
+     reads a client secret path, or SaaS Fabric's own instance partition,
+     through it;
  12. LucentRoot's OpenBao initialises and unseals itself, against a seal that
      does not depend on OpenBao;
  13. LucentRoot's master realm converges its own instance resources the same
@@ -231,6 +232,14 @@ PRODUCTION_SEAL_TYPES = (
 
 PLATFORM_SECRET_STORE = "openbao"
 CLIENT_PATH_PREFIX = "clients/"
+# SaaS Fabric's control plane keeps its own integration credentials -- its Git
+# applications' private keys and the registry tokens an operator registers --
+# in this partition, and delivers none of them to anything (ADR 0026 section 6,
+# application repository). External Secrets reads everything else under
+# `platform/`, so this prefix is the one place beneath it that the platform
+# store must never reach: not by key, and not by a `find` over a prefix that
+# contains it.
+FABRIC_INSTANCE_PREFIX = "platform/saas-fabric/instances/"
 # An exact chart version. Ranges, wildcards and "latest" make a release
 # non-reproducible: the same tag would deploy different software over time.
 PINNED_VERSION = re.compile(r"^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")
@@ -1057,6 +1066,31 @@ def _reaches_client_space(remote: str) -> bool:
     return remote.lstrip("/").startswith(CLIENT_PATH_PREFIX)
 
 
+def _reaches_fabric_instances(entry: dict) -> bool:
+    """Whether one data or dataFrom entry can select SaaS Fabric's partition.
+
+    An exact key reaches it by naming a path beneath it. A `find` reaches it
+    when its path is beneath it, when its path is a prefix that contains it,
+    and when it has no path at all -- a find with no path searches the whole
+    store, and the partition is part of the store.
+    """
+    for key in (
+        (entry.get("remoteRef") or {}).get("key"),
+        (entry.get("extract") or {}).get("key"),
+    ):
+        if key and key.lstrip("/").startswith(FABRIC_INSTANCE_PREFIX):
+            return True
+
+    find = entry.get("find")
+    if find is None:
+        return False
+    path = (find.get("path") or "").strip("/")
+    if not path:
+        return True
+    prefix = FABRIC_INSTANCE_PREFIX.rstrip("/")
+    return path.startswith(prefix) or prefix.startswith(path + "/") or prefix == path
+
+
 def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> None:
     """The platform store serves platform secrets, not client ones.
 
@@ -1095,6 +1129,17 @@ def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> N
                     store = source.get("name") or default_store
                     if store != PLATFORM_SECRET_STORE:
                         continue
+
+                    if _reaches_fabric_instances(entry):
+                        fail(
+                            problems,
+                            f"{environment}/{path.name}:"
+                            f" {document['kind']}/{name} {field}[{index}]"
+                            f" can read '{FABRIC_INSTANCE_PREFIX}' through the"
+                            " platform store. That partition holds SaaS Fabric's"
+                            " own integration credentials, and nothing is"
+                            " delivered from it (ADR 0026, application repository)",
+                        )
 
                     if any(_reaches_client_space(remote) for remote in _remote_paths(entry)):
                         # The offending path is identified by where it is, not
@@ -1254,6 +1299,25 @@ def check_openbao_bootstraps_itself(render: Path, problems: list[str]) -> None:
             f"{environment}: OpenBao self-init references the client secret"
             " space, which belongs to client provisioning",
         )
+
+    # External Secrets reads the platform prefix, and SaaS Fabric's instance
+    # partition sits beneath it. The policy must deny that partition outright,
+    # on both the data and metadata paths, or the store could project the
+    # control plane's own credentials into a Kubernetes Secret.
+    for mount in ("data", "metadata"):
+        denied = re.search(
+            r'path\s+"secret/' + mount
+            + r'/platform/saas-fabric/instances/\*"\s*\{\s*capabilities\s*=\s*\["deny"\]',
+            config,
+        )
+        if not denied:
+            fail(
+                problems,
+                f"{environment}: OpenBao self-init does not deny"
+                f" secret/{mount}/{FABRIC_INSTANCE_PREFIX}* to External Secrets,"
+                " so the platform store could read SaaS Fabric's own"
+                " integration credentials",
+            )
 
 
 def check_master_realm_bootstraps_itself(render: Path, problems: list[str]) -> None:
