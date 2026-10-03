@@ -240,6 +240,32 @@ CLIENT_PATH_PREFIX = "clients/"
 # store must never reach: not by key, and not by a `find` over a prefix that
 # contains it.
 FABRIC_INSTANCE_PREFIX = "platform/saas-fabric/instances/"
+# The same partition as path segments, which is how every comparison against
+# it is made. A string prefix is the wrong instrument: `instances-public` is a
+# sibling of `instances`, not a path beneath it, and `startswith` cannot tell
+# the two apart. See _reaches_fabric_instances.
+FABRIC_INSTANCE_SEGMENTS = tuple(
+    segment for segment in FABRIC_INSTANCE_PREFIX.split("/") if segment
+)
+# The OpenBao ACL policy External Secrets' role is bound to, and the self-init
+# request that writes it. The deny on the partition is verified *inside this
+# request's policy text*, never by searching the configuration as a whole --
+# a deny in a comment, or in some other policy, is not a deny the External
+# Secrets token is subject to.
+EXTERNAL_SECRETS_POLICY_NAME = "platform-secrets"
+EXTERNAL_SECRETS_POLICY_REQUEST_PATH = f"sys/policies/acl/{EXTERNAL_SECRETS_POLICY_NAME}"
+EXTERNAL_SECRETS_ROLE_REQUEST_PATH = "auth/kubernetes/role/external-secrets"
+# Self-init operations that write the resource a request names. Anything else
+# -- `read`, `delete`, a typo -- does not establish a policy and so cannot
+# satisfy the deny.
+WRITING_INITIALIZE_OPERATIONS = ("update", "create")
+# The two paths the policy must deny: the partition's data and its metadata.
+# Exactly the glob the policy spells, because the verification compares path
+# labels literally -- a policy that denied `instances/master/*` instead would
+# leave the rest of the partition readable.
+FABRIC_INSTANCE_DENIED_PATHS = tuple(
+    f"secret/{mount}/{FABRIC_INSTANCE_PREFIX}*" for mount in ("data", "metadata")
+)
 # An exact chart version. Ranges, wildcards and "latest" make a release
 # non-reproducible: the same tag would deploy different software over time.
 PINNED_VERSION = re.compile(r"^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")
@@ -1066,29 +1092,74 @@ def _reaches_client_space(remote: str) -> bool:
     return remote.lstrip("/").startswith(CLIENT_PATH_PREFIX)
 
 
+def _path_segments(remote: str) -> tuple[str, ...]:
+    """A remote path as the segments OpenBao resolves, empty ones dropped.
+
+    `/platform//x/` and `platform/x` name the same place to a KV mount, so
+    the comparison is made on segments rather than characters. Dropping empty
+    segments can only make a path look *more* like the partition, never less,
+    which is the direction a boundary check is allowed to err in.
+    """
+    return tuple(segment for segment in str(remote).split("/") if segment)
+
+
+def _is_within_fabric_instances(segments: tuple[str, ...]) -> bool:
+    """Whether a path is the partition root itself or anything beneath it.
+
+    The root is included on purpose. The ACL glob
+    `secret/data/platform/saas-fabric/instances/*` matches what lies *beneath*
+    the root and not a secret written at the bare root path; nothing legitimate
+    is written there -- the control plane's grant is `instances/master/*` --
+    so this checker refuses the root as well rather than leave a path the
+    policy does not cover as the one path the checker also ignores. Stricter
+    than the ACL, never wider. Documented in
+    applications/core/external-secrets/README.md, "Exact-root semantics".
+    """
+    depth = len(FABRIC_INSTANCE_SEGMENTS)
+    return len(segments) >= depth and segments[:depth] == FABRIC_INSTANCE_SEGMENTS
+
+
+def _is_ancestor_of_fabric_instances(segments: tuple[str, ...]) -> bool:
+    """Whether a `find` over this path would enumerate the partition.
+
+    The whole store (no segments at all) and every prefix of the partition --
+    `platform`, `platform/saas-fabric` -- contain it. The root itself is
+    handled by _is_within_fabric_instances.
+    """
+    depth = len(segments)
+    return depth < len(FABRIC_INSTANCE_SEGMENTS) and FABRIC_INSTANCE_SEGMENTS[:depth] == segments
+
+
 def _reaches_fabric_instances(entry: dict) -> bool:
     """Whether one data or dataFrom entry can select SaaS Fabric's partition.
 
-    An exact key reaches it by naming a path beneath it. A `find` reaches it
-    when its path is beneath it, when its path is a prefix that contains it,
-    and when it has no path at all -- a find with no path searches the whole
-    store, and the partition is part of the store.
+    An exact key (`remoteRef.key`, `extract.key`) reaches it by naming the
+    partition root or a path beneath it. A `find` reaches it when its path is
+    the root or beneath it, when its path is an ancestor whose subtree
+    contains it, and when it has no path at all -- a find with no path
+    searches the whole store, and the partition is part of the store.
+
+    Compared segment by segment, so a sibling such as
+    `platform/saas-fabric/instances-public` is what it is -- a different path
+    -- rather than a string that happens to start the same way.
     """
     for key in (
         (entry.get("remoteRef") or {}).get("key"),
         (entry.get("extract") or {}).get("key"),
     ):
-        if key and key.lstrip("/").startswith(FABRIC_INSTANCE_PREFIX):
+        if key and _is_within_fabric_instances(_path_segments(key)):
             return True
 
     find = entry.get("find")
     if find is None:
         return False
-    path = (find.get("path") or "").strip("/")
-    if not path:
+    if not isinstance(find, dict):
+        # Not a shape ESO accepts, so not one this checker can bound. Refuse.
         return True
-    prefix = FABRIC_INSTANCE_PREFIX.rstrip("/")
-    return path.startswith(prefix) or prefix.startswith(path + "/") or prefix == path
+    segments = _path_segments(find.get("path") or "")
+    if not segments:
+        return True
+    return _is_within_fabric_instances(segments) or _is_ancestor_of_fabric_instances(segments)
 
 
 def check_platform_secrets_stay_platform(render: Path, problems: list[str]) -> None:
@@ -1218,6 +1289,448 @@ def check_projects_permit_what_apps_deploy(render: Path, problems: list[str]) ->
                     )
 
 
+class ConfigSyntaxError(ValueError):
+    """OpenBao's configuration could not be read far enough to verify anything.
+
+    Raised, never swallowed: a configuration this reader cannot follow is one
+    whose policy it cannot vouch for, and the caller turns it into a failure.
+    """
+
+
+# A bounded reader for the configuration language OpenBao shares with HCL,
+# covering exactly what the `initialize` stanza and an ACL policy use: blocks
+# with string labels, `name = value` attributes, objects, lists, quoted
+# strings, `<<MARKER` / `<<-MARKER` heredocs, and `#`, `//`, `/* */` comments.
+#
+# It exists so the deny on the instance partition is verified in the policy
+# that External Secrets' role is actually bound to, inside the request that
+# actually writes it. A regex over the whole configuration was satisfied by a
+# deny inside a comment, and by a deny inside some other policy. Anything this
+# reader does not understand raises ConfigSyntaxError, and the check fails --
+# it never guesses.
+_HCL_IDENT_START = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789-")
+_HCL_IDENT_CHARS = _HCL_IDENT_START | frozenset(".")
+_HCL_PUNCTUATION = frozenset("{}[]=,")
+
+
+# The backslash escapes a quoted string may contain, and what each means.
+# These five are the whole list on purpose. HCL defines others -- `\uNNNN`
+# and `\UNNNNNNNN` -- and this reader does not implement them, so it refuses
+# them rather than approximating: an escape it does not understand is a
+# string whose value it cannot vouch for, and a policy name or path label it
+# cannot vouch for is one it must not credit. Dropping the backslash and
+# keeping the next character, which is what an unbounded reader does, would
+# let `"d\eny"` read as `deny`.
+_HCL_STRING_ESCAPES = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\"}
+
+
+def _read_hcl_quoted(text: str, start: int) -> tuple[str, int]:
+    """A double-quoted string beginning at `start`; returns (value, next index).
+
+    Only the escapes in _HCL_STRING_ESCAPES are decoded. Any other backslash
+    sequence is a ConfigSyntaxError, never silently unescaped.
+    """
+    out: list[str] = []
+    i = start + 1
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
+            if i + 1 >= len(text):
+                break
+            escaped = text[i + 1]
+            if escaped not in _HCL_STRING_ESCAPES:
+                raise ConfigSyntaxError(
+                    f"unsupported string escape '\\{escaped}'; this reader decodes"
+                    " only \\n \\r \\t \\\" and \\\\"
+                )
+            out.append(_HCL_STRING_ESCAPES[escaped])
+            i += 2
+            continue
+        if c == '"':
+            return "".join(out), i + 1
+        if c == "\n":
+            break
+        out.append(c)
+        i += 1
+    raise ConfigSyntaxError("unterminated quoted string")
+
+
+def _read_hcl_heredoc(text: str, start: int) -> tuple[str, int]:
+    """A heredoc beginning at `start` (`<<MARKER` or `<<-MARKER`).
+
+    Returns the body and the index after the terminator line. `<<-` strips the
+    common leading whitespace, as HCL does; the terminator must stand alone on
+    its own line. A heredoc that never terminates is a syntax error.
+    """
+    i = start + 2
+    indented = i < len(text) and text[i] == "-"
+    if indented:
+        i += 1
+    line_end = text.find("\n", i)
+    if line_end == -1:
+        raise ConfigSyntaxError("heredoc marker without a body")
+    marker = text[i:line_end].strip()
+    if not marker or any(c not in _HCL_IDENT_CHARS for c in marker):
+        raise ConfigSyntaxError("heredoc marker is not an identifier")
+
+    lines: list[str] = []
+    position = line_end + 1
+    while position <= len(text):
+        next_end = text.find("\n", position)
+        line = text[position:] if next_end == -1 else text[position:next_end]
+        if line.strip() == marker:
+            body = lines
+            if indented:
+                indents = [len(l) - len(l.lstrip()) for l in body if l.strip()]
+                strip = min(indents) if indents else 0
+                body = [l[strip:] if l.strip() else l.strip() for l in body]
+            return "\n".join(body) + "\n", (len(text) if next_end == -1 else next_end + 1)
+        lines.append(line)
+        if next_end == -1:
+            break
+        position = next_end + 1
+    raise ConfigSyntaxError(f"heredoc {marker!r} never terminates")
+
+
+def _tokenize_hcl(text: str) -> list[tuple[str, str]]:
+    """(kind, value) tokens: 'string', 'ident', or one of {}[]=, as itself."""
+    tokens: list[tuple[str, str]] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in " \t\r\n":
+            i += 1
+        elif c == "#" or text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end == -1 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            if end == -1:
+                raise ConfigSyntaxError("unterminated block comment")
+            i = end + 2
+        elif c == '"':
+            value, i = _read_hcl_quoted(text, i)
+            tokens.append(("string", value))
+        elif text.startswith("<<", i):
+            value, i = _read_hcl_heredoc(text, i)
+            tokens.append(("string", value))
+        elif c in _HCL_PUNCTUATION:
+            tokens.append((c, c))
+            i += 1
+        elif c in _HCL_IDENT_START:
+            j = i + 1
+            while j < n and text[j] in _HCL_IDENT_CHARS:
+                j += 1
+            tokens.append(("ident", text[i:j]))
+            i = j
+        else:
+            raise ConfigSyntaxError(f"unexpected character {c!r}")
+    return tokens
+
+
+def _parse_hcl_expression(tokens: list[tuple[str, str]], i: int):
+    """One attribute value: a string, a bare word, an object or a list."""
+    if i >= len(tokens):
+        raise ConfigSyntaxError("attribute without a value")
+    kind, value = tokens[i]
+    if kind == "string":
+        return value, i + 1
+    if kind == "ident":
+        # A bare word -- `true`, `8200`, `var.x` -- is not a string literal,
+        # and must not be mistaken for one: a policy that is a reference is a
+        # policy this checker cannot read.
+        return ("bare", value), i + 1
+    if kind == "{":
+        body, i = _parse_hcl_body(tokens, i + 1)
+        obj: dict = {}
+        for item in body:
+            if item[0] != "attr":
+                raise ConfigSyntaxError("a block where an object attribute was expected")
+            if item[1] in obj:
+                raise ConfigSyntaxError(f"object key {item[1]!r} is set more than once")
+            obj[item[1]] = item[2]
+        return obj, i
+    if kind == "[":
+        items: list = []
+        i += 1
+        while i < len(tokens) and tokens[i][0] != "]":
+            if tokens[i][0] == ",":
+                i += 1
+                continue
+            item, i = _parse_hcl_expression(tokens, i)
+            items.append(item)
+        if i >= len(tokens):
+            raise ConfigSyntaxError("unterminated list")
+        return items, i + 1
+    raise ConfigSyntaxError(f"unexpected {value!r} where a value was expected")
+
+
+def _parse_hcl_body(tokens: list[tuple[str, str]], i: int, top_level: bool = False):
+    """Items until the closing brace: ('attr', name, value) and
+    ('block', type, labels, body)."""
+    items: list[tuple] = []
+    n = len(tokens)
+    while i < n:
+        kind, value = tokens[i]
+        if kind == "}":
+            if top_level:
+                raise ConfigSyntaxError("closing brace with nothing open")
+            return items, i + 1
+        if kind == "ident" or kind == "string":
+            if i + 1 < n and tokens[i + 1][0] == "=":
+                expression, i = _parse_hcl_expression(tokens, i + 2)
+                items.append(("attr", value, expression))
+                continue
+            if kind == "ident":
+                j = i + 1
+                labels: list[str] = []
+                while j < n and tokens[j][0] == "string":
+                    labels.append(tokens[j][1])
+                    j += 1
+                if j < n and tokens[j][0] == "{":
+                    body, i = _parse_hcl_body(tokens, j + 1)
+                    items.append(("block", value, labels, body))
+                    continue
+        if kind == ",":
+            i += 1
+            continue
+        raise ConfigSyntaxError(f"unexpected {value!r}")
+    if not top_level:
+        raise ConfigSyntaxError("block never closes")
+    return items, i
+
+
+def parse_hcl(text: str) -> list[tuple]:
+    """The top-level items of an HCL-shaped document. Raises ConfigSyntaxError."""
+    return _parse_hcl_body(_tokenize_hcl(text), 0, top_level=True)[0]
+
+
+def _hcl_blocks(items: list[tuple], block_type: str) -> list[tuple]:
+    return [item for item in items if item[0] == "block" and item[1] == block_type]
+
+
+def _hcl_attribute(items: list[tuple], name: str):
+    """The value of a body attribute, or None. A repeated attribute is a
+    syntax error here even where HCL would take the last one: two `policy`
+    lines in one request is an ambiguity, not a choice this checker makes."""
+    values = [item[2] for item in items if item[0] == "attr" and item[1] == name]
+    if len(values) > 1:
+        raise ConfigSyntaxError(f"attribute {name!r} is set more than once")
+    return values[0] if values else None
+
+
+def _initialize_requests(config: str, request_path: str) -> list[list[tuple]]:
+    """The bodies of every `initialize { request { path = <request_path> } }`.
+
+    All of them, not the first: requests run in order and the last writer
+    wins, so each one is held to the same standard rather than guessing
+    which is active.
+    """
+    found: list[list[tuple]] = []
+    for stanza in _hcl_blocks(parse_hcl(config), "initialize"):
+        for request in _hcl_blocks(stanza[3], "request"):
+            path = _hcl_attribute(request[3], "path")
+            if isinstance(path, str) and path.strip("/") == request_path:
+                found.append(request[3])
+    return found
+
+
+def _policy_rules(policy_text: str) -> dict[str, list[str]]:
+    """path label -> declared capabilities, from an OpenBao ACL policy document.
+
+    Accepts the modern `capabilities = [...]` list of string literals, or the
+    legacy `policy = "<word>"` spelling, which OpenBao still honours -- but
+    never both in one rule, and never the same path declared twice. Those are
+    declarations whose combination OpenBao resolves by rules this checker does
+    not implement, and it is not going to guess which half wins: an ambiguous
+    declaration is a ConfigSyntaxError, so the check fails rather than passes.
+    This is not an ACL interpreter; it reads what one policy declares.
+    """
+    rules: dict[str, list[str]] = {}
+    for block in _hcl_blocks(parse_hcl(policy_text), "path"):
+        if len(block[2]) != 1:
+            raise ConfigSyntaxError("a path rule needs exactly one label")
+        label = block[2][0]
+        if label in rules:
+            raise ConfigSyntaxError(f"path {label!r} is declared more than once")
+        capabilities = _hcl_attribute(block[3], "capabilities")
+        legacy = _hcl_attribute(block[3], "policy")
+        if capabilities is not None and legacy is not None:
+            raise ConfigSyntaxError(
+                f"path {label!r} declares both capabilities and the legacy policy"
+                " field; which one applies is not something this checker decides"
+            )
+        if capabilities is not None:
+            if not isinstance(capabilities, list) or not all(
+                isinstance(item, str) for item in capabilities
+            ):
+                raise ConfigSyntaxError(f"path {label!r}: capabilities is not a list of strings")
+            rules[label] = list(capabilities)
+        elif legacy is not None:
+            if not isinstance(legacy, str):
+                raise ConfigSyntaxError(f"path {label!r}: policy is not a string")
+            rules[label] = [legacy]
+        else:
+            rules[label] = []
+    return rules
+
+
+def _rule_denies(capabilities: list[str]) -> bool:
+    """Whether a rule's declared capabilities are a deny, and only a deny.
+
+    `["deny"]` and the legacy `policy = "deny"` both arrive here as a
+    one-item list. `["deny", "read"]` does not count: OpenBao may well treat
+    it as a deny, but this checker verifies the declaration, not OpenBao's
+    resolution of a contradictory one.
+    """
+    return capabilities == ["deny"]
+
+
+# The role-data fields that name a token's policies. `token_policies` is the
+# current field; `policies` is its deprecated alias, still accepted
+# (https://openbao.org/docs/api/auth/kubernetes/). Each takes a comma-separated
+# string or a list of strings. A request that sets both is refused rather than
+# resolved: which one OpenBao honours when they disagree is a precedence rule
+# this checker does not implement, and guessing it would be guessing which
+# policy the External Secrets token actually carries.
+ROLE_POLICY_FIELDS = ("token_policies", "policies")
+
+
+class _NonWritingRequest(Exception):
+    """An initialize request whose operation establishes nothing."""
+
+
+def _writing_request_data(request: list[tuple], request_path: str) -> dict | None:
+    """The `data` object of an initialize request that writes `request_path`.
+
+    Raises _NonWritingRequest when the request does not write -- `read`,
+    `delete`, a typo -- and returns None when it carries no data object. A
+    request has to write for anything in its data to exist on the instance,
+    so the same rule applies to the policy request and the role request.
+    """
+    operation = _hcl_attribute(request, "operation")
+    if operation not in WRITING_INITIALIZE_OPERATIONS:
+        raise _NonWritingRequest(
+            f"the request for {request_path} has operation {operation!r},"
+            " which does not write anything"
+        )
+    data = _hcl_attribute(request, "data")
+    return data if isinstance(data, dict) else None
+
+
+def _bound_policy_names(role_data: dict) -> list[str]:
+    """The policy names a role request literally binds.
+
+    Exactly one of ROLE_POLICY_FIELDS, holding a string of comma-separated
+    names or a list of string literals. Anything else -- both fields at once,
+    a bare reference such as `var.x`, a list holding one -- is a
+    ConfigSyntaxError: a value this reader cannot resolve to names is not
+    stringified into one that happens to match.
+    """
+    present = [field for field in ROLE_POLICY_FIELDS if field in role_data]
+    if len(present) > 1:
+        raise ConfigSyntaxError(
+            f"the role sets both {' and '.join(present)}; which binds its token"
+            " is not something this checker decides"
+        )
+    if not present:
+        return []
+    value = role_data[present[0]]
+    if isinstance(value, str):
+        items = value.split(",")
+    elif isinstance(value, list):
+        items = value
+    elif isinstance(value, tuple):
+        # ("bare", "var.x"): a reference, which is not a string literal.
+        raise ConfigSyntaxError(f"{present[0]} is a reference, not a string literal")
+    else:
+        raise ConfigSyntaxError(f"{present[0]} is neither a string nor a list")
+    names: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            raise ConfigSyntaxError(f"{present[0]} holds a value that is not a string literal")
+        if item.strip():
+            names.append(item.strip())
+    return names
+
+
+def _external_secrets_policy_denies_partition(config: str) -> list[str]:
+    """Why the stanza would not establish a partition deny for External Secrets.
+
+    Empty when, as far as the two declarations go, it would: the request that
+    writes `sys/policies/acl/platform-secrets` declares `deny`, alone, on
+    both partition paths, and the request that writes the External Secrets
+    role literally binds `platform-secrets`. Only those two requests count: a
+    deny in a comment, in another policy, or in a request that does not write
+    counts for nothing here.
+
+    What this does *not* establish, deliberately: the effective ACL of the
+    token. OpenBao resolves a token's capabilities across every policy it
+    holds, and a more specific path outranks a glob -- which is why the deny
+    on `instances/*` outranks `platform/*`, and equally why an exact allow
+    deeper than `instances/*` in any other policy the role binds would
+    outrank the deny. This function reads two declarations; it is not an ACL
+    evaluator, and a pass from it is not a statement that the running
+    identity is denied. That is verified against the instance, in
+    applications/core/external-secrets/README.md, "Updating the policy on an
+    initialised instance".
+
+    Fails closed. No request, a request that does not write, a policy or a
+    binding that is not a literal, a document the reader cannot follow -- each
+    is reported rather than passed over.
+    """
+    reasons: list[str] = []
+    try:
+        requests = _initialize_requests(config, EXTERNAL_SECRETS_POLICY_REQUEST_PATH)
+        if not requests:
+            return [
+                f"no initialize request writes {EXTERNAL_SECRETS_POLICY_REQUEST_PATH},"
+                " so self-init establishes no policy for External Secrets"
+            ]
+        for request in requests:
+            try:
+                data = _writing_request_data(request, EXTERNAL_SECRETS_POLICY_REQUEST_PATH)
+            except _NonWritingRequest as why:
+                reasons.append(f"{why}, so it establishes no policy")
+                continue
+            policy = data.get("policy") if data else None
+            if not isinstance(policy, str):
+                reasons.append(
+                    f"the request for {EXTERNAL_SECRETS_POLICY_REQUEST_PATH} carries"
+                    " no literal data.policy, so its rules cannot be verified"
+                )
+                continue
+            rules = _policy_rules(policy)
+            for denied_path in FABRIC_INSTANCE_DENIED_PATHS:
+                if not _rule_denies(rules.get(denied_path, [])):
+                    reasons.append(
+                        f"policy {EXTERNAL_SECRETS_POLICY_NAME} does not deny"
+                        f" {denied_path}"
+                    )
+
+        roles = _initialize_requests(config, EXTERNAL_SECRETS_ROLE_REQUEST_PATH)
+        if not roles:
+            reasons.append(
+                f"no initialize request writes {EXTERNAL_SECRETS_ROLE_REQUEST_PATH},"
+                f" so nothing binds External Secrets to {EXTERNAL_SECRETS_POLICY_NAME}"
+            )
+        for role in roles:
+            try:
+                role_data = _writing_request_data(role, EXTERNAL_SECRETS_ROLE_REQUEST_PATH)
+            except _NonWritingRequest as why:
+                reasons.append(f"{why}, so it binds no policy")
+                continue
+            if EXTERNAL_SECRETS_POLICY_NAME not in _bound_policy_names(role_data or {}):
+                reasons.append(
+                    f"the External Secrets role is not bound to"
+                    f" {EXTERNAL_SECRETS_POLICY_NAME}, so that policy's deny does not"
+                    " apply to its token"
+                )
+    except ConfigSyntaxError as error:
+        reasons.append(f"the configuration could not be read ({error}), so the deny is unverified")
+    return reasons
+
+
 def _openbao_config(render: Path, environment: str, problems: list[str]) -> str:
     """The rendered OpenBao server configuration, or an empty string."""
     path = render / environment / "applications" / "openbao.yaml"
@@ -1301,23 +1814,29 @@ def check_openbao_bootstraps_itself(render: Path, problems: list[str]) -> None:
         )
 
     # External Secrets reads the platform prefix, and SaaS Fabric's instance
-    # partition sits beneath it. The policy must deny that partition outright,
-    # on both the data and metadata paths, or the store could project the
-    # control plane's own credentials into a Kubernetes Secret.
-    for mount in ("data", "metadata"):
-        denied = re.search(
-            r'path\s+"secret/' + mount
-            + r'/platform/saas-fabric/instances/\*"\s*\{\s*capabilities\s*=\s*\["deny"\]',
-            config,
+    # partition sits beneath it. The policy its role is bound to must deny
+    # that partition outright, on both the data and metadata paths, or the
+    # store could project the control plane's own credentials into a
+    # Kubernetes Secret.
+    #
+    # Verified in the policy text of the request that writes
+    # `sys/policies/acl/platform-secrets`, read with a parser that knows what
+    # a comment, a string and a heredoc are -- not by searching the whole
+    # configuration, which a commented-out deny or a deny in an unrelated
+    # policy would satisfy. This asserts what two declarations in the stanza
+    # say: that the policy declares the deny and that the role binds the
+    # policy. It does not compute the token's effective ACL across every
+    # policy the role binds, and it says nothing about an instance
+    # initialised before the deny existed. Both are verified against the
+    # instance, not here (applications/core/external-secrets/README.md,
+    # "Updating the policy on an initialised instance").
+    for reason in _external_secrets_policy_denies_partition(config):
+        fail(
+            problems,
+            f"{environment}: OpenBao self-init does not deny"
+            f" {FABRIC_INSTANCE_PREFIX} to External Secrets -- {reason} -- so the"
+            " platform store could read SaaS Fabric's own integration credentials",
         )
-        if not denied:
-            fail(
-                problems,
-                f"{environment}: OpenBao self-init does not deny"
-                f" secret/{mount}/{FABRIC_INSTANCE_PREFIX}* to External Secrets,"
-                " so the platform store could read SaaS Fabric's own"
-                " integration credentials",
-            )
 
 
 def check_master_realm_bootstraps_itself(render: Path, problems: list[str]) -> None:

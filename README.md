@@ -223,8 +223,29 @@ It then checks the invariants a schema cannot express:
   `isolation` agreeing with that data source's placement class, and no two
   placements colliding on the same data source.
 
+Before the invariants run, the script runs the checker's own regression tests
+(`scripts/test_check.py`, standard-library `unittest`, synthetic manifests and
+policy text only):
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_*.py'
+```
+
+They pin the two checks that guard SaaS Fabric's instance partition: that the
+deny is verified inside the `platform-secrets` policy OpenBao's self-init
+actually writes -- a writing request, a literal policy, a role that literally
+binds it, and a reader that refuses what it cannot decode rather than
+guessing -- and that the partition is compared as a path, so a sibling such
+as `instances-public` is not mistaken for it. They also pin what the checker
+does not claim: it reads the stanza's declarations and does not evaluate the
+effective ACL of the running identity.
+
 No cluster required, and none should be. CI runs the same script, so a pull
-request that renders invalid manifests cannot merge.
+request that renders invalid manifests cannot merge. What the script cannot
+do is read the inside of a running OpenBao: an `initialize` stanza runs once,
+so an instance initialised before a policy change keeps the old policy until
+it is updated in place -- see
+[Updating the policy on an initialised instance](applications/core/external-secrets/README.md#updating-the-policy-on-an-initialised-instance).
 
 ## Documentation
 

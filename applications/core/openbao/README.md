@@ -82,7 +82,9 @@ and unusable by anyone. See
 [`../operator-access`](../operator-access/overlays/lucentroot/).
 
 **Destroying LucentRoot destroys its OpenBao state and its seal key together.**
-That is intended, not a caveat.
+That is intended, not a caveat — a statement of how the environment was
+designed, not an authorisation to destroy it. Deleting the instance is a
+separately authorised operation; see "Upstream limitation" below.
 
 ### Upstream limitation: `initialize` runs once, and only once
 
@@ -108,10 +110,26 @@ cannot detect it**, because the drift is inside OpenBao's storage rather than in
 a Kubernetes object. This is the one place in the platform where "reconciled by
 Argo CD" does not mean "matches Git".
 
-On LucentRoot the remedy is cheap and already the documented lifecycle: delete
-the StatefulSet and both PVCs and let it rebuild. Its policies and auth methods
-are effectively **immutable-by-rebuild**, which is acceptable precisely because
-its storage is disposable.
+LucentRoot was designed so that its OpenBao could be rebuilt rather than
+restored — storage disposable, seal key generated in-cluster, nothing from a
+previous installation needed for the next. That is design context, recorded
+in [`docs/migrating-lucentroot.md`](../../../docs/migrating-lucentroot.md),
+and it means a rebuild is *possible by design*. It is not evidence that a
+rebuild or a restore of the instance as it stands today has been proven, and
+it is not an authorisation to delete the StatefulSet or its volumes. A
+rebuild is a separately authorised operation with its own plan; no runbook
+in this repository grants it as a remedy for stanza drift.
+
+A correction to one policy does not need a rebuild, and should not be
+assumed to have happened because Git changed: it is written in place,
+through the operator path below, under a procedure that begins by reading
+back what the instance actually holds, reviews every policy the role binds,
+and ends by verifying the real identity's capabilities against the instance
+— see
+[External Secrets: Updating the policy on an initialised instance](../external-secrets/README.md#updating-the-policy-on-an-initialised-instance).
+`scripts/check.py` verifies what the stanza *declares* for a fresh instance;
+it does not evaluate the effective ACL, and it does not and cannot verify a
+running one.
 
 It does not generalise to production, where storage must survive. Auth methods
 and policies there belong in a tool that can reconcile them continuously — the

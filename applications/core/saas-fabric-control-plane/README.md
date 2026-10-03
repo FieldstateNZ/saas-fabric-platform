@@ -120,10 +120,20 @@ a path beneath it — by key, or by a `find` over a prefix containing it. A
 registry token an operator types into the console is Fabric's read credential;
 it must never become a cluster's image pull secret.
 
-An OpenBao that was initialised before the deny was added keeps the old
-`platform-secrets` policy until LucentRoot is next rebuilt, because the
-`initialize` stanza runs once. Until then the check is what holds: nothing in
-this repository can declare an `ExternalSecret` that reads the partition.
+**An OpenBao initialised before the deny was added is still running the policy
+first start wrote.** The `initialize` stanza runs once; editing it changes
+nothing on a running instance, and Argo CD reports `Synced` regardless.
+`scripts/check.py` verifies the stanza's intent and this repository's
+manifests — it cannot see the running ACL, and it does not bind an
+`ExternalSecret` created outside this repository, so until the running policy
+carries the deny, anyone able to create one in a platform namespace could read
+the partition through the store. The checker is defence in depth, not the
+boundary. Bringing an initialised instance's policy up to date is a separate,
+authorised, in-place operation —
+[Updating the policy on an initialised instance](../external-secrets/README.md#updating-the-policy-on-an-initialised-instance)
+— and whether a given instance needs it is known only by reading its policy
+back, which that procedure starts with. Nothing in this repository records
+the running state of any instance.
 
 It authenticates with the **pod's own Kubernetes identity**, so there is still
 no static credential for anybody to create, transport or rotate. That is why
