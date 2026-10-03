@@ -44,6 +44,12 @@ find "${RENDER}" -name '*.yaml' -print0 | xargs -0 kubeconform \
   -schema-location default \
   -schema-location "${CRD_CATALOG}"
 
+# The checker's own regression tests, before the checker is trusted with the
+# render. Standard-library unittest against synthetic manifests and policy
+# text: no extra dependency, no network, no cluster.
+step 'Checker regression tests'
+python3 -m unittest discover -s scripts -p 'test_*.py'
+
 step 'Repository invariants'
 python3 scripts/check.py "${RENDER}"
 
