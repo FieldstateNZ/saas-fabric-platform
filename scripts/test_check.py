@@ -767,6 +767,18 @@ class MasterInstanceLookups(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("keycloak_realm.master", problems[0])
 
+    def test_realm_id_through_a_local_fails(self) -> None:
+        """Passed before review: `local.lookup_realm_id` hid the realm
+        resource from the direct-reference scan."""
+        problems = self.problems(master_instance_module(user_realm="local.lookup_realm_id"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("references local.*", problems[0])
+
+    def test_realm_id_through_a_module_output_fails(self) -> None:
+        problems = self.problems(master_instance_module(admin_realm="module.realm.id"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("references module.*", problems[0])
+
     def test_lookup_of_another_data_source_passes(self) -> None:
         self.assertEqual(self.problems(master_instance_module(user_realm="data.keycloak_realm.master.id")), [])
 

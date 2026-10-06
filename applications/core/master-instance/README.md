@@ -120,10 +120,25 @@ master-realm `admin` — from the account, partial assignment or not. On a
 roster naming the bootstrap administrator this Job authenticates as, that
 one edit would revoke the Job's own authority. `prevent_destroy` on the grant
 refuses the plan instead (`check_master_instance_lookups_precede_apply` in
-`scripts/check.py` keeps it there). The same refusal meets two other edits
-that plan the same destroy: renaming a roster entry (its `for_each` key
-changes), and an account deleted and re-created under the same name (its
-user id changes, and `user_id` forces replacement).
+`scripts/check.py` keeps it there). The same refusal meets two other changes
+that plan the same destroy:
+- renaming a roster entry (its `for_each` key changes);
+- a *different*, still-existing account coming to hold the declared
+  username, for example the original renamed away and a new one created
+  under the old name. The old grant still refreshes, the lookup returns a
+  new user id, and `user_id` forces replacement.
+
+**The guard does not cover an account deleted and re-created under the same
+username.** The grant follows the username, not the person. The refresh asks
+for the old user id, gets a `404`, and the provider drops the grant from
+state without an error (5.9.0 `resourceKeycloakUserRolesRead` →
+`handleNotFoundError` → `SetId("")`). The lookup then resolves the new
+account, and the plan *creates* a grant, `fabric-operator` and master-realm
+`admin` both, with nothing destroyed for `prevent_destroy` to refuse. The
+old account's grant went when the account was deleted. Whoever holds a
+declared username after a re-creation is an operator. Keeping that username
+pointed at the right person is outside what this module checks, and so is
+how an operator's identity is bound (D01-6).
 
 **A refused plan blocks the whole module, not only that grant.** The Job
 stops at plan, so nothing else here converges either — `frontendUrl`, the

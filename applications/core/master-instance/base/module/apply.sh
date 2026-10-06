@@ -81,8 +81,10 @@ case "$planned" in
     echo "  and creates none (README, 'Who the operators are')." >&2
     echo "  'Resource instance cannot be destroyed' on keycloak_user_roles.operator: the plan would" >&2
     echo "  revoke an operator's fabric-operator and admin roles -- a name was removed or renamed" >&2
-    echo "  in 'operators', or the account behind a name was replaced (new user id). Refused;" >&2
-    echo "  restore the name, or follow README, 'Who the operators are', to retire it." >&2
+    echo "  in 'operators', or a different existing account now holds a declared username." >&2
+    echo "  Refused; restore it, or follow README, 'Who the operators are', to retire it." >&2
+    echo "  (An account deleted and re-created under the same name is not refused: its new" >&2
+    echo "  account is granted. README, 'Who the operators are'.)" >&2
     echo "  '401' or 'invalid_grant': the mirrored keycloak-admin credential is not the one" >&2
     echo "  Keycloak holds (docs/master-instance-convergence.md, cause 9)." >&2
     echo "  A state lock in the error: README, 'A Job replaced mid-run'." >&2

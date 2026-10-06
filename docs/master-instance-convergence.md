@@ -63,10 +63,17 @@ in or out.
 
 ## Read-only runbook
 
-Every step below reads and nothing writes. It needs cluster read access, and
-an authorised operator runs it. Redact before pasting output anywhere. Step 5
-handles secret material even though it prints none, so it needs authorisation
-of its own.
+No step below mutates infrastructure: no Kubernetes object, Keycloak object
+or OpenTofu state is changed. That is narrower than "nothing writes".
+- Step 6's `kubectl exec` and `kcadm.sh config credentials` write a local
+  config file holding a token, and create a session in the master realm.
+- Every `kubectl` and `argocd` call is recorded in the API server's and
+  Argo CD's own audit trails.
+
+The runbook needs cluster read access, and an authorised operator runs it.
+Redact before pasting output anywhere. Steps 5 and 6 need authorisation of
+their own: step 5 handles secret material even though it prints none, and
+step 6 uses the bootstrap administrator.
 
 1. **Application state and age.** This tests #2 and #8.
    ```console
@@ -103,7 +110,7 @@ of its own.
    | `Error acquiring the state lock` | #5 |
    | final plan `Plan: 0 to add, N to change` after `Apply complete` | #6 |
    | `401` / `invalid_grant` before any plan output | #9 |
-   | `Resource instance cannot be destroyed` on `keycloak_user_roles.operator` (only after this repair) | a roster removal, rename or replaced account, refused by #4's guard. See "Recovery" |
+   | `Resource instance cannot be destroyed` on `keycloak_user_roles.operator` (only after this repair) | a roster removal or rename, or a different existing account now holding a declared username, refused by #4's guard. See "Recovery". A deleted-and-re-created account is **not** refused, and shows as a plain create of the grant |
    | `409` on `keycloak_openid_client.gateway`, or `not found` on `keycloak_role.fabric_operator` / `keycloak_openid_client.console` create | #10 |
    Pods may already have been garbage-collected. If they have, the Job's
    conditions and the Argo CD operation message are what remain.
@@ -173,11 +180,37 @@ Branch `claude/48-master-instance-convergence`. It does not change the roster.
    `keycloak_user_roles.operator`). `lifecycle { prevent_destroy = true }`
    turns any plan that destroys a grant into a plan-time refusal, instead of
    a provider delete that strips `fabric-operator` and master `admin`. Three
-   edits plan that destroy:
+   changes plan that destroy:
    - removing a name;
    - renaming one (the `for_each` key changes);
-   - an account deleted and re-created under the same name (`user_id`
-     changes, and it forces replacement).
+   - a different, still-existing account coming to hold the declared
+     username (the old grant refreshes, the lookup returns a new user id,
+     and `user_id` forces replacement).
+
+   **Not covered: an account deleted and re-created under the same
+   username.** No destroy is planned, so `prevent_destroy` has nothing to
+   refuse. Provider 5.9.0's refresh of the old grant asks for the old user
+   id, and a `404` makes it drop the grant from state silently:
+   `resource_keycloak_user_roles.go` `resourceKeycloakUserRolesRead` →
+   `utils.go` `handleNotFoundError` → `SetId("")`. The username lookup then
+   resolves the new account, and the plan creates a fresh grant,
+   `fabric-operator` and master `admin`, for whoever now holds the name.
+
+   The provider half of this was executed offline, in an isolated Go test
+   against the provider's own package at the v5.9.0 commit (`f1724f7`):
+   - a stub Admin API answers `404` for the old user id and returns a new
+     id for the username;
+   - `resourceKeycloakUserRolesRead` returns no error and clears the
+     grant's id;
+   - `dataSourceKeycloakUserRead` resolves the new id;
+   - no `DELETE` is sent.
+
+   The test is not in this repository, which has no Go toolchain or
+   provider build. The OpenTofu half, a planned create with no destroy,
+   follows from a resource missing from refreshed state. That half was
+   **not** executed: no `tofu` binary was available. Whether the grant
+   should follow the username at all is a question of how operator
+   identity is bound (D01-6), not something this repair decides.
 
    How an operator is retired is still D01-6b, the product owner's
    decision. This change keeps that from being decided by accident.
@@ -195,7 +228,8 @@ Branch `claude/48-master-instance-convergence`. It does not change the roster.
        state write or lock-holding apply happens.
      - Exit 1 prints that nothing was applied, and names the cases by their
        OpenTofu text: `user with username … not found`, `Resource instance
-       cannot be destroyed` (a removed, renamed or replaced operator),
+       cannot be destroyed` (a removed or renamed operator, or a different
+       existing account now holding the name),
        `401`/`invalid_grant`, and a state lock.
      - Exit 2 applies exactly that saved plan, then runs the existing drift
        check. OpenTofu refuses the saved plan as stale if another run
@@ -311,8 +345,11 @@ every operation that completed, and the next run plans from it. So:
 
 ## Validation done, and not done
 
-- `python3 -m unittest discover -s scripts -p 'test_*.py'`: 71 tests pass,
-  including 18 new ones. Each new check fails against the module on `main`.
+- `python3 -m unittest discover -s scripts -p 'test_*.py'`: 73 tests pass,
+  including 20 new ones. Each new check fails against the module on `main`.
+  The Codex follow-up's local and module-output cases passed the checker as
+  it stood at `b51813f` and fail now. Lookups may only use literals and
+  `var.*`, `each.*`, `count.*` or `data.*`.
   The review follow-up's string-literal and nested-lifecycle cases fail
   against the checker as first committed (`068eb45`).
 - `scripts/check.py` was run against a partial render: every Kustomize-sourced
@@ -325,6 +362,10 @@ every operation that completed, and the next run plans from it. So:
     meaning its contents and its hash suffix.
   - CI runs the full render.
 - `python3 -m yamllint --strict .` passes.
+- One isolated provider-level Go test was run offline against
+  keycloak/keycloak 5.9.0 (commit `f1724f7`), with a stub Admin API: the
+  same-name re-creation case under "The repair", item 2. It passes. It is
+  not part of this repository or its CI.
 - **Not run: `tofu fmt`, `tofu validate`, `tofu plan`.** No OpenTofu binary
   was available offline. The HCL change is limited to two attribute values
   and one `lifecycle` block, and the script now uses a saved plan, and the Job runs `tofu validate` before planning,

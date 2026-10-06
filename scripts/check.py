@@ -1978,6 +1978,13 @@ MASTER_INSTANCE_MODULE = Path("applications/core/master-instance/base/module/mai
 # underscore, which `var.x`, `each.value` and `local.y` do not.
 _MANAGED_RESOURCE_REFERENCE = re.compile(r"(?<![\w.])([a-z][a-z0-9]*_[a-z0-9_]+)\.([A-Za-z_][\w-]*)")
 
+# The root of any traversal (`local.x`, `module.y.z`, `var.v`), and the roots
+# a lookup may use. Anything else -- a local, a module output -- can carry a
+# managed resource's value one step removed, which the direct-reference scan
+# above cannot see, so it is refused rather than traced.
+_REFERENCE_ROOT = re.compile(r"(?<![\w.])([A-Za-z_][\w-]*)\.(?=[A-Za-z_])")
+_LOOKUP_REFERENCE_ROOTS = frozenset({"var", "each", "data", "count"})
+
 
 def _hcl_without_comments(text: str) -> str:
     """`text` with `#`, `//` and `/* */` comments blanked, strings kept."""
@@ -2100,6 +2107,15 @@ def master_instance_lookup_problems(module_text: str, where: str) -> list[str]:
     fails the convergence before anything is written" into "fails after the
     clients and role were already changed". A literal or a variable keeps it
     a plan-time read, unconditionally.
+
+    Only roots in _LOOKUP_REFERENCE_ROOTS are accepted. A reference through a
+    local is not a `depends_on` edge in OpenTofu 1.12.6 (`nodeDependencies`
+    in internal/tofu/transform_reference.go keeps only direct managed-resource
+    subjects), but it still defers the read whenever the value it carries is
+    unknown at plan time, and a data block with custom conditions waits on
+    every transitive dependency (`dependenciesHavePendingChanges` uses
+    `n.Dependencies` then). Refusing the indirection is simpler and stricter
+    than tracing it.
     """
     problems: list[str] = []
     for kind, name, block in _hcl_top_level_blocks(_hcl_without_comments(module_text), "data"):
@@ -2118,6 +2134,16 @@ def master_instance_lookup_problems(module_text: str, where: str) -> list[str]:
                 " operator account fails after the master realm was already"
                 " changed instead of failing the plan. Use a literal or a"
                 " variable (the realm id is its name, \"master\")"
+            )
+        managed_roots = {m.group(1) for m in _MANAGED_RESOURCE_REFERENCE.finditer(body)}
+        for root in sorted({m.group(1) for m in _REFERENCE_ROOT.finditer(body)}):
+            if root in _LOOKUP_REFERENCE_ROOTS or root in managed_roots:
+                continue
+            problems.append(
+                f"{where}: data.{kind}.{name} references {root}.* -- a lookup"
+                " may use only literals, var.*, each.*, count.* and data.*;"
+                " a local or module output can carry a managed resource's"
+                " value and move this read into apply"
             )
     return problems
 
