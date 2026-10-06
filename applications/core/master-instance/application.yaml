@@ -18,7 +18,10 @@ metadata:
     # should be expressed by moving one to the next wave", which is not the
     # case here). Before ../saas-fabric-control-plane at wave 40: its OIDC
     # `SecurityPolicy` reads the client this Job sets a secret on, and this
-    # Application's own health is what wave 40 actually waits on -- the
+    # Application's own health is what wave 40 waits on when the app-of-apps
+    # first creates it (on an environment that already exists each
+    # Application syncs itself; README, "What the wave gate holds, and
+    # when") -- the
     # Job's own health (Progressing while it runs, Healthy once it succeeds,
     # Degraded once backoffLimit is exhausted), not a hook's completion. An
     # earlier draft used a sync hook for this Job, which does not gate
