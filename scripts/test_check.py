@@ -664,5 +664,134 @@ class PartitionBoundary(unittest.TestCase):
         self.assertEqual(len([p for p in problems if "reads a path under" in p]), 1, problems)
 
 
+# ---------------------------------------------------------------------------
+# The master-instance convergence's own failure modes (platform #48).
+# ---------------------------------------------------------------------------
+
+MASTER_INSTANCE_MODULE = REPOSITORY / check.MASTER_INSTANCE_MODULE
+
+
+def master_instance_module(
+    *,
+    user_realm: str = '"master"',
+    admin_realm: str = '"master"',
+    user_extra: str = "",
+    grant_lifecycle: str = "lifecycle {\n    prevent_destroy = true\n  }",
+) -> str:
+    """The shape of base/module/main.tf, reduced to what the two checks read."""
+    return (
+        'resource "keycloak_realm" "master" {\n'
+        '  realm = "master"\n'
+        '  attributes = {\n'
+        '    frontendUrl = var.public_base_url\n'
+        '  }\n'
+        '}\n'
+        '\n'
+        'data "keycloak_role" "admin" {\n'
+        f'  realm_id = {admin_realm}\n'
+        '  name     = "admin"\n'
+        '}\n'
+        '\n'
+        'resource "keycloak_role" "fabric_operator" {\n'
+        '  realm_id = keycloak_realm.master.id\n'
+        '  name     = "fabric-operator"\n'
+        '}\n'
+        '\n'
+        'data "keycloak_user" "operator" {\n'
+        '  for_each = var.operators\n'
+        f'  realm_id = {user_realm}\n'
+        '  username = each.value\n'
+        f'{user_extra}'
+        '}\n'
+        '\n'
+        'resource "keycloak_user_roles" "operator" {\n'
+        '  for_each = var.operators\n'
+        '  realm_id = keycloak_realm.master.id\n'
+        '  user_id  = data.keycloak_user.operator[each.key].id\n'
+        '  role_ids = [keycloak_role.fabric_operator.id, data.keycloak_role.admin.id]\n'
+        '  exhaustive = false\n'
+        f'  {grant_lifecycle}\n'
+        '}\n'
+    )
+
+
+class MasterInstanceLookups(unittest.TestCase):
+    """Every lookup is read at plan time: a missing operator account must fail
+    the plan, never an apply that already changed the realm. OpenTofu treats a
+    data source's reference to a managed resource as depends_on and defers
+    the read while that resource has changes pending -- which the imported
+    realm always has on a first run."""
+
+    def problems(self, text: str) -> list[str]:
+        return check.master_instance_lookup_problems(text, "main.tf")
+
+    def test_literal_realm_ids_pass(self) -> None:
+        self.assertEqual(self.problems(master_instance_module()), [])
+
+    def test_the_module_in_this_repository_passes(self) -> None:
+        self.assertEqual(self.problems(MASTER_INSTANCE_MODULE.read_text()), [])
+
+    def test_variable_realm_id_passes(self) -> None:
+        self.assertEqual(self.problems(master_instance_module(user_realm="var.realm")), [])
+
+    def test_user_lookup_referencing_the_realm_resource_fails(self) -> None:
+        """Failed before: main at 0ff5d66 declared exactly this."""
+        problems = self.problems(master_instance_module(user_realm="keycloak_realm.master.id"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("data.keycloak_user.operator references the managed resource keycloak_realm.master", problems[0])
+
+    def test_role_lookup_referencing_the_realm_resource_fails(self) -> None:
+        problems = self.problems(master_instance_module(admin_realm="keycloak_realm.master.id"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("data.keycloak_role.admin", problems[0])
+
+    def test_reference_inside_an_interpolation_fails(self) -> None:
+        problems = self.problems(master_instance_module(user_realm='"${keycloak_realm.master.id}"'))
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_depends_on_fails(self) -> None:
+        problems = self.problems(master_instance_module(user_extra="  depends_on = [keycloak_role.fabric_operator]\n"))
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(any("declares depends_on" in p for p in problems), problems)
+
+    def test_reference_in_a_comment_is_not_a_reference(self) -> None:
+        self.assertEqual(self.problems(master_instance_module(user_extra="  # was keycloak_realm.master.id\n")), [])
+
+    def test_lookup_of_another_data_source_passes(self) -> None:
+        self.assertEqual(self.problems(master_instance_module(user_realm="data.keycloak_realm.master.id")), [])
+
+
+class MasterInstanceGrants(unittest.TestCase):
+    """Removing a name from the roster destroys that grant, and the provider's
+    delete revokes fabric-operator and master-realm admin whatever
+    `exhaustive` says; prevent_destroy is what keeps a roster edit from
+    revoking the bootstrap administrator's own authority."""
+
+    def problems(self, text: str) -> list[str]:
+        return check.master_instance_grant_problems(text, "main.tf")
+
+    def test_guarded_grant_passes(self) -> None:
+        self.assertEqual(self.problems(master_instance_module()), [])
+
+    def test_the_module_in_this_repository_passes(self) -> None:
+        self.assertEqual(self.problems(MASTER_INSTANCE_MODULE.read_text()), [])
+
+    def test_unguarded_grant_fails(self) -> None:
+        """Failed before: main at 0ff5d66 had no lifecycle on the grant."""
+        problems = self.problems(master_instance_module(grant_lifecycle=""))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("keycloak_user_roles.operator has no lifecycle prevent_destroy", problems[0])
+
+    def test_prevent_destroy_false_fails(self) -> None:
+        problems = self.problems(master_instance_module(
+            grant_lifecycle="lifecycle {\n    prevent_destroy = false\n  }"))
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_prevent_destroy_only_in_a_comment_fails(self) -> None:
+        problems = self.problems(master_instance_module(
+            grant_lifecycle="# lifecycle { prevent_destroy = true }"))
+        self.assertEqual(len(problems), 1, problems)
+
+
 if __name__ == "__main__":
     unittest.main()

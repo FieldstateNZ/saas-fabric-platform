@@ -27,7 +27,10 @@ Checks, in order of how much damage they prevent:
  13. LucentRoot's master realm converges its own instance resources the same
      way -- a generated client secret and a convergence Job, never a person
      creating a client in Keycloak and writing its secret into OpenBao
-     (ADR 0025, application repository);
+     (ADR 0025, application repository) -- and every lookup that convergence
+     makes is read at plan time, so a missing operator account fails it
+     before anything is written rather than after, and no roster edit can
+     plan a revocation of an operator's grants;
  14. every in-cluster service reference resolves to something this repository
      actually deploys;
  15. the telemetry pipelines only reference components that exist;
@@ -1967,6 +1970,147 @@ def check_master_realm_bootstraps_itself(render: Path, problems: list[str]) -> N
                     )
 
 
+MASTER_INSTANCE_MODULE = Path("applications/core/master-instance/base/module/main.tf")
+
+# A managed-resource reference: `<provider>_<type>.<name>`, not preceded by
+# `data.` (that is a lookup, not a resource) or by any other identifier
+# character. Every managed resource type carries its provider's prefix and an
+# underscore, which `var.x`, `each.value` and `local.y` do not.
+_MANAGED_RESOURCE_REFERENCE = re.compile(r"(?<![\w.])([a-z][a-z0-9]*_[a-z0-9_]+)\.([A-Za-z_][\w-]*)")
+
+
+def _hcl_without_comments(text: str) -> str:
+    """`text` with `#`, `//` and `/* */` comments blanked, strings kept."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    while i < n:
+        c = text[i]
+        if in_string:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == '"' or c == "\n":
+                in_string = False
+            i += 1
+        elif c == '"':
+            in_string = True
+            out.append(c)
+            i += 1
+        elif c == "#" or text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end == -1 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _hcl_top_level_blocks(text: str, block_type: str) -> list[tuple[str, str, str]]:
+    """(type, name, body) for every top-level `<block_type> "type" "name"` block
+    in comment-free HCL.
+
+    Braces inside strings -- `"${var.x}"` -- are not block structure, so the
+    scan tracks strings rather than counting every brace it sees.
+    """
+    blocks: list[tuple[str, str, str]] = []
+    header = re.compile(rf'(?m)^{re.escape(block_type)}\s+"([^"]+)"\s+"([^"]+)"\s*\{{')
+    for match in header.finditer(text):
+        depth, i, in_string = 1, match.end(), False
+        while i < len(text) and depth:
+            c = text[i]
+            if in_string:
+                if c == "\\":
+                    i += 1
+                elif c == '"':
+                    in_string = False
+            elif c == '"':
+                in_string = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+            i += 1
+        blocks.append((match.group(1), match.group(2), text[match.end():i - 1]))
+    return blocks
+
+
+def master_instance_lookup_problems(module_text: str, where: str) -> list[str]:
+    """Why a lookup in the master-instance module could be read at apply time.
+
+    OpenTofu reads a data source during plan unless it depends on a managed
+    resource with changes pending, in which case the read moves into apply --
+    after every resource ahead of it in the graph has already been written.
+    `keycloak_realm.master` has changes pending on every run that imports the
+    realm or re-converges `frontendUrl`, so a lookup referencing it (or naming
+    any managed resource in `depends_on`) turns "a missing operator account
+    fails the convergence before anything is written" into "fails after the
+    clients and role were already changed". A literal or a variable keeps it
+    a plan-time read, unconditionally.
+    """
+    problems: list[str] = []
+    for kind, name, body in _hcl_top_level_blocks(_hcl_without_comments(module_text), "data"):
+        if re.search(r"(?m)^\s*depends_on\s*=", body):
+            problems.append(
+                f"{where}: data.{kind}.{name} declares depends_on -- a lookup"
+                " with dependencies can be read at apply time, after the master"
+                " realm was already changed, instead of failing the plan"
+            )
+        for reference in sorted({m.group(0) for m in _MANAGED_RESOURCE_REFERENCE.finditer(body)}):
+            problems.append(
+                f"{where}: data.{kind}.{name} references the managed resource"
+                f" {reference} -- while that resource has changes pending,"
+                " OpenTofu reads this lookup at apply time, so a missing"
+                " operator account fails after the master realm was already"
+                " changed instead of failing the plan. Use a literal or a"
+                " variable (the realm id is its name, \"master\")"
+            )
+    return problems
+
+
+def master_instance_grant_problems(module_text: str, where: str) -> list[str]:
+    """Why removing a name from the master-instance roster could revoke roles.
+
+    A `keycloak_user_roles` instance leaves the plan as a destroy when its key
+    leaves `for_each`, and the provider's delete removes every role in
+    `role_ids` from the user regardless of `exhaustive`. With master-realm
+    `admin` among them, and the bootstrap administrator a valid roster entry,
+    one edit to the roster could strip the convergence's own credential of
+    its authority. `prevent_destroy = true` makes that plan fail instead.
+    """
+    problems: list[str] = []
+    for kind, name, body in _hcl_top_level_blocks(_hcl_without_comments(module_text), "resource"):
+        if kind != "keycloak_user_roles":
+            continue
+        if not re.search(r"lifecycle\s*\{[^}]*\bprevent_destroy\s*=\s*true\b", body):
+            problems.append(
+                f"{where}: resource.{kind}.{name} has no lifecycle prevent_destroy"
+                " = true -- removing a name from the roster would destroy the"
+                " grant, and the provider's delete revokes fabric-operator and"
+                " master-realm admin from that account, exhaustive = false or not"
+            )
+    return problems
+
+
+def check_master_instance_lookups_precede_apply(root: Path, problems: list[str]) -> None:
+    """Section 13, the convergence's own failure modes: a lookup fails the
+    plan rather than the apply, and a roster edit never revokes a grant."""
+    module = root / MASTER_INSTANCE_MODULE
+    if not module.is_file():
+        fail(problems, f"{MASTER_INSTANCE_MODULE}: missing -- the master-instance convergence has no module")
+        return
+    text = module.read_text()
+    for problem in master_instance_lookup_problems(text, str(MASTER_INSTANCE_MODULE)):
+        fail(problems, problem)
+    for problem in master_instance_grant_problems(text, str(MASTER_INSTANCE_MODULE)):
+        fail(problems, problem)
+
+
 def check_seal_key_does_not_need_openbao(render: Path, problems: list[str]) -> None:
     """Nothing OpenBao needs to start may itself come from OpenBao.
 
@@ -3151,6 +3295,7 @@ def main() -> int:
     check_platform_secrets_stay_platform(render, problems)
     check_openbao_bootstraps_itself(render, problems)
     check_master_realm_bootstraps_itself(render, problems)
+    check_master_instance_lookups_precede_apply(root, problems)
     check_seal_key_does_not_need_openbao(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)

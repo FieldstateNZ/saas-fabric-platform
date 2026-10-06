@@ -112,20 +112,39 @@ by Keycloak username. One name today, the product owner's, declared on
 2026-09-22; the grants it carries on LucentRoot were made by hand before this
 module existed and are now converged, so they can never drift from the
 file. Adding an operator is adding a name; the next sync grants both roles.
-Removing a name revokes nothing — the grant is `exhaustive = false`, a
-partial assignment — so revocation is still an act in Keycloak, and that is
-the one thing about operators this module does not yet do. An empty roster
-is a valid state: it grants nothing, to nobody, and blocks no sync.
+**Removing a name fails the convergence, at plan time, and revokes
+nothing.** `exhaustive = false` alone would not give that: removing a name
+plans a destroy of that operator's `keycloak_user_roles` instance, and the
+provider's delete removes every role it lists — `fabric-operator` *and*
+master-realm `admin` — from the account, partial assignment or not. On a
+roster naming the bootstrap administrator this Job authenticates as, that
+one edit would revoke the Job's own authority. `prevent_destroy` on the grant
+refuses the plan instead (`check_master_instance_lookups_precede_apply` in
+`scripts/check.py` keeps it there). How an operator is retired is an open
+product decision (D01-6b in the application repository's
+`docs/roadmap/m0-contract-decisions.md`); until it is made, revocation is not
+something a roster edit can do by accident. An empty roster is a valid
+starting state: it grants nothing, to nobody, and blocks no sync.
 
 The module's `keycloak_user` lookup resolves by username only, not by email —
 see `base/module/main.tf`'s comment on `data.keycloak_user.operator` for why
 an email-shaped username still works, and what does not.
 
 **A name that does not already exist as a Keycloak user fails the whole
-convergence, at plan time.** `keycloak_user` is a data source, so its read
+convergence, at plan time.** `keycloak_user` is a data source, and its read
 happens during `tofu plan`, before anything is applied — a typo, or an
 operator declared before their account exists, fails this Job before it
-changes anything else, not partway through.
+changes anything else, not partway through, and `apply.sh` says so in the
+Job's log. That holds only because no lookup in `main.tf` references a
+managed resource: OpenTofu treats such a reference as `depends_on` and moves
+the read into apply whenever that resource has changes pending. Until
+platform #48 both lookups named `keycloak_realm.master.id`, and the imported
+realm always has a change pending on a first run, so on LucentRoot's first
+run the missing-account failure came *after* the realm, the role, the
+console client and the gateway client had been written — see
+[docs/master-instance-convergence.md](../../../docs/master-instance-convergence.md).
+`check_master_instance_lookups_precede_apply` now refuses any lookup that
+names a managed resource.
 
 **Creating that account is the one thing this module does not do.** On a
 fresh environment the only account that exists is the bootstrap administrator
@@ -235,12 +254,27 @@ than Degraded — which blocks wave `40` exactly as hard as a real failure, but
 without ever saying so.
 
 **Re-running is safe because the apply is idempotent, and the drift check is
-the proof.** `base/module/apply.sh` ends every run with
-`tofu plan -lock-timeout=60s -detailed-exitcode` against the state the same
-run just wrote. Exit `2` — drift remains — fails the Job, and with it this
-Application's health. Nothing about running the module twice, or a hundred
-times, moves the realm further from what `main.tf` declares; a sync that
-changes nothing in Git finds nothing to apply.
+the proof.** `base/module/apply.sh` first logs the resource addresses the
+state already holds (none on a first run or after state loss — the two cases
+"State" below separates), then plans. A plan that fails has written nothing,
+and the log says which input to look at. A plan with no changes — the
+ordinary re-run — applies nothing and is itself the proof. Otherwise it
+applies, then ends with `tofu plan -lock-timeout=60s -detailed-exitcode`
+against the state it just wrote; exit `2` — drift remains — fails the Job,
+and with it this Application's health. Nothing about running the module
+twice, or a hundred times, moves the realm further from what `main.tf`
+declares.
+
+**A failed Job is not retried on its own.** `automated` sync acts when this
+Application is OutOfSync, and a failed Job whose manifest matches Git
+ordinarily is not (`retry` covers a sync *operation* that fails, not a Job
+that fails after the operation succeeded).
+The Job stays Failed, and this Application Degraded, until a change under
+this directory reaches `main` or someone syncs it by hand. A Degraded
+`master-instance` weeks after the failure that caused it is most likely that
+same failure, not a new one —
+[docs/master-instance-convergence.md](../../../docs/master-instance-convergence.md)
+has the read-only steps that tell the two apart.
 
 **A Job replaced mid-run leaves the state Lease held.** The delete half of
 `Replace=true,Force=true` removes the Pod that held the `kubernetes`

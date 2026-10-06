@@ -258,6 +258,7 @@ it is updated in place -- see
 | [telemetry-backend.md](docs/telemetry-backend.md) | choosing what stores telemetry: the gates, the candidates, and one recommendation with its floor and ceiling |
 | [adding-an-application.md](docs/adding-an-application.md) | how to classify, place and add a service |
 | [migrating-lucentroot.md](docs/migrating-lucentroot.md) | rebuilding LucentRoot onto this repository, and what that costs |
+| [master-instance-convergence.md](docs/master-instance-convergence.md) | why LucentRoot's `master-instance` is Degraded, the read-only steps that confirm it, and the repair |
 
 ## Licence
 
