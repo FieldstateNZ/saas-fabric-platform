@@ -120,11 +120,42 @@ master-realm `admin` — from the account, partial assignment or not. On a
 roster naming the bootstrap administrator this Job authenticates as, that
 one edit would revoke the Job's own authority. `prevent_destroy` on the grant
 refuses the plan instead (`check_master_instance_lookups_precede_apply` in
-`scripts/check.py` keeps it there). How an operator is retired is an open
-product decision (D01-6b in the application repository's
-`docs/roadmap/m0-contract-decisions.md`); until it is made, revocation is not
-something a roster edit can do by accident. An empty roster is a valid
-starting state: it grants nothing, to nobody, and blocks no sync.
+`scripts/check.py` keeps it there). The same refusal meets two other edits
+that plan the same destroy: renaming a roster entry (its `for_each` key
+changes), and an account deleted and re-created under the same name (its
+user id changes, and `user_id` forces replacement).
+
+**A refused plan blocks the whole module, not only that grant.** The Job
+stops at plan, so nothing else here converges either — `frontendUrl`, the
+clients' redirect URIs, the gateway secret on rotation — until the plan
+passes again. The two ways out:
+
+1. **Restore the name.** The next sync plans as before.
+2. **Retire it without revoking**, as an authorised state write, made with
+   the Job's own identity (`master-instance` in `operator-system`, which
+   the state Role in `master-instance-state` binds) against a checkout of
+   `base/module` configured for this backend:
+
+   ```console
+   $ tofu state rm 'keycloak_user_roles.operator["<name>"]'
+   ```
+
+   This makes the module forget the grant — Keycloak keeps both roles on
+   the account — and only *then* is the name removed from the roster, so
+   the next plan finds nothing to destroy. OpenTofu's own `removed {}` block
+   cannot do this declaratively: in 1.12.6 it addresses a whole resource,
+   never one `for_each` instance (`internal/addrs/remove_endpoint.go` through
+   `parse_target.go`'s `parseResourceUnderModule`: "Resource instance
+   address with keys is not allowed"), and removing the
+   whole resource would forget every operator's grant.
+
+Revoking the roles themselves is then an act in Keycloak, and how an
+operator is retired at all is an open product decision (D01-6b in the
+application repository's `docs/roadmap/m0-contract-decisions.md`); until it
+is made, revocation is not something a roster edit can do by accident. An
+empty roster is a valid starting state: it grants nothing, to nobody, and
+blocks no sync — but emptying a roster that has granted something is a
+removal like any other.
 
 The module's `keycloak_user` lookup resolves by username only, not by email —
 see `base/module/main.tf`'s comment on `data.keycloak_user.operator` for why
@@ -259,7 +290,9 @@ state already holds (none on a first run or after state loss — the two cases
 "State" below separates), then plans. A plan that fails has written nothing,
 and the log says which input to look at. A plan with no changes — the
 ordinary re-run — applies nothing and is itself the proof. Otherwise it
-applies, then ends with `tofu plan -lock-timeout=60s -detailed-exitcode`
+applies exactly that saved plan (`/work/tfplan`, in the Pod's own `emptyDir`;
+it holds the gateway secret in clear and goes with the Pod), which OpenTofu
+refuses as stale if another run changed the state in between, then ends with `tofu plan -lock-timeout=60s -detailed-exitcode`
 against the state it just wrote; exit `2` — drift remains — fails the Job,
 and with it this Application's health. Nothing about running the module
 twice, or a hundred times, moves the realm further from what `main.tf`

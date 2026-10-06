@@ -757,6 +757,16 @@ class MasterInstanceLookups(unittest.TestCase):
     def test_reference_in_a_comment_is_not_a_reference(self) -> None:
         self.assertEqual(self.problems(master_instance_module(user_extra="  # was keycloak_realm.master.id\n")), [])
 
+    def test_managed_address_spelled_inside_a_string_literal_passes(self) -> None:
+        """Failed before review: the scan read string contents as references."""
+        self.assertEqual(self.problems(master_instance_module(user_realm='"keycloak_realm.master"')), [])
+
+    def test_interpolation_beside_literal_text_still_fails(self) -> None:
+        problems = self.problems(master_instance_module(
+            user_realm='"realm-${keycloak_realm.master.id}-keycloak_role.literal"'))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("keycloak_realm.master", problems[0])
+
     def test_lookup_of_another_data_source_passes(self) -> None:
         self.assertEqual(self.problems(master_instance_module(user_realm="data.keycloak_realm.master.id")), [])
 
@@ -785,6 +795,31 @@ class MasterInstanceGrants(unittest.TestCase):
     def test_prevent_destroy_false_fails(self) -> None:
         problems = self.problems(master_instance_module(
             grant_lifecycle="lifecycle {\n    prevent_destroy = false\n  }"))
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_prevent_destroy_after_a_nested_block_passes(self) -> None:
+        """Failed before review: `[^}]*` stopped at the nested block's brace."""
+        self.assertEqual(self.problems(master_instance_module(grant_lifecycle=(
+            "lifecycle {\n"
+            "    precondition {\n"
+            "      condition     = true\n"
+            '      error_message = "x"\n'
+            "    }\n"
+            "    prevent_destroy = true\n"
+            "  }"))), [])
+
+    def test_prevent_destroy_in_a_nested_block_only_fails(self) -> None:
+        problems = self.problems(master_instance_module(grant_lifecycle=(
+            "lifecycle {\n"
+            "    precondition {\n"
+            "      condition = true\n"
+            "    }\n"
+            "  }\n"
+            "  dynamic \"x\" {\n"
+            "    content {\n"
+            "      prevent_destroy = true\n"
+            "    }\n"
+            "  }")))
         self.assertEqual(len(problems), 1, problems)
 
     def test_prevent_destroy_only_in_a_comment_fails(self) -> None:

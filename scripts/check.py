@@ -2011,6 +2011,69 @@ def _hcl_without_comments(text: str) -> str:
     return "".join(out)
 
 
+def _hcl_without_string_literals(text: str) -> str:
+    """Comment-free `text` with the literal part of every string blanked.
+
+    `${...}` interpolations are kept: a reference written inside one is still
+    a reference. Everything else between quotes is text, and must not read as
+    one -- `"keycloak_realm.master"` as a name is not a dependency.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    depth = 0
+    while i < n:
+        c = text[i]
+        if not in_string:
+            out.append(c)
+            if c == '"':
+                in_string = True
+            i += 1
+        elif depth:
+            out.append(c)
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+            i += 1
+        elif text.startswith("${", i):
+            out.append("${")
+            depth = 1
+            i += 2
+        elif c == "\\" and i + 1 < n:
+            out.append("  ")
+            i += 2
+        elif c == '"' or c == "\n":
+            out.append(c)
+            in_string = False
+            i += 1
+        else:
+            out.append(" ")
+            i += 1
+    return "".join(out)
+
+
+def _hcl_brace_body(text: str, open_brace: int) -> str:
+    """The text between the brace at `open_brace` and its match, ignoring
+    braces inside strings."""
+    depth, i, in_string = 1, open_brace + 1, False
+    while i < len(text) and depth:
+        c = text[i]
+        if in_string:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        i += 1
+    return text[open_brace + 1:i - 1]
+
+
 def _hcl_top_level_blocks(text: str, block_type: str) -> list[tuple[str, str, str]]:
     """(type, name, body) for every top-level `<block_type> "type" "name"` block
     in comment-free HCL.
@@ -2018,26 +2081,11 @@ def _hcl_top_level_blocks(text: str, block_type: str) -> list[tuple[str, str, st
     Braces inside strings -- `"${var.x}"` -- are not block structure, so the
     scan tracks strings rather than counting every brace it sees.
     """
-    blocks: list[tuple[str, str, str]] = []
     header = re.compile(rf'(?m)^{re.escape(block_type)}\s+"([^"]+)"\s+"([^"]+)"\s*\{{')
-    for match in header.finditer(text):
-        depth, i, in_string = 1, match.end(), False
-        while i < len(text) and depth:
-            c = text[i]
-            if in_string:
-                if c == "\\":
-                    i += 1
-                elif c == '"':
-                    in_string = False
-            elif c == '"':
-                in_string = True
-            elif c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-            i += 1
-        blocks.append((match.group(1), match.group(2), text[match.end():i - 1]))
-    return blocks
+    return [
+        (match.group(1), match.group(2), _hcl_brace_body(text, match.end() - 1))
+        for match in header.finditer(text)
+    ]
 
 
 def master_instance_lookup_problems(module_text: str, where: str) -> list[str]:
@@ -2054,7 +2102,8 @@ def master_instance_lookup_problems(module_text: str, where: str) -> list[str]:
     a plan-time read, unconditionally.
     """
     problems: list[str] = []
-    for kind, name, body in _hcl_top_level_blocks(_hcl_without_comments(module_text), "data"):
+    for kind, name, block in _hcl_top_level_blocks(_hcl_without_comments(module_text), "data"):
+        body = _hcl_without_string_literals(block)
         if re.search(r"(?m)^\s*depends_on\s*=", body):
             problems.append(
                 f"{where}: data.{kind}.{name} declares depends_on -- a lookup"
@@ -2087,7 +2136,11 @@ def master_instance_grant_problems(module_text: str, where: str) -> list[str]:
     for kind, name, body in _hcl_top_level_blocks(_hcl_without_comments(module_text), "resource"):
         if kind != "keycloak_user_roles":
             continue
-        if not re.search(r"lifecycle\s*\{[^}]*\bprevent_destroy\s*=\s*true\b", body):
+        guarded = any(
+            re.search(r"(?m)^\s*prevent_destroy\s*=\s*true\s*$", _hcl_brace_body(body, match.end() - 1))
+            for match in re.finditer(r"(?m)^\s*lifecycle\s*\{", body)
+        )
+        if not guarded:
             problems.append(
                 f"{where}: resource.{kind}.{name} has no lifecycle prevent_destroy"
                 " = true -- removing a name from the roster would destroy the"

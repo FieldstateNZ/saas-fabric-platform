@@ -26,18 +26,19 @@ tofu -chdir=/work init -input=false -no-color
 tofu -chdir=/work validate -no-color
 
 # What this run starts from, by resource address only (no attribute values,
-# so no secret reaches the log). An empty answer is either a genuinely first
-# run or lost state, and the two converge differently -- see this
-# Application's README, "State" -- so the log has to say which one the run
-# below planned against. `state list` exits non-zero when no state exists yet;
-# that is reported, not fatal, because the plan below reads the same backend
-# and fails loudly on any real backend error.
-if addresses=$(tofu -chdir=/work state list 2>&1); then
-  echo "master-instance: state holds:"
-  echo "${addresses:-  (nothing)}"
-else
-  echo "master-instance: no prior state read (${addresses}); planning as a first run."
-fi
+# so no secret reaches the log). Nothing listed means a genuinely first run or
+# lost state, and the two converge differently -- see this Application's
+# README, "State" -- so the log has to say which one the run below planned
+# against. With the `kubernetes` backend an absent state is not an error:
+# opening it creates an empty state Secret (the backend's own `StateMgr`,
+# briefly taking the lock to do it), so `state list` prints nothing and exits
+# 0. That also means the state Secret's existence proves only that some run
+# got this far, not that anything was ever applied. A failure here is a real
+# backend error -- including a lock held by a killed run when no state
+# existed yet -- and is fatal.
+addresses=$(tofu -chdir=/work state list)
+echo "master-instance: state holds:"
+echo "${addresses:-  (nothing)}"
 
 # -lock-timeout=60s on every command that takes the state lock: this Job can
 # be replaced mid-run (Replace=true,Force=true, see ../job.yaml) -- Argo CD
@@ -56,8 +57,15 @@ fi
 # that), so an operator username the realm does not hold fails here, not
 # partway through the apply. Exit 0 is a re-run against state that already
 # matches main.tf: nothing is applied, and this plan is itself the proof.
+#
+# The plan is saved and the apply executes exactly it: what was checked is
+# what is written, and if another run changed the state in between, OpenTofu
+# refuses the saved plan as stale rather than applying it. The file holds the
+# gateway client secret in clear; it lives only in this Pod's `work` emptyDir,
+# which is deleted with the Pod, beside a provider cache that already sees
+# the same value in memory.
 set +e
-tofu -chdir=/work plan -input=false -no-color -lock-timeout=60s -detailed-exitcode
+tofu -chdir=/work plan -input=false -no-color -lock-timeout=60s -detailed-exitcode -out=/work/tfplan
 planned=$?
 set -e
 case "$planned" in
@@ -68,20 +76,21 @@ case "$planned" in
   2) ;;
   *)
     echo "master-instance: plan failed; nothing was applied to the master realm." >&2
-    echo "  data.keycloak_user.operator in the error: a username in master-instance-config's" >&2
-    echo "  'operators' is not a user in the master realm. This module grants roles to existing" >&2
-    echo "  accounts and creates none (README, 'Who the operators are')." >&2
-    echo "  'Instance cannot be destroyed' on keycloak_user_roles.operator: a name was removed" >&2
-    echo "  from 'operators', which would revoke that account's fabric-operator and admin roles;" >&2
-    echo "  refused until retirement is decided (README, 'Who the operators are')." >&2
+    echo "  'user with username ... not found': a name in master-instance-config's 'operators'" >&2
+    echo "  is not a user in the master realm. This module grants roles to existing accounts" >&2
+    echo "  and creates none (README, 'Who the operators are')." >&2
+    echo "  'Resource instance cannot be destroyed' on keycloak_user_roles.operator: the plan would" >&2
+    echo "  revoke an operator's fabric-operator and admin roles -- a name was removed or renamed" >&2
+    echo "  in 'operators', or the account behind a name was replaced (new user id). Refused;" >&2
+    echo "  restore the name, or follow README, 'Who the operators are', to retire it." >&2
+    echo "  '401' or 'invalid_grant': the mirrored keycloak-admin credential is not the one" >&2
+    echo "  Keycloak holds (docs/master-instance-convergence.md, cause 9)." >&2
     echo "  A state lock in the error: README, 'A Job replaced mid-run'." >&2
     exit 1
     ;;
 esac
 
-# Re-plans against the same state: if another run changed it in between, this
-# plan reflects that rather than replaying a stale one.
-if ! tofu -chdir=/work apply -input=false -auto-approve -no-color -lock-timeout=60s; then
+if ! tofu -chdir=/work apply -input=false -no-color -lock-timeout=60s /work/tfplan; then
   echo "master-instance: apply failed. Any change that completed first is recorded in state," >&2
   echo "  and the next sync re-plans from it, so do not revert anything in Keycloak by hand" >&2
   echo "  (docs/master-instance-convergence.md, 'Recovery after a partial apply')." >&2

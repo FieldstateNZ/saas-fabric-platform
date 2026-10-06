@@ -35,6 +35,9 @@ data:
   #
   # One operator today, named by the product owner on 2026-09-22. Adding an
   # operator is adding a name here; the next sync grants the two roles.
-  # Removing a name revokes nothing (the grant is `exhaustive = false`), which
-  # is stated in this Application's README, "Who the operators are".
+  # Removing (or renaming) a name fails the convergence at plan time and
+  # revokes nothing -- `prevent_destroy` on the grant, not `exhaustive =
+  # false`, is what guarantees that -- and blocks every other convergence in
+  # this module until the name is restored or retired by the state step in
+  # this Application's README, "Who the operators are".
   operators: '["brett@fieldstate.nz"]'

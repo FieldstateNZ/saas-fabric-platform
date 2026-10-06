@@ -317,7 +317,9 @@ data "keycloak_user" "operator" {
 # and master-realm `admin` both. On a roster naming the bootstrap
 # administrator this Job authenticates as, that would revoke the Job's own
 # authority, and every human's, in one apply. `prevent_destroy` turns any such
-# plan into a plan-time failure that writes nothing. How a declared operator
+# plan into a plan-time failure that writes nothing -- and that blocks the
+# whole module until the name is restored or retired by a state step (this
+# Application's README, "Who the operators are"). How a declared operator
 # is retired is the product owner's decision (D01-6b in the application
 # repository's docs/roadmap/m0-contract-decisions.md), not something this
 # module decides by omission.

@@ -103,6 +103,7 @@ of its own.
    | `Error acquiring the state lock` | #5 |
    | final plan `Plan: 0 to add, N to change` after `Apply complete` | #6 |
    | `401` / `invalid_grant` before any plan output | #9 |
+   | `Resource instance cannot be destroyed` on `keycloak_user_roles.operator` (only after this repair) | a roster removal, rename or replaced account, refused by #4's guard. See "Recovery" |
    | `409` on `keycloak_openid_client.gateway`, or `not found` on `keycloak_role.fabric_operator` / `keycloak_openid_client.console` create | #10 |
    Pods may already have been garbage-collected. If they have, the Job's
    conditions and the Argo CD operation message are what remain.
@@ -112,8 +113,15 @@ of its own.
        -o jsonpath='{.metadata.creationTimestamp} rv={.metadata.resourceVersion}{"\n"}'
    $ kubectl -n master-instance-state get lease lock-tfstate-default-master-instance -o yaml
    ```
-   - A state Secret created 2026-09-22 means run 1 wrote state, which confirms #3's partial apply.
-   - No state Secret means no apply ever completed. The next run is a first run.
+   - A state Secret, whenever it was created, shows only that some run
+     opened the backend. Opening an absent state creates an empty one (the
+     `kubernetes` backend's `StateMgr`, OpenTofu 1.12.6
+     `internal/backend/remote-state/kubernetes/backend_state.go`). It does
+     **not** show that anything was applied. Only step 5 (a non-empty
+     `.resources[]`) or step 3 (apply lines in pod 1's log) confirms #3's
+     partial apply.
+   - No state Secret means no run reached the backend. The next run is a
+     first run.
    - A Lease that holds a lock ID with no pod running means #5.
 5. **What state records: addresses only.** This needs separate authorisation,
    because the state contains the gateway client secret, even though this
@@ -126,7 +134,17 @@ of its own.
    Once the repair below is merged, every Job log starts with this same list,
    printed by `apply.sh`, and this step is no longer needed.
 6. **What the realm holds.** This needs separate authorisation, because it
-   uses the bootstrap administrator. Each command is a `GET`:
+   uses the bootstrap administrator. The queries below are `GET`s, but the
+   step as a whole is **not strictly read-only**:
+   - reaching `kcadm.sh` means `kubectl exec` into the Keycloak pod (or a
+     port-forward), itself an authorised act;
+   - `kcadm.sh config credentials` writes a config file holding a token, and
+     logging in creates a session in the master realm, which Keycloak
+     records.
+
+   Run it once, then delete the config file
+   (`kcadm.sh config credentials` writes `~/.keycloak/kcadm.config` by
+   default):
    ```console
    $ kcadm.sh get users -r master --fields username
    $ kcadm.sh get clients -r master -q clientId=saas-fabric-gateway --fields clientId
@@ -153,27 +171,50 @@ Branch `claude/48-master-instance-convergence`. It does not change the roster.
    difference against existing state.
 2. **Grants cannot be revoked by a roster edit** (`main.tf`,
    `keycloak_user_roles.operator`). `lifecycle { prevent_destroy = true }`
-   turns the removal of a name into a plan-time refusal, instead of a
-   provider delete that strips `fabric-operator` and master `admin`. How an
-   operator is retired is still D01-6b, the product owner's decision. This
-   change keeps that from being decided by accident.
+   turns any plan that destroys a grant into a plan-time refusal, instead of
+   a provider delete that strips `fabric-operator` and master `admin`. Three
+   edits plan that destroy:
+   - removing a name;
+   - renaming one (the `for_each` key changes);
+   - an account deleted and re-created under the same name (`user_id`
+     changes, and it forces replacement).
+
+   How an operator is retired is still D01-6b, the product owner's
+   decision. This change keeps that from being decided by accident.
+
+   **The cost is a wedge.** A refused plan stops the whole Job, so nothing
+   else in this module converges either (`frontendUrl`, redirect URIs, a
+   rotated gateway secret) until the plan passes. The exits are in
+   "Recovery" below.
 3. **The Job says what it started from and how it failed**
    (`M/base/module/apply.sh`).
    - It logs the state's resource addresses before planning. That tells a
      first run apart from re-runs and from lost state.
-   - It runs a separate plan gate with `-detailed-exitcode`:
+   - It saves a plan (`plan -detailed-exitcode -out=/work/tfplan`):
      - Exit 0 is an already-converged re-run. Nothing is applied, and no
        state write or lock-holding apply happens.
-     - Exit 1 prints that nothing was applied, and names the roster, removal
-       and lock cases.
-     - Exit 2 proceeds to apply and then to the existing drift check.
+     - Exit 1 prints that nothing was applied, and names the cases by their
+       OpenTofu text: `user with username … not found`, `Resource instance
+       cannot be destroyed` (a removed, renamed or replaced operator),
+       `401`/`invalid_grant`, and a state lock.
+     - Exit 2 applies exactly that saved plan, then runs the existing drift
+       check. OpenTofu refuses the saved plan as stale if another run
+       changed the state in between.
+
+     The plan file holds the gateway secret in clear. It lives only in the
+     Pod's `work` `emptyDir` and is deleted with the Pod.
    - An apply failure says the apply was partial and points here.
 4. **The checker holds both properties** (`scripts/check.py`,
    `check_master_instance_lookups_precede_apply`, with regression tests in
    `scripts/test_check.py`). Two things fail the checker:
    - any `data` block in the module that names a managed resource or
      declares `depends_on`;
-   - any `keycloak_user_roles` without `prevent_destroy = true`.
+   - any `keycloak_user_roles` without `prevent_destroy = true` in its
+     `lifecycle`, found by brace matching, so a nested block ahead of it
+     does not hide it.
+
+   A managed-resource address spelled inside a plain string literal is not
+   a reference. One inside a `${…}` interpolation is.
 
    Both properties fail against the module on `main`.
 5. **Docs.** The module README's two false claims are corrected: that a
@@ -220,6 +261,29 @@ every operation that completed, and the next run plans from it. So:
 - **Lost state (#10):** add a temporary OpenTofu `import` block for exactly
   the resource that 409s, apply once, then remove the block (module README,
   "State"). Never re-create the object.
+- **A roster edit refused with `Resource instance cannot be destroyed`:**
+  the whole module is stopped until the plan passes. There are two exits.
+  1. **Restore the name** (or the old spelling). The next sync converges as
+     before.
+  2. **Retire the name without revoking.** This is an authorised state write,
+     made with the Job's own identity (ServiceAccount `master-instance` in
+     `operator-system`, which `state-rbac.yaml` binds in
+     `master-instance-state`), against a checkout of `base/module` with this
+     backend configured:
+     ```console
+     $ tofu state rm 'keycloak_user_roles.operator["<name>"]'
+     ```
+     It removes the grant from state only. Keycloak keeps both roles on the
+     account, and no provider delete runs. Then remove the name from the
+     roster, so the next plan finds nothing to destroy. If the roles must go
+     too, that is a separate act in Keycloak, governed by D01-6b.
+
+  OpenTofu's `removed {}` block cannot do this declaratively in 1.12.6. It
+  takes a resource address, never one `for_each` instance
+  (`internal/addrs/remove_endpoint.go` → `parse_target.go`
+  `parseResourceUnderModule`: "Resource instance address with keys is not
+  allowed"). Removing the whole resource would forget every operator's
+  grant.
 - **Rebuilt Keycloak with `adoptExisting: "true"`:** adoption cannot succeed
   on a realm that has no hand-made objects. `adoptExisting` must not change
   for an environment, because `import` is `ForceNew`. A rebuilt Keycloak is
@@ -229,6 +293,12 @@ every operation that completed, and the next run plans from it. So:
 
 ### Rollback
 
+- **Before reverting, check the current Job.** Confirm it is not failing on
+  `Resource instance cannot be destroyed` (runbook step 3). If it is, restore
+  the roster first, or retire the name by the state step under "Recovery".
+  The revert removes `prevent_destroy`, so the revert's own run would carry
+  out the revocation that was being refused, including master `admin` from
+  the bootstrap administrator if that is the name (#4).
 - **Revert the merge commit.** The revert takes `prevent_destroy` off the
   grants and puts back the `keycloak_realm.master.id` references. Neither
   changes any managed resource's planned value, so the revert's own run plans
@@ -241,8 +311,10 @@ every operation that completed, and the next run plans from it. So:
 
 ## Validation done, and not done
 
-- `python3 -m unittest discover -s scripts -p 'test_*.py'`: 67 tests pass,
-  including 14 new ones. Each new check fails against the module on `main`.
+- `python3 -m unittest discover -s scripts -p 'test_*.py'`: 71 tests pass,
+  including 18 new ones. Each new check fails against the module on `main`.
+  The review follow-up's string-literal and nested-lifecycle cases fail
+  against the checker as first committed (`068eb45`).
 - `scripts/check.py` was run against a partial render: every Kustomize-sourced
   Application, with Helm charts skipped because the authoring sandbox could
   not reach the chart repositories.
@@ -255,7 +327,7 @@ every operation that completed, and the next run plans from it. So:
 - `python3 -m yamllint --strict .` passes.
 - **Not run: `tofu fmt`, `tofu validate`, `tofu plan`.** No OpenTofu binary
   was available offline. The HCL change is limited to two attribute values
-  and one `lifecycle` block, and the Job runs `tofu validate` before planning,
+  and one `lifecycle` block, and the script now uses a saved plan, and the Job runs `tofu validate` before planning,
   so a syntax error would fail the Job at `validate`, before any plan.
 
 ## What remains unverified
