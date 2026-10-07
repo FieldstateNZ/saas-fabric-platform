@@ -960,6 +960,75 @@ class RuntimeConfigDocumentPaths(unittest.TestCase):
             document["metadata"]["namespace"] = "platform-system"
         self.assertEqual(runtime_config_problems(*documents), [])
 
+    def runtime_problems_with_config_mount(self, mount: dict | None = None, volume: dict | None = None) -> list[str]:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        pod = documents[1]["spec"]["template"]["spec"]
+        if mount is not None:
+            pod["containers"][0]["volumeMounts"][0] = mount
+        if volume is not None:
+            pod["volumes"][0] = volume
+        return runtime_config_problems(*documents)
+
+    def test_sub_path_expr_config_mount_is_rejected(self) -> None:
+        problems = self.runtime_problems_with_config_mount(
+            mount={"name": "config", "mountPath": "/etc/fabric", "subPathExpr": "config.toml"})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not supplied by a mounted ConfigMap", problems[0])
+
+    def test_sub_path_config_mount_is_rejected(self) -> None:
+        problems = self.runtime_problems_with_config_mount(
+            mount={"name": "config", "mountPath": "/etc/fabric", "subPath": "config.toml"})
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_items_renaming_the_config_key_is_rejected(self) -> None:
+        volume = {"name": "config", "configMap": {
+            "name": "saas-fabric-config", "items": [{"key": "config.toml", "path": "renamed.toml"}]}}
+        problems = self.runtime_problems_with_config_mount(volume=volume)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not supplied by a mounted ConfigMap", problems[0])
+
+    def test_items_omitting_the_config_key_is_rejected(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "items": []}}
+        problems = self.runtime_problems_with_config_mount(volume=volume)
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_items_projecting_the_config_key_under_its_name_passes(self) -> None:
+        volume = {"name": "config", "configMap": {
+            "name": "saas-fabric-config", "items": [{"key": "config.toml", "path": "config.toml"}]}}
+        self.assertEqual(self.runtime_problems_with_config_mount(volume=volume), [])
+
+    def test_projected_volume_supplying_the_config_passes(self) -> None:
+        volume = {"name": "config", "projected": {"sources": [
+            {"configMap": {"name": "saas-fabric-config"}}]}}
+        self.assertEqual(self.runtime_problems_with_config_mount(volume=volume), [])
+
+    def test_projected_volume_renaming_the_config_key_is_rejected(self) -> None:
+        volume = {"name": "config", "projected": {"sources": [
+            {"configMap": {"name": "saas-fabric-config",
+                           "items": [{"key": "config.toml", "path": "renamed.toml"}]}}]}}
+        self.assertEqual(len(self.runtime_problems_with_config_mount(volume=volume)), 1)
+
+    def test_unreadable_default_mode_is_rejected(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0}}
+        self.assertEqual(len(self.runtime_problems_with_config_mount(volume=volume)), 1)
+
+    def test_unreadable_item_mode_is_rejected(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config",
+                  "items": [{"key": "config.toml", "path": "config.toml", "mode": 0}]}}
+        self.assertEqual(len(self.runtime_problems_with_config_mount(volume=volume)), 1)
+
+    def test_readable_default_mode_passes(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o444}}
+        self.assertEqual(self.runtime_problems_with_config_mount(volume=volume), [])
+
+    def test_document_directory_mounted_with_sub_path_expr_is_rejected(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        documents[1]["spec"]["template"]["spec"]["containers"][0]["volumeMounts"][3][
+            "subPathExpr"] = "catalog.json"
+        problems = runtime_config_problems(*documents)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("catalog_path", problems[0])
+
 
 if __name__ == "__main__":
     unittest.main()

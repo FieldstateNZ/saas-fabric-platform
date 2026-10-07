@@ -3388,16 +3388,16 @@ def check_runtime_config_document_paths(render: Path, problems: list[str]) -> No
                     continue
                 where = f"{environment}: Deployment/{metadata.get('name')} container {container.get('name')!r}"
                 mounts = container.get("volumeMounts") or []
-                source = next(
-                    (
-                        (volumes.get(m.get("name")) or {}).get("configMap")
-                        for m in mounts
-                        if m.get("mountPath") == posixpath.dirname(config_file) and "subPath" not in m
-                    ),
-                    None,
-                )
-                config = configmaps.get((metadata.get("namespace"), (source or {}).get("name")))
-                text = ((config or {}).get("data") or {}).get(posixpath.basename(config_file))
+                text = None
+                for m in mounts:
+                    if (
+                        m.get("mountPath") == posixpath.dirname(config_file)
+                        and not _is_sub_path_mount(m)
+                    ):
+                        files = _projected_config_files(
+                            volumes.get(m.get("name")) or {}, configmaps, metadata.get("namespace")
+                        )
+                        text = files.get(posixpath.basename(config_file))
                 if text is None:
                     fail(problems, f"{where}: FABRIC_CONFIG={config_file} is not supplied by a mounted ConfigMap in the render")
                     continue
@@ -3409,12 +3409,50 @@ def check_runtime_config_document_paths(render: Path, problems: list[str]) -> No
                 whole_volume_dirs = {
                     m.get("mountPath")
                     for m in mounts
-                    if "subPath" not in m
-                    and "subPathExpr" not in m
-                    and "configMap" in (volumes.get(m.get("name")) or {})
+                    if not _is_sub_path_mount(m)
+                    and _config_map_sources(volumes.get(m.get("name")) or {})
                 }
                 for key in RUNTIME_DOCUMENT_KEYS:
                     _check_runtime_document_path(parsed, key, whole_volume_dirs, where, problems)
+
+
+def _is_sub_path_mount(mount: dict) -> bool:
+    return "subPath" in mount or "subPathExpr" in mount
+
+
+def _config_map_sources(volume: dict) -> list[tuple[dict, int | None]]:
+    """(ConfigMap reference, defaultMode) pairs a volume projects: its own, or a `projected` volume's."""
+    sources = []
+    if isinstance(volume.get("configMap"), dict):
+        sources.append((volume["configMap"], volume["configMap"].get("defaultMode")))
+    projected = volume.get("projected") or {}
+    for source in projected.get("sources") or []:
+        if isinstance(source, dict) and isinstance(source.get("configMap"), dict):
+            sources.append((source["configMap"], projected.get("defaultMode")))
+    return sources
+
+
+def _projected_config_files(volume: dict, configmaps: dict, namespace) -> dict[str, str]:
+    """Filename -> content as the kubelet materialises the volume.
+
+    With `items`, only the listed keys are mounted, under their `path`; without,
+    every data key is, under its own name. A file whose effective mode has no
+    read bit is not readable by the runtime and is treated as absent.
+    """
+    files: dict[str, str] = {}
+    for source, default_mode in _config_map_sources(volume):
+        data = (configmaps.get((namespace, source.get("name"))) or {}).get("data") or {}
+        items = source.get("items")
+        entries = (
+            [(i.get("key"), i.get("path"), i.get("mode")) for i in items if isinstance(i, dict)]
+            if items is not None
+            else [(key, key, None) for key in data]
+        )
+        for key, path, mode in entries:
+            effective = mode if mode is not None else default_mode
+            if key in data and isinstance(path, str) and (effective is None or effective & 0o444):
+                files[path] = data[key]
+    return files
 
 
 def _check_runtime_document_path(
