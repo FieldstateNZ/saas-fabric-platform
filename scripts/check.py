@@ -48,8 +48,10 @@ Checks, in order of how much damage they prevent:
 """
 from __future__ import annotations
 
+import posixpath
 import re
 import sys
+import tomllib
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -3346,6 +3348,98 @@ def _is_rfc3339(value: str) -> bool:
     return True
 
 
+RUNTIME_DOCUMENT_KEYS = ("tenants_path", "data_sources_path", "catalog_path")
+
+
+def check_runtime_config_document_paths(render: Path, problems: list[str]) -> None:
+    """The runtime's document paths are top-level keys on mounted ConfigMap volumes.
+
+    A key written after a TOML table header belongs to that table. The runtime
+    rejects unknown keys inside `[token]`, so `tenants_path` placed below it
+    parses cleanly and still stops the process at start. For every container
+    that names its config file in `FABRIC_CONFIG`, the ConfigMap supplying that
+    file is read with the real TOML parser, and `tenants_path`,
+    `data_sources_path` and `catalog_path` must each be a top-level string
+    whose directory is exactly the `mountPath` of a whole-volume (no
+    `subPath`) ConfigMap mount of that container.
+    """
+    for environment in ENVIRONMENTS:
+        documents = [
+            document
+            for path in sorted((render / environment).rglob("*.yaml"))
+            if path.name != "bootstrap.yaml"
+            for document in load_all(path, problems)
+        ]
+        configmaps = {
+            ((d.get("metadata") or {}).get("namespace"), (d.get("metadata") or {}).get("name")): d
+            for d in documents
+            if d.get("kind") == "ConfigMap"
+        }
+        for deployment in (d for d in documents if d.get("kind") == "Deployment"):
+            metadata = deployment.get("metadata") or {}
+            pod = ((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}
+            volumes = {v.get("name"): v for v in pod.get("volumes") or [] if isinstance(v, dict)}
+            for container in pod.get("containers") or []:
+                config_file = next(
+                    (e.get("value") for e in container.get("env") or [] if e.get("name") == "FABRIC_CONFIG"),
+                    None,
+                )
+                if not isinstance(config_file, str):
+                    continue
+                where = f"{environment}: Deployment/{metadata.get('name')} container {container.get('name')!r}"
+                mounts = container.get("volumeMounts") or []
+                source = next(
+                    (
+                        (volumes.get(m.get("name")) or {}).get("configMap")
+                        for m in mounts
+                        if m.get("mountPath") == posixpath.dirname(config_file) and "subPath" not in m
+                    ),
+                    None,
+                )
+                config = configmaps.get((metadata.get("namespace"), (source or {}).get("name")))
+                text = ((config or {}).get("data") or {}).get(posixpath.basename(config_file))
+                if text is None:
+                    fail(problems, f"{where}: FABRIC_CONFIG={config_file} is not supplied by a mounted ConfigMap in the render")
+                    continue
+                try:
+                    parsed = tomllib.loads(text)
+                except tomllib.TOMLDecodeError as error:
+                    fail(problems, f"{where}: {config_file} is not valid TOML: {error}")
+                    continue
+                whole_volume_dirs = {
+                    m.get("mountPath")
+                    for m in mounts
+                    if "subPath" not in m
+                    and "subPathExpr" not in m
+                    and "configMap" in (volumes.get(m.get("name")) or {})
+                }
+                for key in RUNTIME_DOCUMENT_KEYS:
+                    _check_runtime_document_path(parsed, key, whole_volume_dirs, where, problems)
+
+
+def _check_runtime_document_path(
+    parsed: dict, key: str, whole_volume_dirs: set, where: str, problems: list[str]
+) -> None:
+    value = parsed.get(key)
+    if value is None:
+        nested = [name for name, table in parsed.items() if isinstance(table, dict) and key in table]
+        if nested:
+            fail(
+                problems,
+                f"{where}: {key} is under [{nested[0]}], not top level -- a key after a "
+                "table header belongs to that table and the runtime refuses to start",
+            )
+        else:
+            fail(problems, f"{where}: config has no top-level {key}")
+    elif not isinstance(value, str):
+        fail(problems, f"{where}: {key} must be a string path")
+    elif posixpath.dirname(value) not in whole_volume_dirs:
+        fail(
+            problems,
+            f"{where}: {key} = {value!r} is not inside a whole-volume ConfigMap mountPath of that container",
+        )
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -3359,6 +3453,7 @@ def main() -> int:
     check_no_plaintext_secrets(render, problems)
     check_no_duplicate_resources(render, problems)
     check_no_runtime_publication_configmaps(render, problems)
+    check_runtime_config_document_paths(render, problems)
     check_applications_match_their_project(render, problems)
     check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)

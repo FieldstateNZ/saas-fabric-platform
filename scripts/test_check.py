@@ -840,5 +840,126 @@ class MasterInstanceGrants(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
 
 
+def runtime_config(config_toml: str, *, mounts: list[dict] | None = None, volumes: list[dict] | None = None) -> list[dict]:
+    """A ConfigMap and the Deployment that mounts it, shaped like saas-fabric's."""
+    state = [
+        ("state-tenants", "/etc/fabric/state/tenants", "fabric-runtime-tenants"),
+        ("state-data-sources", "/etc/fabric/state/data-sources", "fabric-runtime-data-sources"),
+        ("state-catalog", "/etc/fabric/state/catalog", "fabric-runtime-catalog"),
+    ]
+    default_mounts = [{"name": "config", "mountPath": "/etc/fabric"}] + [
+        {"name": name, "mountPath": path} for name, path, _ in state
+    ]
+    default_volumes = [{"name": "config", "configMap": {"name": "saas-fabric-config"}}] + [
+        {"name": name, "configMap": {"name": config}} for name, _, config in state
+    ]
+    return [
+        {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": "saas-fabric-config", "namespace": "platform-system"},
+            "data": {"config.toml": config_toml},
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": "saas-fabric", "namespace": "platform-system"},
+            "spec": {"template": {"spec": {
+                "containers": [{
+                    "name": "saas-fabric",
+                    "env": [{"name": "FABRIC_CONFIG", "value": "/etc/fabric/config.toml"}],
+                    "volumeMounts": mounts if mounts is not None else default_mounts,
+                }],
+                "volumes": volumes if volumes is not None else default_volumes,
+            }}},
+        },
+    ]
+
+
+TOP_LEVEL_PATHS = (
+    'tenants_path = "/etc/fabric/state/tenants/tenants.json"\n'
+    'data_sources_path = "/etc/fabric/state/data-sources/data-sources.json"\n'
+    'catalog_path = "/etc/fabric/state/catalog/catalog.json"\n'
+)
+TOKEN_TABLE = '[token]\nmode = "trusted_ingress"\n'
+
+
+def runtime_config_problems(*documents: dict) -> list[str]:
+    with tempfile.TemporaryDirectory() as temporary:
+        render = Path(temporary)
+        for environment in check.ENVIRONMENTS:
+            (render / environment / "applications").mkdir(parents=True)
+        (render / "lucentroot" / "applications" / "saas-fabric.yaml").write_text(
+            yaml.safe_dump_all(list(documents))
+        )
+        problems: list[str] = []
+        check._DOCUMENTS.clear()
+        check.check_runtime_config_document_paths(render, problems)
+        return problems
+
+
+class RuntimeConfigDocumentPaths(unittest.TestCase):
+    """The three document paths must be top-level keys, as the real TOML parser reads them.
+
+    Written after `[token]` they parse as `token.tenants_path` and the runtime,
+    which refuses unknown keys in that table, would not start.
+    """
+
+    def test_paths_above_the_token_table_pass(self) -> None:
+        config = 'listen = "0.0.0.0:8080"\n' + TOP_LEVEL_PATHS + TOKEN_TABLE
+        self.assertEqual(runtime_config_problems(*runtime_config(config)), [])
+
+    def test_paths_after_the_token_table_fail(self) -> None:
+        config = 'listen = "0.0.0.0:8080"\n' + TOKEN_TABLE + TOP_LEVEL_PATHS
+        problems = runtime_config_problems(*runtime_config(config))
+        self.assertEqual(len(problems), 3, problems)
+        self.assertTrue(all("under [token]" in problem for problem in problems), problems)
+
+    def test_missing_path_fails(self) -> None:
+        config = 'catalog_path = "/etc/fabric/state/catalog/catalog.json"\n' + TOKEN_TABLE
+        problems = runtime_config_problems(*runtime_config(config))
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(all("no top-level" in problem for problem in problems), problems)
+
+    def test_path_outside_every_mount_fails(self) -> None:
+        config = TOP_LEVEL_PATHS.replace("/etc/fabric/state/catalog/", "/etc/fabric/state/other/") + TOKEN_TABLE
+        problems = runtime_config_problems(*runtime_config(config))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("catalog_path", problems[0])
+
+    def test_sub_path_mount_is_not_a_whole_volume(self) -> None:
+        mounts = [
+            {"name": "config", "mountPath": "/etc/fabric"},
+            {"name": "state-tenants", "mountPath": "/etc/fabric/state/tenants", "subPath": "tenants.json"},
+            {"name": "state-data-sources", "mountPath": "/etc/fabric/state/data-sources"},
+            {"name": "state-catalog", "mountPath": "/etc/fabric/state/catalog"},
+        ]
+        problems = runtime_config_problems(*runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE, mounts=mounts))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("tenants_path", problems[0])
+
+    def test_invalid_toml_fails(self) -> None:
+        problems = runtime_config_problems(*runtime_config("listen = \n"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not valid TOML", problems[0])
+
+    def test_unmounted_config_fails(self) -> None:
+        mounts = [{"name": "state-tenants", "mountPath": "/etc/fabric/state/tenants"}]
+        problems = runtime_config_problems(*runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE, mounts=mounts))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not supplied by a mounted ConfigMap", problems[0])
+
+    def test_repository_base_config_passes(self) -> None:
+        base = REPOSITORY / "applications" / "core" / "saas-fabric" / "base"
+        documents = [
+            document
+            for name in ("configmap.yaml", "deployment.yaml")
+            for document in yaml.safe_load_all((base / name).read_text())
+        ]
+        for document in documents:
+            document["metadata"]["namespace"] = "platform-system"
+        self.assertEqual(runtime_config_problems(*documents), [])
+
+
 if __name__ == "__main__":
     unittest.main()

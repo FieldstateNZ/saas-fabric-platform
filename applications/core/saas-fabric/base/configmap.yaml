@@ -16,13 +16,6 @@ data:
   config.toml: |
     listen = "0.0.0.0:8080"
 
-    # Trusted ingress: the gateway authenticates and validates the bearer, and
-    # the runtime consumes the identity it established (ADR 0002 in the
-    # application repository). This is the canonical posture, not a relaxation
-    # of one.
-    [token]
-    mode = "trusted_ingress"
-
     # The files the runtime publisher writes and this pod reads: one path per
     # ConfigMap the publisher owns (ADR 0018 in the application repository),
     # each mounted below at its own whole-volume directory rather than a
@@ -35,9 +28,18 @@ data:
     # them directly to the API server; nothing in this repository declares
     # the ConfigMaps themselves, so their presence and their content are
     # Fabric's fact, never Git's.
+    # These stay above `[token]`: a key written after a table header belongs to
+    # that table, and `[token]` refuses unknown keys, so the runtime would not start.
     tenants_path = "/etc/fabric/state/tenants/tenants.json"
     data_sources_path = "/etc/fabric/state/data-sources/data-sources.json"
     catalog_path = "/etc/fabric/state/catalog/catalog.json"
+
+    # Trusted ingress: the gateway authenticates and validates the bearer, and
+    # the runtime consumes the identity it established (ADR 0002 in the
+    # application repository). This is the canonical posture, not a relaxation
+    # of one.
+    [token]
+    mode = "trusted_ingress"
 
     # Deliberately empty, and the application refuses to start with an empty
     # list. That refusal is correct: a runtime plane with no connector can
