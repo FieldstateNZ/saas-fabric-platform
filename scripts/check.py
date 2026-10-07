@@ -3379,7 +3379,8 @@ def check_runtime_config_document_paths(render: Path, problems: list[str]) -> No
         publisher owns those ConfigMaps, so nothing finer can be verified);
       * the container's user is a numeric `runAsUser`, and the files are
         readable by it under Linux's single-class permission rule (see
-        `_runtime_can_read`); an unresolvable `runAsGroup` is refused.
+        `_runtime_can_read`), refusing where image group membership would
+        decide.
 
     `projected` volumes are refused outright: their later-source-wins,
     `binaryData`, missing-key and mode rules are not modelled.
@@ -3513,9 +3514,15 @@ def _runtime_can_read(mode: int, pod: dict, container: dict) -> tuple[str | None
     it and ORs in group read; without it the group is root's. Linux then picks
     exactly one permission class and reads only its bits, with no fallback to
     another: root reads anything; the owner class applies only to the owner
-    (root); the group class applies when any of the reader's groups -- primary
-    GID, `supplementalGroups`, `fsGroup` -- is the file's group; otherwise the
-    other class applies.
+    (root); the group class applies when any of the reader's groups is the
+    file's group; otherwise the other class applies.
+
+    The container runtime may add groups from the image's /etc/group that the
+    manifest does not show. So the group class is certain only when the file's
+    group is one the manifest names (`runAsGroup`, `supplementalGroups`,
+    `fsGroup`). Otherwise the class is unknowable, and the result is decided
+    only when the group-read and other-read bits agree; if they differ it is
+    refused rather than guessed.
     """
     pod_context = pod.get("securityContext") or {}
     container_context = container.get("securityContext") or {}
@@ -3529,14 +3536,17 @@ def _runtime_can_read(mode: int, pod: dict, container: dict) -> tuple[str | None
     if fs_group is not None:
         mode |= 0o040
     file_group = 0 if fs_group is None else fs_group
-    groups = set(pod_context.get("supplementalGroups") or [])
+    named_groups = set(pod_context.get("supplementalGroups") or [])
     if fs_group is not None:
-        groups.add(fs_group)
+        named_groups.add(fs_group)
     if isinstance(gid, int):
-        groups.add(gid)
-    elif file_group not in groups:
-        return "runAsGroup is not set, so the file's group class cannot be decided", False
-    return None, bool(mode & (0o040 if file_group in groups else 0o004))
+        named_groups.add(gid)
+    if file_group in named_groups:
+        return None, bool(mode & 0o040)
+    group_read, other_read = bool(mode & 0o040), bool(mode & 0o004)
+    if group_read != other_read:
+        return "readability depends on image group membership", False
+    return None, other_read
 
 
 def _check_runtime_document_path(

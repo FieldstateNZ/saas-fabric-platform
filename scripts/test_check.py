@@ -1018,11 +1018,11 @@ class RuntimeConfigDocumentPaths(unittest.TestCase):
         context = {"runAsUser": 65532, "runAsGroup": 65532, "fsGroup": 65532}
         self.assertEqual(self.problems_for_config_volume(volume, context), [])
 
-    def test_group_read_is_not_enough_without_a_matching_group(self) -> None:
+    def test_group_read_without_a_named_matching_group_is_refused(self) -> None:
         volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o440}}
         problems = self.problems_for_config_volume(volume)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("not readable", problems[0])
+        self.assertIn("depends on image group membership", problems[0])
 
     def test_root_user_reads_anything(self) -> None:
         volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0}}
@@ -1124,10 +1124,35 @@ class RuntimeConfigDocumentPaths(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("not readable", problems[0])
 
-    def test_mode_0004_is_readable_for_a_reader_outside_the_owning_group(self) -> None:
+    def test_mode_0004_for_a_reader_outside_the_named_groups_depends_on_the_image(self) -> None:
         volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o004}}
-        self.assertEqual(self.problems_for_config_volume(
-            volume, {"runAsUser": 65532, "runAsGroup": 65532}), [])
+        problems = self.problems_for_config_volume(volume, {"runAsUser": 65532, "runAsGroup": 65532})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("depends on image group membership", problems[0])
+
+    def mode_problems(self, mode: int) -> list[str]:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": mode}}
+        return self.problems_for_config_volume(volume, {"runAsUser": 65532, "runAsGroup": 65532})
+
+    def test_mode_0640_is_refused_as_depending_on_image_groups(self) -> None:
+        problems = self.mode_problems(0o640)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("unsupported by this check", problems[0])
+        self.assertIn("depends on image group membership", problems[0])
+
+    def test_mode_0604_is_refused_as_depending_on_image_groups(self) -> None:
+        problems = self.mode_problems(0o604)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("depends on image group membership", problems[0])
+
+    def test_mode_0644_passes(self) -> None:
+        self.assertEqual(self.mode_problems(0o644), [])
+
+    def test_mode_0600_is_unreadable_whatever_the_groups(self) -> None:
+        problems = self.mode_problems(0o600)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not readable", problems[0])
+        self.assertNotIn("unsupported", problems[0])
 
     def test_mode_0004_with_supplemental_root_group_is_unreadable(self) -> None:
         volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o004}}
