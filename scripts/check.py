@@ -3377,7 +3377,8 @@ def check_runtime_config_document_paths(render: Path, problems: list[str]) -> No
         with no `binaryData` key of that name and no key in both maps;
       * each document directory is a whole-volume mount of such a volume (the
         publisher owns those ConfigMaps, so nothing finer can be verified);
-      * the container's user is a numeric `runAsUser`, and the files are
+      * the container's user is a numeric non-zero `runAsUser` (a root reader is
+        refused: its access depends on capabilities), and the files are
         readable by it under Linux's single-class permission rule (see
         `_runtime_can_read`), refusing where image group membership would
         decide.
@@ -3513,12 +3514,14 @@ def _runtime_can_read(mode: int, pod: dict, container: dict) -> tuple[str | None
     Files are owned by root. With `fsGroup` the kubelet sets the file's group to
     it and ORs in group read; without it the group is root's. Linux then picks
     exactly one permission class and reads only its bits, with no fallback to
-    another: root reads anything; the owner class applies only to the owner
-    (root); the group class applies when any of the reader's groups is the
+    another: the owner class applies only to the owner (root), so a non-root
+    reader never gets it; the group class applies when any of the reader's groups is the
     file's group; otherwise the other class applies.
 
     The container runtime may add groups from the image's /etc/group that the
-    manifest does not show. So the group class is certain only when the file's
+    manifest does not show. A root reader is refused: whether it can read a file
+    the mode denies depends on CAP_DAC_OVERRIDE, which `capabilities.drop` can
+    strip, and capabilities are not modelled. So the group class is certain only when the file's
     group is one the manifest names (`runAsGroup`, `supplementalGroups`,
     `fsGroup`). Otherwise the class is unknowable, and the result is decided
     only when the group-read and other-read bits agree; if they differ it is
@@ -3532,7 +3535,7 @@ def _runtime_can_read(mode: int, pod: dict, container: dict) -> tuple[str | None
     if not isinstance(uid, int):
         return "runAsUser is not set, so the container's user comes from the image", False
     if uid == 0:
-        return None, True
+        return "a root reader depends on the container's capabilities, which are not modelled", False
     if fs_group is not None:
         mode |= 0o040
     file_group = 0 if fs_group is None else fs_group

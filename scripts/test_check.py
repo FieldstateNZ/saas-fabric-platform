@@ -1024,9 +1024,23 @@ class RuntimeConfigDocumentPaths(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("depends on image group membership", problems[0])
 
-    def test_root_user_reads_anything(self) -> None:
-        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0}}
-        self.assertEqual(self.problems_for_config_volume(volume, {"runAsUser": 0}), [])
+    def root_reader_problems(self, mode: int, *, drop_all: bool) -> list[str]:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        pod = self.pod_spec(documents)
+        pod["securityContext"] = {"runAsUser": 0}
+        pod["volumes"][0] = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": mode}}
+        if drop_all:
+            pod["containers"][0]["securityContext"] = {"capabilities": {"drop": ["ALL"]}}
+        return runtime_config_problems(*documents)
+
+    def test_capability_stripped_root_with_mode_0000_is_refused(self) -> None:
+        self.assert_refused(self.root_reader_problems(0o000, drop_all=True))
+
+    def test_root_reader_with_mode_0644_is_refused(self) -> None:
+        self.assert_refused(self.root_reader_problems(0o644, drop_all=False))
+
+    def test_non_root_reader_with_mode_0644_passes(self) -> None:
+        self.assertEqual(self.mode_problems(0o644), [])
 
     def test_unset_run_as_user_is_refused(self) -> None:
         volume = {"name": "config", "configMap": {"name": "saas-fabric-config"}}
