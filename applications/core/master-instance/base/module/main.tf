@@ -146,8 +146,17 @@ resource "keycloak_realm" "master" {
 # -- full Keycloak authority, not a scoped slice of it -- which is exactly
 # what ADR 0012 needs and exactly why it is granted to declared operators
 # only, below, and never to the control plane's own service identity.
+#
+# `realm_id` is the literal "master", not `keycloak_realm.master.id` (the same
+# value -- the provider's realm id is the realm's name). A data source that
+# references a managed resource can be read at apply time instead of plan
+# time when that resource has changes pending, which on this module is every
+# run that imports the realm or converges `frontendUrl`; a lookup that fails
+# there fails after the resources ahead of it were already written. See
+# data.keycloak_user.operator below, and `check_master_instance_lookups_precede_apply`
+# in scripts/check.py, which holds every lookup here to this.
 data "keycloak_role" "admin" {
-  realm_id = keycloak_realm.master.id
+  realm_id = "master"
   name     = "admin"
 }
 
@@ -275,10 +284,13 @@ resource "keycloak_openid_client" "console" {
 # `email`, so it must be the exact string each operator authenticates with.
 #
 # **A name here that does not already exist as a Keycloak user fails the
-# whole convergence, at plan time.** `keycloak_user` is a data source, and a
-# data source's read is part of `tofu plan`, before anything is applied --
-# so a typo, or an operator declared before their account exists, fails this
-# Job before it changes anything else, not partway through. On a fresh
+# whole convergence, at plan time.** `keycloak_user` is a data source, and
+# this one's read is part of `tofu plan`, before anything is applied -- but
+# only because nothing in it references a managed resource (`realm_id` is the
+# literal "master"; see data.keycloak_role.admin above for why a reference
+# would move the read into apply). So a typo, or an operator declared before
+# their account exists, fails this Job before it changes anything else, not
+# partway through, and `apply.sh` says so in its own failure message. On a fresh
 # environment the only account that exists is the bootstrap administrator
 # this module authenticates as; creating the *account* for a new operator
 # (as opposed to granting one that already exists the two roles below) is
@@ -286,7 +298,7 @@ resource "keycloak_openid_client" "console" {
 # "What this does not decide".
 data "keycloak_user" "operator" {
   for_each = var.operators
-  realm_id = keycloak_realm.master.id
+  realm_id = "master"
   username = each.value
 }
 
@@ -296,6 +308,21 @@ data "keycloak_user" "operator" {
 # it -- including roles Keycloak itself assigns to every user in a realm.
 # This module only ever adds the two roles below; it must never remove a role
 # it does not know about.
+#
+# **`exhaustive = false` does not make removal harmless -- `prevent_destroy`
+# does.** Removing a name from the roster removes that key from `for_each`,
+# which plans a *destroy* of this instance, and the provider's delete
+# (keycloak/keycloak 5.9.0, `resourceKeycloakUserRolesDelete`) removes every
+# role in `role_ids` from the user whatever `exhaustive` says: `fabric-operator`
+# and master-realm `admin` both. On a roster naming the bootstrap
+# administrator this Job authenticates as, that would revoke the Job's own
+# authority, and every human's, in one apply. `prevent_destroy` turns any such
+# plan into a plan-time failure that writes nothing -- and that blocks the
+# whole module until the name is restored or retired by a state step (this
+# Application's README, "Who the operators are"). How a declared operator
+# is retired is the product owner's decision (D01-6b in the application
+# repository's docs/roadmap/m0-contract-decisions.md), not something this
+# module decides by omission.
 resource "keycloak_user_roles" "operator" {
   for_each = var.operators
   realm_id = keycloak_realm.master.id
@@ -313,4 +340,8 @@ resource "keycloak_user_roles" "operator" {
   ]
 
   exhaustive = false
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
