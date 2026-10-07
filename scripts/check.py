@@ -48,8 +48,10 @@ Checks, in order of how much damage they prevent:
 """
 from __future__ import annotations
 
+import posixpath
 import re
 import sys
+import tomllib
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -3346,6 +3348,235 @@ def _is_rfc3339(value: str) -> bool:
     return True
 
 
+RUNTIME_DOCUMENT_KEYS = ("tenants_path", "data_sources_path", "catalog_path")
+
+KUBELET_DEFAULT_FILE_MODE = 0o644
+UNSUPPORTED = "unsupported by this check"
+
+
+def check_runtime_config_document_paths(render: Path, problems: list[str]) -> None:
+    """The runtime's document paths are top-level keys on mounted ConfigMap volumes.
+
+    A key written after a TOML table header belongs to that table. The runtime
+    rejects unknown keys inside `[token]`, so `tenants_path` placed below it
+    parses cleanly and still stops the process at start. For every container
+    that names its config file in `FABRIC_CONFIG`, the ConfigMap supplying that
+    file is read with the real TOML parser, and `tenants_path`,
+    `data_sources_path` and `catalog_path` must each be a top-level string
+    whose directory is exactly the `mountPath` of a whole-volume ConfigMap
+    mount of that container.
+
+    Kubelet volume semantics are modelled for exactly the one shape this
+    repository uses and every other shape is refused as "unsupported by this
+    check" rather than guessed at, so a pass is never silent about an input it
+    did not understand. Supported:
+
+      * the config file comes from a whole-volume mount (no `subPath` or
+        `subPathExpr`) of a plain `configMap` volume that is not `optional`,
+        has no `items`, and whose ConfigMap holds the file as a `data` key
+        with no `binaryData` key of that name and no key in both maps;
+      * each document directory is a whole-volume mount of such a volume (the
+        publisher owns those ConfigMaps, so nothing finer can be verified);
+      * the container's user is a numeric non-zero `runAsUser` (a root reader is
+        refused: its access depends on capabilities), and the files are
+        readable by it under Linux's single-class permission rule (see
+        `_runtime_can_read`), refusing where image group membership would
+        decide.
+
+    `projected` volumes are refused outright: their later-source-wins,
+    `binaryData`, missing-key and mode rules are not modelled.
+    """
+    for environment in ENVIRONMENTS:
+        documents = [
+            document
+            for path in sorted((render / environment).rglob("*.yaml"))
+            if path.name != "bootstrap.yaml"
+            for document in load_all(path, problems)
+        ]
+        configmaps = {
+            ((d.get("metadata") or {}).get("namespace"), (d.get("metadata") or {}).get("name")): d
+            for d in documents
+            if d.get("kind") == "ConfigMap"
+        }
+        for deployment in (d for d in documents if d.get("kind") == "Deployment"):
+            metadata = deployment.get("metadata") or {}
+            pod = ((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}
+            volumes = {v.get("name"): v for v in pod.get("volumes") or [] if isinstance(v, dict)}
+            for container in pod.get("containers") or []:
+                config_file = next(
+                    (e.get("value") for e in container.get("env") or [] if e.get("name") == "FABRIC_CONFIG"),
+                    None,
+                )
+                if not isinstance(config_file, str):
+                    continue
+                where = f"{environment}: Deployment/{metadata.get('name')} container {container.get('name')!r}"
+                _check_runtime_container(
+                    pod, container, volumes, configmaps, metadata.get("namespace"), config_file, where, problems
+                )
+
+
+def _plain_config_map_volume(volume: dict) -> str | None:
+    """Why `volume` is outside the supported shape, or None if it is a plain `configMap` volume."""
+    if "projected" in volume:
+        return "a projected volume is not modelled"
+    reference = volume.get("configMap")
+    if not isinstance(reference, dict):
+        return "it is not a configMap volume"
+    if reference.get("items") is not None:
+        return "configMap items are not modelled"
+    if reference.get("optional"):
+        return "an optional configMap volume mounts empty when the ConfigMap is absent"
+    return None
+
+
+def _check_runtime_container(
+    pod: dict, container: dict, volumes: dict, configmaps: dict, namespace, config_file: str,
+    where: str, problems: list[str],
+) -> None:
+    mounts = [m for m in container.get("volumeMounts") or [] if isinstance(m, dict)]
+    if any(m.get("mountPath") == config_file for m in mounts):
+        fail(problems, f"{where}: {config_file} is itself a mount point -- {UNSUPPORTED}")
+        return
+
+    config_dir = posixpath.dirname(config_file)
+    name = posixpath.basename(config_file)
+    text = None
+    for mount in mounts:
+        if mount.get("mountPath") != config_dir or _is_sub_path_mount(mount):
+            continue
+        volume = volumes.get(mount.get("name")) or {}
+        if "configMap" not in volume and "projected" not in volume:
+            continue
+        reason = _plain_config_map_volume(volume)
+        if reason:
+            fail(problems, f"{where}: {config_file}: {reason} -- {UNSUPPORTED}")
+            return
+        config = configmaps.get((namespace, volume["configMap"].get("name"))) or {}
+        data = config.get("data") or {}
+        binary = config.get("binaryData") or {}
+        if set(data) & set(binary):
+            fail(problems, f"{where}: ConfigMap {volume['configMap'].get('name')!r} has keys in both data and binaryData -- {UNSUPPORTED}")
+            return
+        if name in binary:
+            fail(problems, f"{where}: {config_file} is supplied through binaryData -- {UNSUPPORTED}")
+            return
+        if name in data:
+            text = data[name]
+            mode = volume["configMap"].get("defaultMode")
+            config_mode = KUBELET_DEFAULT_FILE_MODE if mode is None else mode
+    if text is None:
+        fail(problems, f"{where}: FABRIC_CONFIG={config_file} is not supplied by a mounted ConfigMap in the render")
+        return
+    refusal, readable = _runtime_can_read(config_mode, pod, container)
+    if refusal:
+        fail(problems, f"{where}: {config_file}: {refusal} -- {UNSUPPORTED}")
+        return
+    if not readable:
+        fail(problems, f"{where}: {config_file} (mode {config_mode:04o}) is not readable by the container's user")
+        return
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        fail(problems, f"{where}: {config_file} is not valid TOML: {error}")
+        return
+
+    document_dirs: dict[str, str | None] = {}
+    for mount in mounts:
+        if _is_sub_path_mount(mount):
+            continue
+        volume = volumes.get(mount.get("name")) or {}
+        if "configMap" not in volume and "projected" not in volume:
+            continue
+        reason = _plain_config_map_volume(volume)
+        if reason:
+            reason = f"{reason} -- {UNSUPPORTED}"
+        else:
+            document_mode = volume["configMap"].get("defaultMode")
+            refusal, readable = _runtime_can_read(
+                KUBELET_DEFAULT_FILE_MODE if document_mode is None else document_mode, pod, container
+            )
+            if refusal:
+                reason = f"{refusal} -- {UNSUPPORTED}"
+            elif not readable:
+                reason = "its defaultMode leaves the documents unreadable by the container's user"
+        document_dirs[mount.get("mountPath")] = reason
+    for key in RUNTIME_DOCUMENT_KEYS:
+        _check_runtime_document_path(parsed, key, document_dirs, where, problems)
+
+
+def _is_sub_path_mount(mount: dict) -> bool:
+    return "subPath" in mount or "subPathExpr" in mount
+
+
+def _runtime_can_read(mode: int, pod: dict, container: dict) -> tuple[str | None, bool]:
+    """(refusal, readable) for a ConfigMap file of `mode` as the kubelet materialises it.
+
+    Files are owned by root. With `fsGroup` the kubelet sets the file's group to
+    it and ORs in group read; without it the group is root's. Linux then picks
+    exactly one permission class and reads only its bits, with no fallback to
+    another: the owner class applies only to the owner (root), so a non-root
+    reader never gets it; the group class applies when any of the reader's groups is the
+    file's group; otherwise the other class applies.
+
+    The container runtime may add groups from the image's /etc/group that the
+    manifest does not show. A root reader is refused: whether it can read a file
+    the mode denies depends on CAP_DAC_OVERRIDE, which `capabilities.drop` can
+    strip, and capabilities are not modelled. So the group class is certain only when the file's
+    group is one the manifest names (`runAsGroup`, `supplementalGroups`,
+    `fsGroup`). Otherwise the class is unknowable, and the result is decided
+    only when the group-read and other-read bits agree; if they differ it is
+    refused rather than guessed.
+    """
+    pod_context = pod.get("securityContext") or {}
+    container_context = container.get("securityContext") or {}
+    uid = container_context.get("runAsUser", pod_context.get("runAsUser"))
+    gid = container_context.get("runAsGroup", pod_context.get("runAsGroup"))
+    fs_group = pod_context.get("fsGroup")
+    if not isinstance(uid, int):
+        return "runAsUser is not set, so the container's user comes from the image", False
+    if uid == 0:
+        return "a root reader depends on the container's capabilities, which are not modelled", False
+    if fs_group is not None:
+        mode |= 0o040
+    file_group = 0 if fs_group is None else fs_group
+    named_groups = set(pod_context.get("supplementalGroups") or [])
+    if fs_group is not None:
+        named_groups.add(fs_group)
+    if isinstance(gid, int):
+        named_groups.add(gid)
+    if file_group in named_groups:
+        return None, bool(mode & 0o040)
+    group_read, other_read = bool(mode & 0o040), bool(mode & 0o004)
+    if group_read != other_read:
+        return "readability depends on image group membership", False
+    return None, other_read
+
+
+def _check_runtime_document_path(
+    parsed: dict, key: str, document_dirs: dict, where: str, problems: list[str]
+) -> None:
+    value = parsed.get(key)
+    if value is None:
+        nested = [name for name, table in parsed.items() if isinstance(table, dict) and key in table]
+        if nested:
+            fail(
+                problems,
+                f"{where}: {key} is under [{nested[0]}], not top level -- a key after a "
+                "table header belongs to that table and the runtime refuses to start",
+            )
+        else:
+            fail(problems, f"{where}: config has no top-level {key}")
+    elif not isinstance(value, str):
+        fail(problems, f"{where}: {key} must be a string path")
+    elif posixpath.dirname(value) not in document_dirs:
+        fail(
+            problems,
+            f"{where}: {key} = {value!r} is not inside a whole-volume ConfigMap mountPath of that container",
+        )
+    elif document_dirs[posixpath.dirname(value)] is not None:
+        fail(problems, f"{where}: {key} = {value!r}: {document_dirs[posixpath.dirname(value)]}")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -3359,6 +3590,7 @@ def main() -> int:
     check_no_plaintext_secrets(render, problems)
     check_no_duplicate_resources(render, problems)
     check_no_runtime_publication_configmaps(render, problems)
+    check_runtime_config_document_paths(render, problems)
     check_applications_match_their_project(render, problems)
     check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)

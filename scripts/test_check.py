@@ -840,5 +840,341 @@ class MasterInstanceGrants(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
 
 
+def runtime_config(config_toml: str, *, mounts: list[dict] | None = None, volumes: list[dict] | None = None) -> list[dict]:
+    """A ConfigMap and the Deployment that mounts it, shaped like saas-fabric's."""
+    state = [
+        ("state-tenants", "/etc/fabric/state/tenants", "fabric-runtime-tenants"),
+        ("state-data-sources", "/etc/fabric/state/data-sources", "fabric-runtime-data-sources"),
+        ("state-catalog", "/etc/fabric/state/catalog", "fabric-runtime-catalog"),
+    ]
+    default_mounts = [{"name": "config", "mountPath": "/etc/fabric"}] + [
+        {"name": name, "mountPath": path} for name, path, _ in state
+    ]
+    default_volumes = [{"name": "config", "configMap": {"name": "saas-fabric-config"}}] + [
+        {"name": name, "configMap": {"name": config}} for name, _, config in state
+    ]
+    return [
+        {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": "saas-fabric-config", "namespace": "platform-system"},
+            "data": {"config.toml": config_toml},
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": "saas-fabric", "namespace": "platform-system"},
+            "spec": {"template": {"spec": {
+                "securityContext": {"runAsUser": 65532, "runAsGroup": 65532},
+                "containers": [{
+                    "name": "saas-fabric",
+                    "env": [{"name": "FABRIC_CONFIG", "value": "/etc/fabric/config.toml"}],
+                    "volumeMounts": mounts if mounts is not None else default_mounts,
+                }],
+                "volumes": volumes if volumes is not None else default_volumes,
+            }}},
+        },
+    ]
+
+
+TOP_LEVEL_PATHS = (
+    'tenants_path = "/etc/fabric/state/tenants/tenants.json"\n'
+    'data_sources_path = "/etc/fabric/state/data-sources/data-sources.json"\n'
+    'catalog_path = "/etc/fabric/state/catalog/catalog.json"\n'
+)
+TOKEN_TABLE = '[token]\nmode = "trusted_ingress"\n'
+
+
+def runtime_config_problems(*documents: dict) -> list[str]:
+    with tempfile.TemporaryDirectory() as temporary:
+        render = Path(temporary)
+        for environment in check.ENVIRONMENTS:
+            (render / environment / "applications").mkdir(parents=True)
+        (render / "lucentroot" / "applications" / "saas-fabric.yaml").write_text(
+            yaml.safe_dump_all(list(documents))
+        )
+        problems: list[str] = []
+        check._DOCUMENTS.clear()
+        check.check_runtime_config_document_paths(render, problems)
+        return problems
+
+
+class RuntimeConfigDocumentPaths(unittest.TestCase):
+    """The three document paths must be top-level keys, as the real TOML parser reads them.
+
+    Written after `[token]` they parse as `token.tenants_path` and the runtime,
+    which refuses unknown keys in that table, would not start.
+    """
+
+    def test_paths_above_the_token_table_pass(self) -> None:
+        config = 'listen = "0.0.0.0:8080"\n' + TOP_LEVEL_PATHS + TOKEN_TABLE
+        self.assertEqual(runtime_config_problems(*runtime_config(config)), [])
+
+    def test_paths_after_the_token_table_fail(self) -> None:
+        config = 'listen = "0.0.0.0:8080"\n' + TOKEN_TABLE + TOP_LEVEL_PATHS
+        problems = runtime_config_problems(*runtime_config(config))
+        self.assertEqual(len(problems), 3, problems)
+        self.assertTrue(all("under [token]" in problem for problem in problems), problems)
+
+    def test_missing_path_fails(self) -> None:
+        config = 'catalog_path = "/etc/fabric/state/catalog/catalog.json"\n' + TOKEN_TABLE
+        problems = runtime_config_problems(*runtime_config(config))
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(all("no top-level" in problem for problem in problems), problems)
+
+    def test_path_outside_every_mount_fails(self) -> None:
+        config = TOP_LEVEL_PATHS.replace("/etc/fabric/state/catalog/", "/etc/fabric/state/other/") + TOKEN_TABLE
+        problems = runtime_config_problems(*runtime_config(config))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("catalog_path", problems[0])
+
+    def test_sub_path_mount_is_not_a_whole_volume(self) -> None:
+        mounts = [
+            {"name": "config", "mountPath": "/etc/fabric"},
+            {"name": "state-tenants", "mountPath": "/etc/fabric/state/tenants", "subPath": "tenants.json"},
+            {"name": "state-data-sources", "mountPath": "/etc/fabric/state/data-sources"},
+            {"name": "state-catalog", "mountPath": "/etc/fabric/state/catalog"},
+        ]
+        problems = runtime_config_problems(*runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE, mounts=mounts))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("tenants_path", problems[0])
+
+    def test_invalid_toml_fails(self) -> None:
+        problems = runtime_config_problems(*runtime_config("listen = \n"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not valid TOML", problems[0])
+
+    def test_unmounted_config_fails(self) -> None:
+        mounts = [{"name": "state-tenants", "mountPath": "/etc/fabric/state/tenants"}]
+        problems = runtime_config_problems(*runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE, mounts=mounts))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not supplied by a mounted ConfigMap", problems[0])
+
+    def test_repository_base_config_passes(self) -> None:
+        base = REPOSITORY / "applications" / "core" / "saas-fabric" / "base"
+        documents = [
+            document
+            for name in ("configmap.yaml", "deployment.yaml")
+            for document in yaml.safe_load_all((base / name).read_text())
+        ]
+        for document in documents:
+            document["metadata"]["namespace"] = "platform-system"
+        self.assertEqual(runtime_config_problems(*documents), [])
+
+    def runtime_problems_with_config_mount(self, mount: dict | None = None, volume: dict | None = None) -> list[str]:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        pod = documents[1]["spec"]["template"]["spec"]
+        if mount is not None:
+            pod["containers"][0]["volumeMounts"][0] = mount
+        if volume is not None:
+            pod["volumes"][0] = volume
+        return runtime_config_problems(*documents)
+
+    def test_sub_path_expr_config_mount_is_rejected(self) -> None:
+        problems = self.runtime_problems_with_config_mount(
+            mount={"name": "config", "mountPath": "/etc/fabric", "subPathExpr": "config.toml"})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not supplied by a mounted ConfigMap", problems[0])
+
+    def test_sub_path_config_mount_is_rejected(self) -> None:
+        problems = self.runtime_problems_with_config_mount(
+            mount={"name": "config", "mountPath": "/etc/fabric", "subPath": "config.toml"})
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_unreadable_default_mode_is_rejected(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0}}
+        self.assertEqual(len(self.runtime_problems_with_config_mount(volume=volume)), 1)
+
+    def test_readable_default_mode_passes(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o444}}
+        self.assertEqual(self.runtime_problems_with_config_mount(volume=volume), [])
+
+    def test_document_directory_mounted_with_sub_path_expr_is_rejected(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        documents[1]["spec"]["template"]["spec"]["containers"][0]["volumeMounts"][3][
+            "subPathExpr"] = "catalog.json"
+        problems = runtime_config_problems(*documents)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("catalog_path", problems[0])
+
+    def pod_spec(self, documents: list[dict]) -> dict:
+        return documents[1]["spec"]["template"]["spec"]
+
+    def problems_for_config_volume(self, volume: dict, security_context: dict | None = None) -> list[str]:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        self.pod_spec(documents)["volumes"][0] = volume
+        if security_context is not None:
+            self.pod_spec(documents)["securityContext"] = security_context
+        return runtime_config_problems(*documents)
+
+    def test_root_owned_0400_is_unreadable_by_a_non_root_user_without_fs_group(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o400}}
+        problems = self.problems_for_config_volume(volume)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not readable", problems[0])
+
+    def test_mode_0000_is_readable_when_fs_group_matches_the_user_group(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0}}
+        context = {"runAsUser": 65532, "runAsGroup": 65532, "fsGroup": 65532}
+        self.assertEqual(self.problems_for_config_volume(volume, context), [])
+
+    def test_group_read_without_a_named_matching_group_is_refused(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o440}}
+        problems = self.problems_for_config_volume(volume)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("depends on image group membership", problems[0])
+
+    def root_reader_problems(self, mode: int, *, drop_all: bool) -> list[str]:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        pod = self.pod_spec(documents)
+        pod["securityContext"] = {"runAsUser": 0}
+        pod["volumes"][0] = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": mode}}
+        if drop_all:
+            pod["containers"][0]["securityContext"] = {"capabilities": {"drop": ["ALL"]}}
+        return runtime_config_problems(*documents)
+
+    def test_capability_stripped_root_with_mode_0000_is_refused(self) -> None:
+        self.assert_refused(self.root_reader_problems(0o000, drop_all=True))
+
+    def test_root_reader_with_mode_0644_is_refused(self) -> None:
+        self.assert_refused(self.root_reader_problems(0o644, drop_all=False))
+
+    def test_non_root_reader_with_mode_0644_passes(self) -> None:
+        self.assertEqual(self.mode_problems(0o644), [])
+
+    def test_unset_run_as_user_is_refused(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config"}}
+        problems = self.problems_for_config_volume(volume, {"runAsNonRoot": True})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("unsupported by this check", problems[0])
+
+    def test_unset_run_as_group_is_refused_when_group_read_decides(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o440}}
+        problems = self.problems_for_config_volume(volume, {"runAsUser": 65532})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("unsupported by this check", problems[0])
+
+    def test_config_file_that_is_itself_a_mount_point_is_refused(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        self.pod_spec(documents)["containers"][0]["volumeMounts"].append(
+            {"name": "state-catalog", "mountPath": "/etc/fabric/config.toml"})
+        problems = runtime_config_problems(*documents)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("unsupported by this check", problems[0])
+
+    def test_projected_document_directory_is_refused(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        self.pod_spec(documents)["volumes"][3] = {"name": "state-catalog", "projected": {"sources": [
+            {"configMap": {"name": "fabric-runtime-catalog"}}]}}
+        problems = runtime_config_problems(*documents)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("catalog_path", problems[0])
+
+    def test_document_directory_with_items_is_refused(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        self.pod_spec(documents)["volumes"][3]["configMap"]["items"] = [
+            {"key": "catalog.json", "path": "other.json"}]
+        problems = runtime_config_problems(*documents)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("catalog_path", problems[0])
+
+    def test_unreadable_document_directory_is_rejected(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        self.pod_spec(documents)["volumes"][3]["configMap"]["defaultMode"] = 0o400
+        problems = runtime_config_problems(*documents)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("unreadable", problems[0])
+
+    def assert_refused(self, problems: list[str]) -> None:
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("unsupported by this check", problems[0])
+
+    def test_any_projected_config_volume_is_refused(self) -> None:
+        sources = {
+            "configMap": {"configMap": {"name": "saas-fabric-config"}},
+            "downwardAPI": {"downwardAPI": {"items": [
+                {"path": "config.toml", "fieldRef": {"fieldPath": "metadata.name"}}]}},
+            "secret": {"secret": {"name": "other"}},
+            "serviceAccountToken": {"serviceAccountToken": {"path": "config.toml"}},
+        }
+        for kind, source in sources.items():
+            with self.subTest(kind):
+                volume = {"name": "config", "projected": {"sources": [
+                    {"configMap": {"name": "saas-fabric-config"}}, source]}}
+                self.assert_refused(self.problems_for_config_volume(volume))
+
+    def test_items_are_refused_including_empty_items(self) -> None:
+        for items in ([], [{"key": "config.toml", "path": "renamed.toml"}],
+                      [{"key": "other.toml", "path": "other.toml"}],
+                      [{"key": "config.toml", "path": "config.toml", "mode": 0}]):
+            with self.subTest(items=items):
+                volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "items": items}}
+                self.assert_refused(self.problems_for_config_volume(volume))
+
+    def test_optional_config_volume_is_refused(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "optional": True}}
+        self.assert_refused(self.problems_for_config_volume(volume))
+
+    def test_config_supplied_through_binary_data_is_refused(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        documents[0]["binaryData"] = {"config.toml": "bGlzdGVuID0gJ3gnCg=="}
+        self.assert_refused(runtime_config_problems(*documents))
+
+    def test_config_only_in_binary_data_is_refused(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        documents[0]["binaryData"] = {"config.toml": "bGlzdGVuID0gJ3gnCg=="}
+        del documents[0]["data"]["config.toml"]
+        self.assert_refused(runtime_config_problems(*documents))
+
+    def test_key_in_both_data_and_binary_data_is_refused(self) -> None:
+        documents = runtime_config(TOP_LEVEL_PATHS + TOKEN_TABLE)
+        documents[0]["binaryData"] = {"unrelated.bin": "AA=="}
+        documents[0]["data"]["unrelated.bin"] = "x"
+        self.assert_refused(runtime_config_problems(*documents))
+
+    def test_mode_0004_is_unreadable_for_a_reader_in_the_owning_group(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o004}}
+        problems = self.problems_for_config_volume(volume, {"runAsUser": 65532, "runAsGroup": 0})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not readable", problems[0])
+
+    def test_mode_0004_for_a_reader_outside_the_named_groups_depends_on_the_image(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o004}}
+        problems = self.problems_for_config_volume(volume, {"runAsUser": 65532, "runAsGroup": 65532})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("depends on image group membership", problems[0])
+
+    def mode_problems(self, mode: int) -> list[str]:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": mode}}
+        return self.problems_for_config_volume(volume, {"runAsUser": 65532, "runAsGroup": 65532})
+
+    def test_mode_0640_is_refused_as_depending_on_image_groups(self) -> None:
+        problems = self.mode_problems(0o640)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("unsupported by this check", problems[0])
+        self.assertIn("depends on image group membership", problems[0])
+
+    def test_mode_0604_is_refused_as_depending_on_image_groups(self) -> None:
+        problems = self.mode_problems(0o604)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("depends on image group membership", problems[0])
+
+    def test_mode_0644_passes(self) -> None:
+        self.assertEqual(self.mode_problems(0o644), [])
+
+    def test_mode_0600_is_unreadable_whatever_the_groups(self) -> None:
+        problems = self.mode_problems(0o600)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not readable", problems[0])
+        self.assertNotIn("unsupported", problems[0])
+
+    def test_mode_0004_with_supplemental_root_group_is_unreadable(self) -> None:
+        volume = {"name": "config", "configMap": {"name": "saas-fabric-config", "defaultMode": 0o004}}
+        problems = self.problems_for_config_volume(
+            volume, {"runAsUser": 65532, "runAsGroup": 65532, "supplementalGroups": [0]})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not readable", problems[0])
+
+
 if __name__ == "__main__":
     unittest.main()
