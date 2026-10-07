@@ -3350,6 +3350,9 @@ def _is_rfc3339(value: str) -> bool:
 
 RUNTIME_DOCUMENT_KEYS = ("tenants_path", "data_sources_path", "catalog_path")
 
+KUBELET_DEFAULT_FILE_MODE = 0o644
+UNSUPPORTED = "unsupported by this check"
+
 
 def check_runtime_config_document_paths(render: Path, problems: list[str]) -> None:
     """The runtime's document paths are top-level keys on mounted ConfigMap volumes.
@@ -3360,8 +3363,31 @@ def check_runtime_config_document_paths(render: Path, problems: list[str]) -> No
     that names its config file in `FABRIC_CONFIG`, the ConfigMap supplying that
     file is read with the real TOML parser, and `tenants_path`,
     `data_sources_path` and `catalog_path` must each be a top-level string
-    whose directory is exactly the `mountPath` of a whole-volume (no
-    `subPath`) ConfigMap mount of that container.
+    whose directory is exactly the `mountPath` of a whole-volume ConfigMap
+    mount of that container.
+
+    The kubelet's volume semantics are modelled for a small, explicit set of
+    shapes and anything else is refused as "unsupported by this check" rather
+    than guessed at, so a pass is never silent about an input it did not
+    understand. Supported:
+
+      * the config file comes from a whole-volume (no `subPath`/`subPathExpr`)
+        mount of a `configMap` volume, or of a `projected` volume whose
+        sources are `configMap` sources; sources apply in order and the last
+        writer of a filename wins, with `items` selecting and renaming keys and
+        an absent or empty `items` mounting every key;
+      * a `downwardAPI`, `secret`, `serviceAccountToken` or
+        `clusterTrustBundle` source in that projected volume is accepted only
+        when its paths provably do not touch the config file; any other
+        source kind, or a `secret` without `items`, is refused;
+      * readability by the container's UID is derived from `runAsUser`,
+        `runAsGroup`, `supplementalGroups` and `fsGroup` with the item or
+        volume `mode` (default 0644); the kubelet gives files group `fsGroup`
+        and adds group read, files are otherwise root-owned. An unset
+        `runAsUser` or an unresolvable `runAsGroup` is refused;
+      * each document directory is a whole-volume mount of a plain `configMap`
+        volume without `items`; the publisher owns those ConfigMaps, so
+        nothing finer can be verified and projections of them are refused.
     """
     for environment in ENVIRONMENTS:
         documents = [
@@ -3387,76 +3413,174 @@ def check_runtime_config_document_paths(render: Path, problems: list[str]) -> No
                 if not isinstance(config_file, str):
                     continue
                 where = f"{environment}: Deployment/{metadata.get('name')} container {container.get('name')!r}"
-                mounts = container.get("volumeMounts") or []
-                text = None
-                for m in mounts:
-                    if (
-                        m.get("mountPath") == posixpath.dirname(config_file)
-                        and not _is_sub_path_mount(m)
-                    ):
-                        files = _projected_config_files(
-                            volumes.get(m.get("name")) or {}, configmaps, metadata.get("namespace")
-                        )
-                        text = files.get(posixpath.basename(config_file))
-                if text is None:
-                    fail(problems, f"{where}: FABRIC_CONFIG={config_file} is not supplied by a mounted ConfigMap in the render")
-                    continue
-                try:
-                    parsed = tomllib.loads(text)
-                except tomllib.TOMLDecodeError as error:
-                    fail(problems, f"{where}: {config_file} is not valid TOML: {error}")
-                    continue
-                whole_volume_dirs = {
-                    m.get("mountPath")
-                    for m in mounts
-                    if not _is_sub_path_mount(m)
-                    and _config_map_sources(volumes.get(m.get("name")) or {})
-                }
-                for key in RUNTIME_DOCUMENT_KEYS:
-                    _check_runtime_document_path(parsed, key, whole_volume_dirs, where, problems)
+                _check_runtime_container(
+                    pod, container, volumes, configmaps, metadata.get("namespace"), config_file, where, problems
+                )
+
+
+def _check_runtime_container(
+    pod: dict, container: dict, volumes: dict, configmaps: dict, namespace, config_file: str,
+    where: str, problems: list[str],
+) -> None:
+    mounts = [m for m in container.get("volumeMounts") or [] if isinstance(m, dict)]
+    if any(m.get("mountPath") == config_file for m in mounts):
+        fail(problems, f"{where}: {config_file} is itself a mount point -- {UNSUPPORTED}")
+        return
+
+    config_dir = posixpath.dirname(config_file)
+    name = posixpath.basename(config_file)
+    supplied = None
+    for mount in mounts:
+        if mount.get("mountPath") != config_dir or _is_sub_path_mount(mount):
+            continue
+        volume = volumes.get(mount.get("name")) or {}
+        projected = _project_file(volume, configmaps, namespace, name)
+        if isinstance(projected, str):
+            fail(problems, f"{where}: {config_file}: {projected} -- {UNSUPPORTED}")
+            return
+        if projected is not None:
+            supplied = projected
+    if supplied is None:
+        fail(problems, f"{where}: FABRIC_CONFIG={config_file} is not supplied by a mounted ConfigMap in the render")
+        return
+    text, mode = supplied
+    refusal, readable = _runtime_can_read(mode, pod, container)
+    if refusal:
+        fail(problems, f"{where}: {config_file}: {refusal} -- {UNSUPPORTED}")
+        return
+    if not readable:
+        fail(problems, f"{where}: {config_file} (mode {mode:04o}) is not readable by the container's user")
+        return
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        fail(problems, f"{where}: {config_file} is not valid TOML: {error}")
+        return
+
+    document_dirs: dict[str, str | None] = {}
+    for mount in mounts:
+        if _is_sub_path_mount(mount):
+            continue
+        volume = volumes.get(mount.get("name")) or {}
+        if "configMap" not in volume and "projected" not in volume:
+            continue
+        reason = None
+        if "projected" in volume or volume["configMap"].get("items"):
+            reason = "documents must come from a plain configMap volume without items"
+        else:
+            document_mode = volume["configMap"].get("defaultMode")
+            refusal, readable = _runtime_can_read(
+                KUBELET_DEFAULT_FILE_MODE if document_mode is None else document_mode, pod, container
+            )
+            if refusal:
+                reason = f"{refusal} -- {UNSUPPORTED}"
+            elif not readable:
+                reason = "its defaultMode leaves the documents unreadable by the container's user"
+        document_dirs[mount.get("mountPath")] = reason
+    for key in RUNTIME_DOCUMENT_KEYS:
+        _check_runtime_document_path(parsed, key, document_dirs, where, problems)
 
 
 def _is_sub_path_mount(mount: dict) -> bool:
     return "subPath" in mount or "subPathExpr" in mount
 
 
-def _config_map_sources(volume: dict) -> list[tuple[dict, int | None]]:
-    """(ConfigMap reference, defaultMode) pairs a volume projects: its own, or a `projected` volume's."""
-    sources = []
-    if isinstance(volume.get("configMap"), dict):
-        sources.append((volume["configMap"], volume["configMap"].get("defaultMode")))
-    projected = volume.get("projected") or {}
-    for source in projected.get("sources") or []:
-        if isinstance(source, dict) and isinstance(source.get("configMap"), dict):
-            sources.append((source["configMap"], projected.get("defaultMode")))
-    return sources
+def _paths_overlap(written: object, target: str) -> bool:
+    """Whether a volume-relative `written` path is, contains or sits inside `target`."""
+    if not isinstance(written, str):
+        return True
+    written = posixpath.normpath(written)
+    return written == target or target.startswith(written + "/") or written.startswith(target + "/")
 
 
-def _projected_config_files(volume: dict, configmaps: dict, namespace) -> dict[str, str]:
-    """Filename -> content as the kubelet materialises the volume.
+def _project_file(volume: dict, configmaps: dict, namespace, target: str):
+    """The final (content, mode) of `target` in a volume, None if absent, or a refusal string.
 
-    With `items`, only the listed keys are mounted, under their `path`; without,
-    every data key is, under its own name. A file whose effective mode has no
-    read bit is not readable by the runtime and is treated as absent.
+    Mirrors the kubelet: a projected volume applies its sources in order and a
+    later write to the same filename replaces an earlier one, mode included.
     """
-    files: dict[str, str] = {}
-    for source, default_mode in _config_map_sources(volume):
-        data = (configmaps.get((namespace, source.get("name"))) or {}).get("data") or {}
-        items = source.get("items")
-        entries = (
-            [(i.get("key"), i.get("path"), i.get("mode")) for i in items if isinstance(i, dict)]
-            if items is not None
-            else [(key, key, None) for key in data]
-        )
-        for key, path, mode in entries:
-            effective = mode if mode is not None else default_mode
-            if key in data and isinstance(path, str) and (effective is None or effective & 0o444):
-                files[path] = data[key]
-    return files
+    if isinstance(volume.get("configMap"), dict):
+        sources = [({"configMap": volume["configMap"]}, volume["configMap"].get("defaultMode"))]
+    elif isinstance(volume.get("projected"), dict):
+        projected = volume["projected"]
+        sources = [(s, projected.get("defaultMode")) for s in projected.get("sources") or []]
+    else:
+        return None
+
+    final = None
+    for source, default_mode in sources:
+        if not isinstance(source, dict):
+            return "a projected source is not a mapping"
+        kinds = sorted(source)
+        if kinds == ["configMap"]:
+            reference = source["configMap"] or {}
+            data = (configmaps.get((namespace, reference.get("name"))) or {}).get("data") or {}
+            items = reference.get("items")
+            entries = (
+                [(i.get("key"), i.get("path"), i.get("mode")) for i in items if isinstance(i, dict)]
+                if items
+                else [(key, key, None) for key in data]
+            )
+            for key, path, mode in entries:
+                if not isinstance(path, str):
+                    return "a configMap item has no path"
+                if posixpath.normpath(path) != target:
+                    if _paths_overlap(path, target):
+                        return f"configMap item path {path!r} nests with the config file"
+                    continue
+                if key in data:
+                    effective = default_mode if mode is None else mode
+                    final = (data[key], KUBELET_DEFAULT_FILE_MODE if effective is None else effective)
+        elif kinds == ["downwardAPI"]:
+            if any(_paths_overlap(i.get("path") if isinstance(i, dict) else None, target)
+                   for i in (source["downwardAPI"] or {}).get("items") or []):
+                return "a later downwardAPI source writes to the config file"
+        elif kinds == ["secret"]:
+            items = (source["secret"] or {}).get("items")
+            if not items:
+                return "a secret source without items could write any filename"
+            if any(_paths_overlap(i.get("path") if isinstance(i, dict) else None, target) for i in items):
+                return "a secret source writes to the config file"
+        elif kinds in (["serviceAccountToken"], ["clusterTrustBundle"]):
+            if _paths_overlap((source[kinds[0]] or {}).get("path"), target):
+                return f"a {kinds[0]} source writes to the config file"
+        else:
+            return f"projected source {'/'.join(kinds) or '(empty)'} is not modelled"
+    return final
+
+
+def _runtime_can_read(mode: int, pod: dict, container: dict) -> tuple[str | None, bool]:
+    """(refusal, readable) for a ConfigMap file of `mode` as the kubelet materialises it.
+
+    Files are owned by root. With `fsGroup` the kubelet sets the file's group to
+    it and ORs in group read; without it the group is root's.
+    """
+    pod_context = pod.get("securityContext") or {}
+    container_context = container.get("securityContext") or {}
+    uid = container_context.get("runAsUser", pod_context.get("runAsUser"))
+    gid = container_context.get("runAsGroup", pod_context.get("runAsGroup"))
+    fs_group = pod_context.get("fsGroup")
+    if not isinstance(uid, int):
+        return "runAsUser is not set, so the container's user comes from the image", False
+    if uid == 0:
+        return None, True
+    if fs_group is not None:
+        mode |= 0o040
+    file_group = 0 if fs_group is None else fs_group
+    if mode & 0o004:
+        return None, True
+    if not mode & 0o040:
+        return None, False
+    groups = {fs_group} | set(pod_context.get("supplementalGroups") or [])
+    if isinstance(gid, int):
+        groups.add(gid)
+    elif file_group not in groups:
+        return "runAsGroup is not set, so group-read access cannot be decided", False
+    return None, file_group in groups
 
 
 def _check_runtime_document_path(
-    parsed: dict, key: str, whole_volume_dirs: set, where: str, problems: list[str]
+    parsed: dict, key: str, document_dirs: dict, where: str, problems: list[str]
 ) -> None:
     value = parsed.get(key)
     if value is None:
@@ -3471,11 +3595,13 @@ def _check_runtime_document_path(
             fail(problems, f"{where}: config has no top-level {key}")
     elif not isinstance(value, str):
         fail(problems, f"{where}: {key} must be a string path")
-    elif posixpath.dirname(value) not in whole_volume_dirs:
+    elif posixpath.dirname(value) not in document_dirs:
         fail(
             problems,
             f"{where}: {key} = {value!r} is not inside a whole-volume ConfigMap mountPath of that container",
         )
+    elif document_dirs[posixpath.dirname(value)] is not None:
+        fail(problems, f"{where}: {key} = {value!r}: {document_dirs[posixpath.dirname(value)]}")
 
 
 def main() -> int:
