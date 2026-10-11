@@ -24,9 +24,12 @@ by itself; that is a deliberate operator action (D01-18).
 
 - `published.yaml`: the `fabric-runtime-*` ConfigMaps, as the publisher writes
   them. Each has one payload key, one manifest key, and
-  `app.kubernetes.io/managed-by: saas-fabric`.
-- `held.yaml`: the document revisions, resource revisions and registry
-  generation held before this publication, with a sha256 of each held payload.
+  `app.kubernetes.io/managed-by: saas-fabric`. The tenants ConfigMap also holds
+  `publication.json`, the record naming the revision and sha256 of every
+  document in one generation (saas-fabric #136).
+- `held.yaml`: the document revisions, resource revisions, publication
+  generation (with its rollback floor) and registry generation held before
+  this publication, with a sha256 of each held payload.
   Revisions only roll forward (D01-1, D01-27).
 - `issuer-registry.json`: the issuer-to-tenant registry generation that Fabric
   would produce (D01-4). This shape is a proposal: Fabric does not publish a

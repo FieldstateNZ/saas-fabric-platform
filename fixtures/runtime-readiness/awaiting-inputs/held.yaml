@@ -5,4 +5,5 @@ documents: {}
 resources:
   tenants: {}
   data-sources: {}
+publication: null
 registry: null

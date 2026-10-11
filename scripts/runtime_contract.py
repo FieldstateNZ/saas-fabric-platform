@@ -12,11 +12,18 @@ Four contracts, each from the D01 dispositions on saas-fabric #108:
     its owner's managed-by label, hold exactly its payload and manifest keys,
     state the contract version, and only roll forward: a lower manifest
     revision, a lower resource revision, or the same manifest revision over
-    different bytes is refused.
+    different bytes is refused. The tenants ConfigMap also carries
+    `publication.json` (saas-fabric #136), the record naming each document's
+    revision and sha256 in one generation. Documents that do not match it are
+    an incomplete generation. Its reader floor must not exceed the runtime's
+    reader contract, and the held record's publisher floor must not exceed
+    the publisher's contract (D01-21).
   * **Per-client composition** (D01-3). Platform composition per client or
     instance: its namespace, database, connector processes and the issuer its
     edge admits. It references Fabric's data sources and tenants by id and
-    never restates them, and it never carries a credential.
+    never restates them, and it never carries a credential. Every published
+    data source has exactly one serving composition, and only a `shared` one
+    may be bound by a tenant other than that composition's client.
   * **Versioned registry handoff** (D01-4). Fabric produces one generation of
     the issuer-to-tenant registry; platform composition applies it at the
     edge. Every composition must state the registry generation it applied,
@@ -34,7 +41,7 @@ A scenario directory holds:
 
   published.yaml         the fabric-runtime-* ConfigMaps as observed (may be
                          an empty list -- the awaiting state)
-  held.yaml              the revisions and generation previously held
+  held.yaml              the revisions and generations previously held
   issuer-registry.json   Fabric's registry generation (absent until produced)
   compositions/*.yaml    one platform composition per client or instance
   runtime.yaml           the runtime Deployment and its config ConfigMap
@@ -60,13 +67,23 @@ MANAGED_BY = "app.kubernetes.io/managed-by"
 ENVIRONMENTS = ("lucentroot", "production")
 GATES = ("documents", "identity", "connectors")
 
-CONTRACT_KEYS = {"schemaVersion", "publicationContractVersion", "namespace", "runtime", "documents"}
+CONTRACT_KEYS = {
+    "schemaVersion", "publicationContractVersion", "namespace", "publicationRecord", "runtime", "documents",
+}
+PUBLICATION_RECORD_CONTRACT_KEYS = {"document", "key", "readerContract"}
+PUBLICATION_RECORD_FILE = "publication.json"
+PUBLICATION_RECORD_KEYS = {
+    "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents",
+}
+RECORDED_DOCUMENT_KEYS = {"revision", "sha256"}
+SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 CONTRACT_DOCUMENT_KEYS = {
     "document", "configMap", "owner", "shape", "revision", "payloadKey", "manifestKey", "configKey", "mountPath",
 }
 SHAPE_OF_DOCUMENT = {"tenants": "tenant-bindings", "data-sources": "data-sources", "catalog": "resource-catalog"}
 REVISION_POLICIES = ("roll-forward",)
 MANIFEST_KEYS = {"contract_version", "document", "revision"}
+PLACEMENTS = ("shared", "dedicated", "high_availability", "regulated", "development", "ephemeral")
 
 IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
 TENANT_ID = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -87,7 +104,8 @@ DATA_SOURCE_REQUIRED_KEYS = {"id", "revision", "connector", "connection", "place
 RESOURCE_KEYS = {"data_source", "collection", "key_field", "operations", "queryable_fields"}
 OPERATIONS = {"read", "list", "create", "update", "delete"}
 
-HELD_KEYS = {"schemaVersion", "documents", "resources", "registry"}
+HELD_KEYS = {"schemaVersion", "documents", "resources", "publication", "registry"}
+HELD_PUBLICATION_KEYS = {"generation", "sha256", "minimumPublisherContract"}
 HELD_RESOURCE_DOCUMENTS = ("tenants", "data-sources")
 REGISTRY_KEYS = {"schemaVersion", "generation", "issuers"}
 REGISTRATION_KEYS = {"issuer", "tenant"}
@@ -149,6 +167,14 @@ def contract_problems(contract) -> list[str]:
         problems.append(f"{where}: publicationContractVersion must be a positive integer")
     if not isinstance(contract["namespace"], str) or not DNS_LABEL.match(contract["namespace"]):
         problems.append(f"{where}: namespace must be a DNS label")
+    record = contract["publicationRecord"]
+    if not isinstance(record, dict) or set(record) != PUBLICATION_RECORD_CONTRACT_KEYS:
+        problems.append(f"{where}: publicationRecord must be exactly {sorted(PUBLICATION_RECORD_CONTRACT_KEYS)}")
+    else:
+        if record["document"] != "tenants" or record["key"] != PUBLICATION_RECORD_FILE:
+            problems.append(f"{where}: publicationRecord must be {PUBLICATION_RECORD_FILE} in the tenants document -- {UNSUPPORTED}")
+        if not _is_count(record["readerContract"]):
+            problems.append(f"{where}: publicationRecord.readerContract must be a positive integer")
     runtime = contract["runtime"]
     if not isinstance(runtime, dict) or set(runtime) != {"deployment", "container"}:
         problems.append(f"{where}: runtime must name exactly a deployment and a container")
@@ -424,6 +450,8 @@ def _data_sources_problems(payload, where: str) -> list[str]:
             problems.append(f"{where}: data source {identifier!r} revision must be a positive integer")
         if not isinstance(source["connector"], str) or not IDENTIFIER.match(source["connector"]):
             problems.append(f"{where}: data source {identifier!r} connector is not an identifier")
+        if source["placement"] not in PLACEMENTS:
+            problems.append(f"{where}: data source {identifier!r} placement {source['placement']!r} -- {UNSUPPORTED}")
         connection = source["connection"]
         if not isinstance(connection, dict) or connection.get("kind") not in ("default", "named", "secret"):
             problems.append(f"{where}: data source {identifier!r} connection -- {UNSUPPORTED}")
@@ -487,6 +515,14 @@ def held_problems(held) -> list[str]:
         for name, revisions in resources.items():
             if not isinstance(revisions, dict) or not all(_is_count(v) for v in revisions.values()):
                 problems.append(f"{where}: resources.{name} must map ids to positive revisions")
+    publication = held["publication"]
+    if publication is not None and (
+        not isinstance(publication, dict)
+        or set(publication) != HELD_PUBLICATION_KEYS
+        or not _is_count(publication["generation"])
+        or not _is_count(publication["minimumPublisherContract"])
+    ):
+        problems.append(f"{where}: publication must be null or a generation, a sha256 and a minimumPublisherContract")
     registry = held["registry"]
     if registry is not None and (
         not isinstance(registry, dict) or set(registry) != {"generation", "sha256"} or not _is_count(registry["generation"])
@@ -509,6 +545,9 @@ def published_document_problems(contract: dict, configmaps, held: dict) -> tuple
     if not isinstance(configmaps, list):
         return [f"published.yaml: must be a list of ConfigMaps -- {UNSUPPORTED}"], {}, sorted(declared)
     seen: set[str] = set()
+    texts: dict[str, object] = {}
+    revisions: dict[str, int | None] = {}
+    record_text = None
     for configmap in configmaps:
         if not isinstance(configmap, dict) or configmap.get("kind") != "ConfigMap":
             problems.append(f"published.yaml: only ConfigMaps are modelled -- {UNSUPPORTED}")
@@ -537,15 +576,22 @@ def published_document_problems(contract: dict, configmaps, held: dict) -> tuple
         if configmap.get("binaryData"):
             document_problems.append(f"{where}: binaryData -- {UNSUPPORTED}")
         data = configmap.get("data") or {}
-        if set(data) != {entry["payloadKey"], entry["manifestKey"]}:
+        expected_keys = {entry["payloadKey"], entry["manifestKey"]}
+        if name == contract["publicationRecord"]["document"]:
+            expected_keys.add(contract["publicationRecord"]["key"])
+        if set(data) != expected_keys:
             document_problems.append(
-                f"{where}: data keys must be exactly {entry['payloadKey']} and {entry['manifestKey']} -- {UNSUPPORTED}"
+                f"{where}: data keys must be exactly {', '.join(sorted(expected_keys))} -- {UNSUPPORTED}"
             )
             problems.extend(document_problems)
             continue
+        if name == contract["publicationRecord"]["document"]:
+            record_text = data[contract["publicationRecord"]["key"]]
         manifest_problems, revision = _manifest_problems(contract, name, data[entry["manifestKey"]], where)
         document_problems.extend(manifest_problems)
         text = data[entry["payloadKey"]]
+        texts[name] = text
+        revisions[name] = revision
         try:
             payload = json.loads(text) if isinstance(text, str) else None
         except json.JSONDecodeError:
@@ -591,8 +637,94 @@ def published_document_problems(contract: dict, configmaps, held: dict) -> tuple
                         f"published fabric-runtime-tenants: {binding['tenant']!r} binds {logical!r} to "
                         f"{entry['data_source']!r}, which fabric-runtime-data-sources does not declare"
                     )
+    if record_text is not None:
+        problems.extend(publication_record_problems(contract, record_text, texts, revisions, held))
     absent = sorted(name for name, entry in declared.items() if entry["configMap"] not in seen)
     return problems, payloads, absent
+
+
+def publication_record_problems(contract: dict, text, texts: dict, revisions: dict, held: dict) -> list[str]:
+    """The generation `publication.json` names is complete, compatible and rolls forward.
+
+    Every document must be present with exactly the revision and the bytes
+    the record names. Anything else is a set between two generations, or the
+    remains of an interrupted publication, which the runtime keeps refusing
+    while it serves its last complete generation -- so it is refused here.
+    """
+    where = f"published fabric-runtime-tenants {PUBLICATION_RECORD_FILE}"
+    try:
+        record = json.loads(text) if isinstance(text, str) else None
+    except json.JSONDecodeError:
+        record = None
+    if not isinstance(record, dict):
+        return [f"{where}: not a JSON object -- {UNSUPPORTED}"]
+    if set(record) != PUBLICATION_RECORD_KEYS:
+        return [f"{where}: keys must be exactly {sorted(PUBLICATION_RECORD_KEYS)} -- {UNSUPPORTED}"]
+    problems = []
+    publisher = contract["publicationContractVersion"]
+    reader = contract["publicationRecord"]["readerContract"]
+    if record["contract_version"] != publisher:
+        problems.append(f"{where}: contract_version {record['contract_version']!r}, contract says {publisher} -- {UNSUPPORTED}")
+    if not _is_count(record["minimum_reader_contract"]):
+        problems.append(f"{where}: minimum_reader_contract must be a positive integer")
+    elif record["minimum_reader_contract"] > reader:
+        problems.append(
+            f"{where}: minimum_reader_contract {record['minimum_reader_contract']} is above the runtime's reader "
+            f"contract {reader} -- the runtime would refuse this generation and keep its last one"
+        )
+    if not _is_count(record["minimum_publisher_contract"]):
+        problems.append(f"{where}: minimum_publisher_contract must be a positive integer")
+    elif record["minimum_publisher_contract"] > publisher:
+        problems.append(
+            f"{where}: minimum_publisher_contract {record['minimum_publisher_contract']} is above the publisher "
+            f"contract {publisher} that wrote it -- {UNSUPPORTED}"
+        )
+    generation = record["generation"]
+    if not _is_count(generation):
+        problems.append(f"{where}: generation must be a positive integer")
+    documents = record["documents"]
+    if not isinstance(documents, dict) or set(documents) != set(SHAPE_OF_DOCUMENT):
+        return problems + [f"{where}: documents must name exactly {sorted(SHAPE_OF_DOCUMENT)} -- {UNSUPPORTED}"]
+    for name in sorted(SHAPE_OF_DOCUMENT):
+        recorded = documents[name]
+        if (
+            not isinstance(recorded, dict)
+            or set(recorded) != RECORDED_DOCUMENT_KEYS
+            or not _is_count(recorded["revision"])
+            or not isinstance(recorded["sha256"], str)
+            or not SHA256_HEX.match(recorded["sha256"])
+        ):
+            problems.append(f"{where}: documents.{name} must be a positive revision and a lowercase hex sha256 -- {UNSUPPORTED}")
+            continue
+        if name not in texts:
+            problems.append(f"{where}: generation {generation} names {name}, which is not published -- incomplete generation")
+            continue
+        if revisions.get(name) != recorded["revision"]:
+            problems.append(
+                f"{where}: generation {generation} names {name} revision {recorded['revision']}, its manifest says "
+                f"{revisions.get(name)} -- incomplete generation"
+            )
+        if not isinstance(texts[name], str) or _digest(texts[name]) != recorded["sha256"]:
+            problems.append(
+                f"{where}: generation {generation} names {name} bytes that are not the published ones -- "
+                "incomplete generation; the runtime keeps its last complete one"
+            )
+    held_publication = held.get("publication")
+    if held_publication:
+        if held_publication["minimumPublisherContract"] > publisher:
+            problems.append(
+                f"{where}: the held record's rollback floor is publisher contract "
+                f"{held_publication['minimumPublisherContract']}, above this publisher's {publisher} (D01-21)"
+            )
+        if _is_count(generation):
+            if generation < held_publication["generation"]:
+                problems.append(
+                    f"{where}: generation {generation} regresses held generation {held_publication['generation']} -- "
+                    "generations roll forward only"
+                )
+            elif generation == held_publication["generation"] and _digest(text) != held_publication["sha256"]:
+                problems.append(f"{where}: generation {generation} is already held with a different record")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -809,6 +941,7 @@ def evaluate(contract: dict, scenario: dict) -> Evaluation:
 
     _check_handoff(registry, registrations, compositions, payloads, config, result)
     _check_connectors(compositions, payloads, config, result)
+    _check_bindings(compositions, payloads, result)
 
     if result.replicas is None:
         problems.append(f"runtime.yaml: runtime replica count is not a literal non-negative integer -- {UNSUPPORTED}")
@@ -919,6 +1052,89 @@ def _check_connectors(compositions: dict, payloads: dict, config: dict, result: 
         if source["connector"] not in configured:
             unmet["connectors"].append(
                 f"data source {identifier!r} needs connector {source['connector']!r}, which the runtime does not configure"
+            )
+
+
+def _serving_clients(compositions: dict) -> dict[str, list[tuple[str, str, str]]]:
+    """Data source id -> every (composition file, client, connector id) that serves it."""
+    serving: dict[str, list[tuple[str, str, str]]] = {}
+    for name, composition in sorted(compositions.items()):
+        for connector in composition["connectors"]:
+            for data_source in connector["dataSources"]:
+                serving.setdefault(data_source, []).append((name, composition["client"], connector["id"]))
+    return serving
+
+
+def _check_bindings(compositions: dict, payloads: dict, result: Evaluation) -> None:
+    """Every published source has one serving composition, and only its client binds it unless it is shared.
+
+    A `shared` data source is the intentional multi-tenant case: any tenant
+    may bind it, through `discriminator` isolation with its own value, as
+    scripts/check.py requires of placements.yaml. Every other placement class
+    serves one tenant -- the client whose composition serves it -- so a
+    binding from any other tenant is a cross-client placement and refused.
+    """
+    problems, unmet = result.problems, result.unmet
+    if "data-sources" not in payloads:
+        return
+    serving = _serving_clients(compositions)
+    owners: dict[str, str] = {}
+    for identifier, source in sorted((s["id"], s) for s in payloads["data-sources"]):
+        served = serving.get(identifier, [])
+        if not served:
+            unmet["connectors"].append(
+                f"data source {identifier!r} is published but no composition serves it"
+            )
+            continue
+        if len(served) > 1:
+            problems.append(
+                f"data source {identifier!r} is served by {', '.join(f'compositions/{n}' for n, _, _ in served)} "
+                "-- one composition serves each data source"
+            )
+            continue
+        name, client, connector = served[0]
+        if source["connector"] != connector:
+            continue
+        if source["placement"] != "shared":
+            owners[identifier] = client
+    if "tenants" not in payloads:
+        return
+    published = {source["id"]: source for source in payloads["data-sources"]}
+    dedicated_tenants: dict[str, set[str]] = {}
+    discriminator_values: dict[str, set[str]] = {}
+    for binding in payloads["tenants"]:
+        tenant = binding["tenant"]
+        for logical, entry in binding["data"].items():
+            identifier = entry["data_source"]
+            source = published.get(identifier)
+            if source is None:
+                continue
+            kind = entry["isolation"]["kind"]
+            where = f"published fabric-runtime-tenants: {tenant!r} {logical!r} -> {identifier!r}"
+            if source["placement"] == "shared":
+                if kind != "discriminator":
+                    problems.append(f"{where}: a 'shared' data source requires discriminator isolation, not {kind!r}")
+                    continue
+                value = entry["isolation"]["value"]
+                if value in discriminator_values.setdefault(identifier, set()):
+                    problems.append(f"{where}: discriminator value {value!r} is already bound on {identifier!r}")
+                discriminator_values[identifier].add(value)
+                continue
+            if kind == "discriminator":
+                problems.append(f"{where}: discriminator isolation on a {source['placement']!r} data source, not 'shared'")
+                continue
+            dedicated_tenants.setdefault(identifier, set()).add(tenant)
+            owner = owners.get(identifier)
+            if owner is not None and owner != tenant:
+                problems.append(
+                    f"{where}: cross-client placement -- {identifier!r} is {source['placement']!r} and served by "
+                    f"client {owner!r}'s composition; only a 'shared' data source may serve another client"
+                )
+    for identifier, tenants in sorted(dedicated_tenants.items()):
+        if len(tenants) > 1:
+            problems.append(
+                f"published fabric-runtime-tenants: {identifier!r} is {published[identifier]['placement']!r} and bound "
+                f"by {sorted(tenants)} -- a non-shared data source serves one tenant"
             )
 
 

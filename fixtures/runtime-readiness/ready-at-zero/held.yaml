@@ -17,6 +17,10 @@ resources:
     alpha: 2
   data-sources:
     alpha-primary: 2
+publication:
+  generation: 4
+  sha256: ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356
+  minimumPublisherContract: 1
 registry:
   generation: 1
   sha256: 6b4bce05933b65c95ba2e3ea74bc34941ea8b793ddded25cc7c0e3f683e8267a

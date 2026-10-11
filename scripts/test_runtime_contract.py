@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import shutil
@@ -59,15 +60,45 @@ def pod(loaded: dict) -> dict:
     return deployment(loaded)["spec"]["template"]["spec"]
 
 
+def record(loaded: dict) -> dict:
+    return json.loads(published(loaded, "tenants")["data"]["publication.json"])
+
+
+def set_record(loaded: dict, value) -> None:
+    text = value if isinstance(value, str) else json.dumps(value, indent=2) + "\n"
+    published(loaded, "tenants")["data"]["publication.json"] = text
+
+
+def restamp(loaded: dict) -> None:
+    """Rewrite publication.json the way the publisher does after a change: every document's revision and bytes."""
+    current = record(loaded)
+    for name in current["documents"]:
+        found = [c for c in loaded["published"] if c["metadata"]["name"] == f"fabric-runtime-{name}"]
+        if not found:
+            continue
+        data = found[0]["data"]
+        try:
+            revision = json.loads(data[f"{name}.manifest.json"])["revision"]
+        except (KeyError, ValueError):
+            continue
+        current["documents"][name] = {
+            "revision": revision,
+            "sha256": hashlib.sha256(data[f"{name}.json"].encode()).hexdigest(),
+        }
+    set_record(loaded, current)
+
+
 def set_manifest(loaded: dict, name: str, **fields) -> None:
     data = published(loaded, name)["data"]
     manifest = json.loads(data[f"{name}.manifest.json"])
     manifest.update(fields)
     data[f"{name}.manifest.json"] = json.dumps(manifest)
+    restamp(loaded)
 
 
 def set_payload(loaded: dict, name: str, payload) -> None:
     published(loaded, name)["data"][f"{name}.json"] = json.dumps(payload, indent=2) + "\n"
+    restamp(loaded)
 
 
 def payload(loaded: dict, name: str):
@@ -220,10 +251,12 @@ class RuntimeDocuments(Assertions):
 
     def test_missing_document_at_zero_replicas_is_an_unmet_gate_not_a_refusal(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["published"] = [c for c in loaded["published"] if c["metadata"]["name"] != "fabric-runtime-catalog"]
+        # The publisher writes tenants and its record last, so a pass interrupted
+        # before them leaves data sources and catalogue without tenants.
+        loaded["published"] = [c for c in loaded["published"] if c["metadata"]["name"] != "fabric-runtime-tenants"]
         result = evaluate(loaded)
         self.assertClean(result)
-        self.assertIn("missing required document catalog (fabric-runtime-catalog)", result.unmet["documents"])
+        self.assertIn("missing required document tenants (fabric-runtime-tenants)", result.unmet["documents"])
 
     def test_missing_document_with_replicas_is_refused(self) -> None:
         loaded = scenario("activated")
@@ -248,12 +281,13 @@ class RuntimeDocuments(Assertions):
     def test_an_extra_data_key_is_an_unsupported_shape(self) -> None:
         loaded = scenario("activated")
         published(loaded, "catalog")["data"]["catalog.v2.json"] = "{}"
-        self.assertRefused(evaluate(loaded), "data keys must be exactly catalog.json and catalog.manifest.json")
+        self.assertRefused(evaluate(loaded), "data keys must be exactly catalog.json, catalog.manifest.json --")
 
     def test_a_missing_manifest_is_an_unsupported_shape(self) -> None:
         loaded = scenario("activated")
         del published(loaded, "tenants")["data"]["tenants.manifest.json"]
-        self.assertRefused(evaluate(loaded), "data keys must be exactly tenants.json and tenants.manifest.json")
+        self.assertRefused(
+            evaluate(loaded), "data keys must be exactly publication.json, tenants.json, tenants.manifest.json")
 
     def test_binary_data_is_unsupported(self) -> None:
         loaded = scenario("activated")
@@ -359,6 +393,236 @@ class RuntimeDocuments(Assertions):
         loaded = scenario("activated")
         loaded["held"]["documents"]["tenants"]["published_at"] = "yesterday"
         self.assertRefused(evaluate(loaded), "documents.tenants must be a revision and a sha256")
+
+
+class PublicationRecord(Assertions):
+    """publication.json, the record saas-fabric #136 writes into the tenants ConfigMap."""
+
+    def test_the_publisher_shaped_tenants_configmap_passes(self) -> None:
+        loaded = scenario("activated")
+        tenants = published(loaded, "tenants")
+        self.assertEqual(set(tenants["data"]), {"tenants.json", "tenants.manifest.json", "publication.json"})
+        text = tenants["data"]["publication.json"]
+        current = json.loads(text)
+        self.assertEqual(list(current), [
+            "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents",
+        ])
+        self.assertEqual(list(current["documents"]), ["tenants", "data-sources", "catalog"])
+        self.assertEqual(text, json.dumps(current, indent=2) + "\n")
+        for name, recorded in current["documents"].items():
+            self.assertEqual(
+                recorded["sha256"], hashlib.sha256(published(loaded, name)["data"][f"{name}.json"].encode()).hexdigest())
+        self.assertClean(evaluate(loaded))
+
+    def test_a_tenants_configmap_without_the_record_is_refused(self) -> None:
+        loaded = scenario("activated")
+        del published(loaded, "tenants")["data"]["publication.json"]
+        self.assertRefused(evaluate(loaded), "data keys must be exactly publication.json, tenants.json")
+
+    def test_the_record_key_on_another_document_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        published(loaded, "catalog")["data"]["publication.json"] = published(loaded, "tenants")["data"]["publication.json"]
+        self.assertRefused(evaluate(loaded), "data keys must be exactly catalog.json, catalog.manifest.json --")
+
+    def test_an_arbitrary_extra_key_beside_the_record_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        published(loaded, "tenants")["data"]["notes.json"] = "{}"
+        self.assertRefused(evaluate(loaded), "data keys must be exactly publication.json, tenants.json")
+
+    def test_a_record_that_is_not_json_is_refused(self) -> None:
+        loaded = scenario("activated")
+        set_record(loaded, "{ torn")
+        self.assertRefused(evaluate(loaded), "publication.json: not a JSON object")
+
+    def test_a_record_with_an_unmodelled_field_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["published_at"] = "2026-10-11T00:00:00Z"
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "publication.json: keys must be exactly")
+
+    def test_a_record_missing_a_document_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        del current["documents"]["catalog"]
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "documents must name exactly")
+
+    def test_a_malformed_digest_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["documents"]["catalog"]["sha256"] = current["documents"]["catalog"]["sha256"].upper()
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "documents.catalog must be a positive revision and a lowercase hex sha256")
+
+    def test_a_document_rewritten_after_its_record_is_an_incomplete_generation(self) -> None:
+        loaded = scenario("activated")
+        sources = payload(loaded, "data-sources")
+        sources[0]["labels"] = {"tier": "gold"}
+        published(loaded, "data-sources")["data"]["data-sources.json"] = json.dumps(sources, indent=2) + "\n"
+        set_manifest_without_restamp = json.loads(published(loaded, "data-sources")["data"]["data-sources.manifest.json"])
+        set_manifest_without_restamp["revision"] = 4
+        published(loaded, "data-sources")["data"]["data-sources.manifest.json"] = json.dumps(set_manifest_without_restamp)
+        self.assertRefused(
+            evaluate(loaded),
+            "names data-sources revision 3, its manifest says 4 -- incomplete generation",
+            "names data-sources bytes that are not the published ones",
+        )
+
+    def test_a_record_naming_an_unpublished_document_is_an_incomplete_generation(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["published"] = [c for c in loaded["published"] if c["metadata"]["name"] != "fabric-runtime-catalog"]
+        self.assertRefused(evaluate(loaded), "generation 5 names catalog, which is not published -- incomplete generation")
+
+    def test_a_reader_floor_above_the_runtime_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["minimum_reader_contract"] = 2
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "minimum_reader_contract 2 is above the runtime's reader contract 1")
+
+    def test_a_publisher_floor_above_its_own_contract_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["minimum_publisher_contract"] = 2
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 2 is above the publisher contract 1")
+
+    def test_a_publisher_below_the_held_rollback_floor_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["publication"]["minimumPublisherContract"] = 2
+        self.assertRefused(evaluate(loaded), "held record's rollback floor is publisher contract 2")
+
+    def test_another_record_contract_version_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["contract_version"] = 2
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "publication.json: contract_version 2, contract says 1")
+
+    def test_a_generation_regression_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["publication"]["generation"] = 6
+        self.assertRefused(evaluate(loaded), "generation 5 regresses held generation 6")
+
+    def test_a_held_generation_rewritten_in_place_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["publication"]["generation"] = 5
+        self.assertRefused(evaluate(loaded), "generation 5 is already held with a different record")
+
+    def test_a_non_positive_generation_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["generation"] = 0
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "generation must be a positive integer")
+
+    def test_the_contract_must_place_the_record_in_the_tenants_document(self) -> None:
+        contract = copy.deepcopy(CONTRACT)
+        contract["publicationRecord"]["document"] = "catalog"
+        problems = runtime_contract.contract_problems(contract)
+        self.assertTrue(any("publication.json in the tenants document" in p for p in problems), problems)
+
+
+class Placement(Assertions):
+    """Only a 'shared' data source serves more than one client; every published source has a serving composition."""
+
+    def test_a_cross_client_dedicated_binding_is_refused(self) -> None:
+        loaded = scenario("activated")
+        tenants = payload(loaded, "tenants")
+        tenants[1]["data"]["primary"]["data_source"] = "alpha-primary"
+        tenants[1]["revision"] = 2
+        set_payload(loaded, "tenants", tenants)
+        set_manifest(loaded, "tenants", revision=5)
+        self.assertRefused(
+            evaluate(loaded),
+            "'beta' 'primary' -> 'alpha-primary': cross-client placement",
+            "'alpha-primary' is 'dedicated' and bound by ['alpha', 'beta']",
+        )
+
+    def test_a_cross_client_binding_at_zero_replicas_is_still_refused(self) -> None:
+        loaded = scenario("ready-at-zero")
+        tenants = payload(loaded, "tenants")
+        tenants[1]["data"]["primary"]["data_source"] = "alpha-primary"
+        set_payload(loaded, "tenants", tenants)
+        set_manifest(loaded, "tenants", revision=5)
+        self.assertRefused(evaluate(loaded), "cross-client placement")
+
+    def shared(self, loaded: dict) -> None:
+        sources = payload(loaded, "data-sources")
+        sources[0]["placement"] = "shared"
+        set_payload(loaded, "data-sources", sources)
+        set_manifest(loaded, "data-sources", revision=4)
+
+    def bind_shared(self, loaded: dict, beta_value: str = "beta") -> None:
+        tenants = payload(loaded, "tenants")
+        tenants[0]["data"]["primary"]["isolation"] = {"kind": "discriminator", "column": "tenant_key", "value": "alpha"}
+        tenants[1]["data"]["primary"] = {
+            "data_source": "alpha-primary",
+            "isolation": {"kind": "discriminator", "column": "tenant_key", "value": beta_value},
+        }
+        set_payload(loaded, "tenants", tenants)
+        set_manifest(loaded, "tenants", revision=5)
+
+    def test_an_intentional_shared_placement_serves_two_clients(self) -> None:
+        loaded = scenario("activated")
+        self.shared(loaded)
+        self.bind_shared(loaded)
+        self.assertClean(evaluate(loaded))
+
+    def test_a_shared_source_bound_without_a_discriminator_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.shared(loaded)
+        self.assertRefused(evaluate(loaded), "'alpha' 'primary' -> 'alpha-primary': a 'shared' data source requires discriminator")
+
+    def test_a_discriminator_value_bound_twice_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.shared(loaded)
+        self.bind_shared(loaded, beta_value="alpha")
+        self.assertRefused(evaluate(loaded), "discriminator value 'alpha' is already bound on 'alpha-primary'")
+
+    def test_discriminator_isolation_on_a_dedicated_source_is_refused(self) -> None:
+        loaded = scenario("activated")
+        tenants = payload(loaded, "tenants")
+        tenants[0]["data"]["primary"]["isolation"] = {"kind": "discriminator", "column": "tenant_key", "value": "alpha"}
+        set_payload(loaded, "tenants", tenants)
+        set_manifest(loaded, "tenants", revision=5)
+        self.assertRefused(evaluate(loaded), "discriminator isolation on a 'dedicated' data source")
+
+    def test_an_unmodelled_placement_class_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        sources = payload(loaded, "data-sources")
+        sources[0]["placement"] = "pooled"
+        set_payload(loaded, "data-sources", sources)
+        set_manifest(loaded, "data-sources", revision=4)
+        self.assertRefused(evaluate(loaded), "placement 'pooled' -- unsupported")
+
+    def unserved(self, name: str) -> dict:
+        loaded = scenario(name)
+        sources = payload(loaded, "data-sources")
+        sources.append(dict(copy.deepcopy(sources[0]), id="unserved-primary"))
+        set_payload(loaded, "data-sources", sources)
+        set_manifest(loaded, "data-sources", revision=4)
+        return loaded
+
+    def test_a_published_source_no_composition_serves_is_refused_with_replicas(self) -> None:
+        self.assertRefused(
+            evaluate(self.unserved("activated")),
+            "connectors gate is unmet: data source 'unserved-primary' is published but no composition serves it",
+        )
+
+    def test_a_published_source_no_composition_serves_leaves_connectors_unmet_at_zero(self) -> None:
+        result = evaluate(self.unserved("ready-at-zero"))
+        self.assertClean(result)
+        self.assertIn(
+            "data source 'unserved-primary' is published but no composition serves it", result.unmet["connectors"])
+
+    def test_a_source_served_by_two_compositions_is_refused(self) -> None:
+        loaded = scenario("activated")
+        beta = loaded["compositions"]["beta.yaml"]
+        beta["database"]["dataSources"].append("alpha-primary")
+        beta["connectors"][0]["dataSources"].append("alpha-primary")
+        self.assertRefused(evaluate(loaded), "'alpha-primary' is served by compositions/alpha.yaml, compositions/beta.yaml")
 
 
 class Mounts(Assertions):

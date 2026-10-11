@@ -1,6 +1,8 @@
 # Synthetic. Never applied: no Kustomization or Application references fixtures/.
 # The three documents as the publisher writes them: one ConfigMap each, payload
-# and manifest keys, managed-by saas-fabric.
+# and manifest keys, managed-by saas-fabric. The tenants ConfigMap also holds
+# publication.json, the record naming the revision and sha256 of every document
+# in this generation (saas-fabric #136).
 - apiVersion: v1
   kind: ConfigMap
   metadata:
@@ -43,6 +45,27 @@
         "contract_version": 1,
         "document": "tenants",
         "revision": 4
+      }
+    publication.json: |
+      {
+        "contract_version": 1,
+        "minimum_reader_contract": 1,
+        "minimum_publisher_contract": 1,
+        "generation": 5,
+        "documents": {
+          "tenants": {
+            "revision": 4,
+            "sha256": "81072eb211538155ba9863644890a4111b7405cead62082fa6d0dd6fff3bb824"
+          },
+          "data-sources": {
+            "revision": 3,
+            "sha256": "4265e2ba06aadd5dde9f52b15223a8fa92d449ea15a485c8f719a5387b62f2f8"
+          },
+          "catalog": {
+            "revision": 2,
+            "sha256": "e8a551d331a1a59983e7344c55799c19ce39d9c1df80c0255e99cdb8e15046eb"
+          }
+        }
       }
 - apiVersion: v1
   kind: ConfigMap

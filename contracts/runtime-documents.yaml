@@ -22,6 +22,23 @@ publicationContractVersion: 1
 
 namespace: platform-system
 
+# The publication record (saas-fabric #136, `record.rs`): a third key of the
+# tenants ConfigMap, written last, naming the revision and sha256 of every
+# document that forms one generation. A set of documents whose bytes do not
+# match the record is between two generations, or after an interrupted
+# publication, and is refused rather than served.
+#
+# `readerContract` is the runtime reader contract the deployed image
+# implements (`READER_CONTRACT` in fabric-tenant-runtime). A record whose
+# `minimum_reader_contract` is above it would be refused by that reader, so it
+# is refused here too. The record's `minimum_publisher_contract` is the
+# rollback floor (D01-21): `publicationContractVersion` below the held floor
+# is refused.
+publicationRecord:
+  document: tenants
+  key: publication.json
+  readerContract: 1
+
 # The consumer. The mount and config-key checks are about this one container.
 runtime:
   deployment: saas-fabric
