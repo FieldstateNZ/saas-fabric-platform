@@ -14,7 +14,16 @@ RENDER="${ROOT}/.render"
 # CustomResourceDefinition is skipped because no JSON schema is published for
 # it. Every other kind, including Argo CD and CloudNativePG custom resources,
 # is validated against a real schema rather than waved through.
-CRD_CATALOG='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+#
+# The catalog is pinned to a commit, not `main`: it is a third-party repository
+# that republishes schemas whenever upstream CRDs change, so an unpinned URL
+# lets a commit there fail this repository's CI with nothing here changed.
+# That happened on 2026-10-08 (datreeio/CRDs-catalog b7e2015), when the
+# external-secrets.io SecretStore and ClusterSecretStore v1 schemas stopped
+# loading in kubeconform v0.7.0 ("could not find schema"). Move the pin
+# deliberately, together with the chart versions whose CRDs it describes.
+CRD_CATALOG_REVISION='f1e7f6bc0537bf0622ffe6e47dbaa85914fabbec'
+CRD_CATALOG="https://raw.githubusercontent.com/datreeio/CRDs-catalog/${CRD_CATALOG_REVISION}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 KUBERNETES_VERSION='1.30.0'
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
