@@ -1,0 +1,23 @@
+# SYNTHETIC FIXTURE -- validated offline only, never applied.
+#
+# The one controller setting RollingSync depends on. Without it the
+# applicationset-controller ignores `strategy`, and the Applications in
+# applicationset.yaml beside this file -- which declare no automated sync --
+# are synced by nothing at all.
+#
+# Shown as the partial ConfigMap argocd/runtime/server-insecure.yaml already
+# co-owns with server-side apply. It is a startup parameter: it takes effect
+# only when argocd-applicationset-controller restarts, and it applies to every
+# ApplicationSet in that Argo CD, not only this platform's.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+data:
+  applicationsetcontroller.enable.progressive.syncs: "true"

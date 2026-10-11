@@ -53,6 +53,18 @@ find "${RENDER}" -name '*.yaml' -print0 | xargs -0 kubeconform \
   -schema-location default \
   -schema-location "${CRD_CATALOG}"
 
+# Synthetic manifests nothing renders and nothing applies (scripts/fixtures),
+# held to the same schemas as the real ones so a design proposal cannot carry
+# a shape Argo CD would refuse. scripts/test_ordering.py proves they stay
+# unreachable from every environment.
+step 'Validate synthetic fixtures against Kubernetes schemas'
+find "${ROOT}/scripts/fixtures" -name '*.yaml' -print0 | xargs -0 kubeconform \
+  -strict \
+  -summary \
+  -kubernetes-version "${KUBERNETES_VERSION}" \
+  -schema-location default \
+  -schema-location "${CRD_CATALOG}"
+
 # The checker's own regression tests, before the checker is trusted with the
 # render. Standard-library unittest against synthetic manifests and policy
 # text: no extra dependency, no network, no cluster.

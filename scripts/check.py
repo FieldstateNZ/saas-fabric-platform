@@ -49,7 +49,12 @@ Checks, in order of how much damage they prevent:
      ConfigMap, mount path and config key `contracts/runtime-documents.yaml`
      declares, and stays at zero replicas while its own configuration has no
      connector or no issuer registry -- scaling cannot supply an absent input
-     (D01-18; scripts/runtime_contract.py holds the full readiness model).
+     (D01-18; scripts/runtime_contract.py holds the full readiness model);
+ 22. every ordered dependency between Applications holds when an environment
+     is created, and what holds on an update is exactly what is recorded
+     here -- so adopting an update-ordering mechanism, or the controller
+     setting it needs, cannot happen without this record and
+     docs/ordered-updates.md changing with it (platform #44).
 """
 from __future__ import annotations
 
@@ -63,9 +68,27 @@ from pathlib import Path
 
 import yaml
 
+import ordering
 import runtime_contract
 
 ENVIRONMENTS = ("lucentroot", "production")
+
+# Dependencies between Applications the platform relies on, before -> after.
+# Each must hold at creation in every environment that runs both: that is the
+# gate D01-20 keeps for the disposable trial (saas-fabric #108).
+ORDERED_DEPENDENCIES = (
+    ("master-instance-credential", "master-instance"),
+    ("keycloak", "master-instance"),
+    ("master-instance", "saas-fabric-control-plane"),
+    ("keycloak", "saas-fabric-control-plane"),
+)
+# What the rendered wiring provides on an update to an existing environment.
+# A record, not a target: every child Application carries its own automated
+# sync, so none of the dependencies above waits on its sibling on an update.
+# Changing either value is changing how the running environment syncs, which
+# is a gated operational action (docs/ordered-updates.md).
+UPDATES_ORDERED = False
+PROGRESSIVE_SYNCS_ENABLED = False
 
 # The `components.yaml` shapes this checker understands. Moved together with
 # the readers, so a manifest that has moved on fails loudly here rather than
@@ -1039,6 +1062,50 @@ def check_argocd_runtime_configuration(render: Path, problems: list[str]) -> Non
                         f"{environment}: {described} does not set"
                         f" {key} in {config_map}",
                     )
+
+
+def check_ordering_matches_record(render: Path, problems: list[str]) -> None:
+    """Section 22: which ordering the wiring provides, on create and on update.
+
+    Read from the rendered environment and bootstrap set by scripts/ordering.py.
+    Creation ordering for every dependency is required. Update ordering must
+    equal UPDATES_ORDERED, and the progressive-syncs controller setting must
+    equal PROGRESSIVE_SYNCS_ENABLED: a change to either is a change to what
+    the running environment does, so it fails here until it is recorded.
+    """
+    for environment in ENVIRONMENTS:
+        wiring = ordering.read_wiring(
+            load_all(render / environment / "platform.yaml", problems),
+            load_all(render / environment / "bootstrap.yaml", problems),
+        )
+        for name, reason in sorted(wiring.unmodelled.items()):
+            fail(problems, f"{environment}: ApplicationSet {name} cannot be read for ordering -- {reason}")
+        if wiring.progressive_syncs != PROGRESSIVE_SYNCS_ENABLED:
+            fail(
+                problems,
+                f"{environment}: {ordering.PROGRESSIVE_SYNCS_KEY} is"
+                f" {'enabled' if wiring.progressive_syncs else 'not enabled'}, and the record says"
+                f" {'enabled' if PROGRESSIVE_SYNCS_ENABLED else 'not enabled'}; it changes every"
+                " ApplicationSet in that Argo CD -- see docs/ordered-updates.md",
+            )
+        for before, after in ORDERED_DEPENDENCIES:
+            if before not in wiring.children or after not in wiring.children:
+                continue
+            verdict = ordering.guarantee(wiring, before, after)
+            if not verdict.create:
+                fail(
+                    problems,
+                    f"{environment}: {before} -> {after} is not ordered at creation:"
+                    f" {verdict.create_because}",
+                )
+            if verdict.update != UPDATES_ORDERED:
+                fail(
+                    problems,
+                    f"{environment}: {before} -> {after} is"
+                    f" {'ordered' if verdict.update else 'not ordered'} on update"
+                    f" ({verdict.update_because}); the record says"
+                    f" {'ordered' if UPDATES_ORDERED else 'not ordered'} -- see docs/ordered-updates.md",
+                )
 
 
 def check_secret_store_is_bounded(render: Path, problems: list[str]) -> None:
@@ -3634,6 +3701,7 @@ def main() -> int:
     check_control_plane_is_operator_only(render, problems)
     check_forwarded_proto_is_asserted_once(render, problems)
     check_argocd_runtime_configuration(render, problems)
+    check_ordering_matches_record(render, problems)
     check_secret_store_is_bounded(render, problems)
     check_projects_permit_what_apps_deploy(render, problems)
     check_platform_secrets_stay_platform(render, problems)
