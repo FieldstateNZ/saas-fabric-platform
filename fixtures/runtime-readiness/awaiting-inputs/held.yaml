@@ -1,0 +1,9 @@
+# Synthetic. Never applied: no Kustomization or Application references fixtures/.
+# Nothing has ever been held.
+schemaVersion: 1
+documents: {}
+resources:
+  tenants: {}
+  data-sources: {}
+publication: null
+registry: null

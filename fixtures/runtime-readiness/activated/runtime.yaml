@@ -1,0 +1,86 @@
+# Synthetic. Never applied: no Kustomization or Application references fixtures/.
+# Every gate holds and the operator raised replicas deliberately.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: saas-fabric-config
+  namespace: platform-system
+data:
+  config.toml: |
+    listen = "0.0.0.0:8080"
+    tenants_path = "/etc/fabric/state/tenants/tenants.json"
+    data_sources_path = "/etc/fabric/state/data-sources/data-sources.json"
+    catalog_path = "/etc/fabric/state/catalog/catalog.json"
+
+    [identity]
+
+    [[identity.trusted_issuers]]
+    issuer = "https://identity.example.invalid/realms/alpha"
+    tenant = "alpha"
+
+    [[identity.trusted_issuers]]
+    issuer = "https://identity.example.invalid/realms/beta"
+    tenant = "beta"
+
+    [token]
+    mode = "trusted_ingress"
+
+    [[connectors]]
+    id = "postgres-alpha"
+    endpoint = "http://ndc-postgres-alpha.client-alpha.svc.cluster.local:8080"
+
+    [[connectors]]
+    id = "postgres-beta"
+    endpoint = "http://ndc-postgres-beta.client-beta.svc.cluster.local:8080"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-fabric
+  namespace: platform-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: saas-fabric
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: saas-fabric
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+      - name: saas-fabric
+        image: ghcr.io/fieldstatenz/saas-fabric:fixture
+        env:
+        - name: FABRIC_CONFIG
+          value: /etc/fabric/config.toml
+        volumeMounts:
+        - name: config
+          mountPath: /etc/fabric
+          readOnly: true
+        - name: state-tenants
+          mountPath: /etc/fabric/state/tenants
+          readOnly: true
+        - name: state-data-sources
+          mountPath: /etc/fabric/state/data-sources
+          readOnly: true
+        - name: state-catalog
+          mountPath: /etc/fabric/state/catalog
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: saas-fabric-config
+      - name: state-tenants
+        configMap:
+          name: fabric-runtime-tenants
+      - name: state-data-sources
+        configMap:
+          name: fabric-runtime-data-sources
+      - name: state-catalog
+        configMap:
+          name: fabric-runtime-catalog
