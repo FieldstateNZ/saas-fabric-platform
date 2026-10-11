@@ -34,6 +34,13 @@ namespace: platform-system
 # is refused here too. The record's `minimum_publisher_contract` is the
 # rollback floor (D01-21): `publicationContractVersion` below the held floor
 # is refused.
+#
+# The record's `resources` (saas-fabric #138, `resource_history.rs`) is the
+# highest revision every tenant binding and DataSource has ever been published
+# at. It is required: it must cover each published resource at no less than
+# its revision, and no entry may be lowered or dropped from the held record's
+# history, so a removed resource cannot be redeclared below a revision a
+# reader may still hold (D01-1).
 publicationRecord:
   document: tenants
   key: publication.json

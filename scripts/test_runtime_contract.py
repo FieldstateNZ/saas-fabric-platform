@@ -70,8 +70,24 @@ def set_record(loaded: dict, value) -> None:
 
 
 def restamp(loaded: dict) -> None:
-    """Rewrite publication.json the way the publisher does after a change: every document's revision and bytes."""
+    """Rewrite publication.json the way the publisher does after a change.
+
+    Every document's revision and bytes, and the resource history raised --
+    never lowered -- to cover every published tenant binding and DataSource
+    (`ResourceHistory::including` in saas-fabric #138).
+    """
     current = record(loaded)
+    for name, key in (("tenants", "tenant"), ("data-sources", "id")):
+        found = [c for c in loaded["published"] if c["metadata"]["name"] == f"fabric-runtime-{name}"]
+        try:
+            resources = json.loads(found[0]["data"][f"{name}.json"]) if found else []
+        except ValueError:
+            resources = []
+        history = current["resources"][name]
+        for resource in resources if isinstance(resources, list) else []:
+            if isinstance(resource, dict) and isinstance(resource.get("revision"), int):
+                history[resource[key]] = max(history.get(resource[key], 0), resource["revision"])
+        current["resources"][name] = dict(sorted(history.items()))
     for name in current["documents"]:
         found = [c for c in loaded["published"] if c["metadata"]["name"] == f"fabric-runtime-{name}"]
         if not found:
@@ -406,7 +422,11 @@ class PublicationRecord(Assertions):
         current = json.loads(text)
         self.assertEqual(list(current), [
             "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents",
+            "resources",
         ])
+        self.assertEqual(list(current["resources"]), ["tenants", "data-sources"])
+        self.assertEqual(current["resources"]["tenants"], {"alpha": 3, "beta": 1})
+        self.assertEqual(current["resources"]["data-sources"], {"alpha-primary": 2, "beta-primary": 1})
         self.assertEqual(list(current["documents"]), ["tenants", "data-sources", "catalog"])
         self.assertEqual(text, json.dumps(current, indent=2) + "\n")
         for name, recorded in current["documents"].items():
@@ -522,6 +542,85 @@ class PublicationRecord(Assertions):
         contract["publicationRecord"]["document"] = "catalog"
         problems = runtime_contract.contract_problems(contract)
         self.assertTrue(any("publication.json in the tenants document" in p for p in problems), problems)
+
+
+class ResourceHistory(Assertions):
+    """`resources` in publication.json (saas-fabric #138): the highest revision each resource was ever published at."""
+
+    def history(self, loaded: dict, name: str, entries: dict) -> None:
+        current = record(loaded)
+        current["resources"][name] = entries
+        set_record(loaded, current)
+
+    def test_a_record_without_resources_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        del current["resources"]
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "publication.json: keys must be exactly")
+
+    def test_a_history_with_an_unmodelled_document_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["resources"]["catalog"] = {}
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "resources must map exactly ['data-sources', 'tenants']")
+
+    def test_a_non_positive_history_revision_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "tenants", {"alpha": 3, "beta": 0})
+        self.assertRefused(evaluate(loaded), "resources.tenants must map ids to positive revisions")
+
+    def test_a_history_revision_that_is_not_an_integer_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "data-sources", {"alpha-primary": "2", "beta-primary": 1})
+        self.assertRefused(evaluate(loaded), "resources.data-sources must map ids to positive revisions")
+
+    def test_a_history_key_that_is_not_a_tenant_id_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "tenants", {"alpha": 3, "beta": 1, "Not A Tenant": 1})
+        self.assertRefused(evaluate(loaded), "resources.tenants must map ids to positive revisions")
+
+    def test_a_published_binding_missing_from_the_history_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "tenants", {"alpha": 3})
+        self.assertRefused(evaluate(loaded), "resources.tenants has no entry for published 'beta'")
+
+    def test_a_history_below_a_published_revision_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "data-sources", {"alpha-primary": 1, "beta-primary": 1})
+        self.assertRefused(evaluate(loaded), "resources.data-sources['alpha-primary'] = 1 is below its published revision 2")
+
+    def test_a_history_lowering_a_held_entry_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["resources"]["tenants"]["alpha"] = 7
+        self.assertRefused(evaluate(loaded), "resources.tenants['alpha'] = 3 lowers the held 7")
+
+    def test_a_history_dropping_a_held_entry_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["resources"]["data-sources"]["retired-primary"] = 4
+        self.assertRefused(
+            evaluate(loaded), "resources.data-sources drops 'retired-primary', held at 4 -- history entries are never removed")
+
+    def test_a_retired_resource_kept_in_the_history_passes(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["resources"]["data-sources"]["retired-primary"] = 4
+        self.history(loaded, "data-sources", {"alpha-primary": 2, "beta-primary": 1, "retired-primary": 4})
+        self.assertClean(evaluate(loaded))
+
+    def test_a_history_above_the_published_revision_passes(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "tenants", {"alpha": 9, "beta": 1})
+        self.assertClean(evaluate(loaded))
+
+    def test_raising_a_resource_revision_raises_its_history(self) -> None:
+        loaded = scenario("activated")
+        tenants = payload(loaded, "tenants")
+        tenants[1]["revision"] = 2
+        set_payload(loaded, "tenants", tenants)
+        set_manifest(loaded, "tenants", revision=5)
+        self.assertEqual(record(loaded)["resources"]["tenants"]["beta"], 2)
+        self.assertClean(evaluate(loaded))
 
 
 class Placement(Assertions):

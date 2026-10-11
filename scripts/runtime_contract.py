@@ -17,7 +17,9 @@ Four contracts, each from the D01 dispositions on saas-fabric #108:
     revision and sha256 in one generation. Documents that do not match it are
     an incomplete generation. Its reader floor must not exceed the runtime's
     reader contract, and the held record's publisher floor must not exceed
-    the publisher's contract (D01-21).
+    the publisher's contract (D01-21). Its `resources` history (saas-fabric
+    #138) must cover every published tenant binding and DataSource at no
+    less than its revision, and never lowers or drops a held entry.
   * **Per-client composition** (D01-3). Platform composition per client or
     instance: its namespace, database, connector processes and the issuer its
     edge admits. It references Fabric's data sources and tenants by id and
@@ -73,8 +75,9 @@ CONTRACT_KEYS = {
 PUBLICATION_RECORD_CONTRACT_KEYS = {"document", "key", "readerContract"}
 PUBLICATION_RECORD_FILE = "publication.json"
 PUBLICATION_RECORD_KEYS = {
-    "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents",
+    "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents", "resources",
 }
+RESOURCE_HISTORY_KEYS = {"tenants", "data-sources"}
 RECORDED_DOCUMENT_KEYS = {"revision", "sha256"}
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 CONTRACT_DOCUMENT_KEYS = {
@@ -685,6 +688,7 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
     documents = record["documents"]
     if not isinstance(documents, dict) or set(documents) != set(SHAPE_OF_DOCUMENT):
         return problems + [f"{where}: documents must name exactly {sorted(SHAPE_OF_DOCUMENT)} -- {UNSUPPORTED}"]
+    problems.extend(_resource_history_problems(record["resources"], texts, held, where))
     for name in sorted(SHAPE_OF_DOCUMENT):
         recorded = documents[name]
         if (
@@ -724,6 +728,59 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
                 )
             elif generation == held_publication["generation"] and _digest(text) != held_publication["sha256"]:
                 problems.append(f"{where}: generation {generation} is already held with a different record")
+    return problems
+
+
+def _resource_history_problems(history, texts: dict, held: dict, where: str) -> list[str]:
+    """`resources` (saas-fabric #138): the highest revision each resource was ever published at.
+
+    It must cover every tenant binding and DataSource published now at no
+    less than its current revision, and it rolls forward against the held
+    record's history (`held.yaml` `resources`): no entry is ever lowered or
+    removed, so a resource that left its document cannot be redeclared
+    below a revision a reader may still hold (D01-1).
+    """
+    if not isinstance(history, dict) or set(history) != RESOURCE_HISTORY_KEYS:
+        return [f"{where}: resources must map exactly {sorted(RESOURCE_HISTORY_KEYS)} -- {UNSUPPORTED}"]
+    problems = []
+    pattern = {"tenants": TENANT_ID, "data-sources": IDENTIFIER}
+    for name in sorted(RESOURCE_HISTORY_KEYS):
+        entries = history[name]
+        if not isinstance(entries, dict) or not all(
+            isinstance(key, str) and pattern[name].match(key) and _is_count(value) for key, value in entries.items()
+        ):
+            problems.append(f"{where}: resources.{name} must map ids to positive revisions -- {UNSUPPORTED}")
+    if problems:
+        return problems
+    key_of = {"tenants": "tenant", "data-sources": "id"}
+    for name in sorted(RESOURCE_HISTORY_KEYS):
+        try:
+            published = json.loads(texts[name]) if isinstance(texts.get(name), str) else []
+        except json.JSONDecodeError:
+            published = []
+        for resource in published if isinstance(published, list) else []:
+            if not isinstance(resource, dict):
+                continue
+            identifier, current = resource.get(key_of[name]), resource.get("revision")
+            if not _is_count(current):
+                continue
+            highest = history[name].get(identifier)
+            if highest is None:
+                problems.append(f"{where}: resources.{name} has no entry for published {identifier!r}")
+            elif highest < current:
+                problems.append(
+                    f"{where}: resources.{name}[{identifier!r}] = {highest} is below its published revision {current}"
+                )
+        for identifier, before in sorted(((held.get("resources") or {}).get(name) or {}).items()):
+            after = history[name].get(identifier)
+            if after is None:
+                problems.append(
+                    f"{where}: resources.{name} drops {identifier!r}, held at {before} -- history entries are never removed"
+                )
+            elif after < before:
+                problems.append(
+                    f"{where}: resources.{name}[{identifier!r}] = {after} lowers the held {before} -- history rolls forward only"
+                )
     return problems
 
 
