@@ -28,7 +28,10 @@ by itself; that is a deliberate operator action (D01-18).
   `publication.json`, the record naming the revision and sha256 of every
   document in one generation (saas-fabric #136), and `resources`, the highest
   revision each tenant binding and DataSource was ever published at
-  (saas-fabric #138).
+  (saas-fabric #138). The record states contract 2 as its publisher's
+  rollback floor (saas-fabric #139). `ready-at-zero` is the #139 publisher's
+  first pass over a held contract-1 record: the data-sources manifest is
+  unchanged since contract 1 and still says 1.
 - `held.yaml`: the document revisions, resource revisions, publication
   generation (with its rollback floor) and registry generation held before
   this publication, with a sha256 of each held payload. Its `resources` is the

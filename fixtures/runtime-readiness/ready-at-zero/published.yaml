@@ -2,8 +2,10 @@
 # The three documents as the publisher writes them: one ConfigMap each, payload
 # and manifest keys, managed-by saas-fabric. The tenants ConfigMap also holds
 # publication.json, the record naming the revision and sha256 of every document
-# in this generation (saas-fabric #136) and the highest revision each
-# resource was ever published at (saas-fabric #138).
+# in this generation (saas-fabric #136), the highest revision each resource was
+# ever published at (saas-fabric #138), and contract 2 as the publisher's
+# rollback floor (saas-fabric #139). A manifest keeps the contract it was
+# written at until its document changes.
 - apiVersion: v1
   kind: ConfigMap
   metadata:
@@ -43,15 +45,15 @@
       ]
     tenants.manifest.json: |
       {
-        "contract_version": 1,
+        "contract_version": 2,
         "document": "tenants",
         "revision": 4
       }
     publication.json: |
       {
-        "contract_version": 1,
+        "contract_version": 2,
         "minimum_reader_contract": 1,
-        "minimum_publisher_contract": 1,
+        "minimum_publisher_contract": 2,
         "generation": 5,
         "documents": {
           "tenants": {
@@ -154,7 +156,7 @@
       }
     catalog.manifest.json: |
       {
-        "contract_version": 1,
+        "contract_version": 2,
         "document": "catalog",
         "revision": 2
       }
