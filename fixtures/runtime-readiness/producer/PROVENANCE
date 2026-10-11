@@ -1,0 +1,15 @@
+saas-fabric commit: 3d543b4982a0a02adc1fca797a1d357461a532dd
+branch: claude/108-issuer-registry-generation (saas-fabric #140), publisher contract 3
+contract-2 publisher commit: ebf0c0b77e622313a2729aa0c87d7a73883f3712 (saas-fabric main, #139)
+producer: fabric_runtime_publication::FilesystemRuntimePublication
+
+fresh/      harness/ `fresh`: the contract-3 publisher alone. held/ is alpha with
+            registry generation 1; published/ is alpha and beta with registry
+            generation 2.
+migration/  migration-harness/ (contract 2) publishes alpha with no registry;
+            harness/ `over` then publishes alpha and beta with registry
+            generation 1 over those files. held/ is the contract-2 state;
+            published/ is the contract-3 state, its catalogue unchanged and
+            still at its contract-2 manifest.
+
+Every file is byte-for-byte what the publisher wrote; none is edited by hand.

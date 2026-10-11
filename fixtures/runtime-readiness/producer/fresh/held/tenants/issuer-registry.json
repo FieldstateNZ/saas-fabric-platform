@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "generation": 1,
+  "issuers": [
+    {
+      "issuer": "https://identity.example.invalid/realms/alpha",
+      "tenant": "alpha"
+    }
+  ]
+}

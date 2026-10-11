@@ -1,7 +1,7 @@
 # Synthetic. Never applied: no Kustomization or Application references fixtures/.
 # What was held before this publication. Every revision here is at or below the
 # published one, so the publication rolls forward.
-# The held record is already at the contract-2 floor.
+# The held record is already at the contract-3 floor.
 schemaVersion: 1
 documents:
   tenants:
@@ -21,7 +21,7 @@ resources:
 publication:
   generation: 4
   sha256: ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356
-  minimumPublisherContract: 2
+  minimumPublisherContract: 3
 registry:
   generation: 1
   sha256: 0de9a54d39a2d7a01d255dcde034785bfc1f3b3574dafa579d0820954f4bc648

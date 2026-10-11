@@ -1,0 +1,34 @@
+{
+  "contract_version": 3,
+  "minimum_reader_contract": 1,
+  "minimum_publisher_contract": 3,
+  "generation": 2,
+  "documents": {
+    "tenants": {
+      "revision": 2,
+      "sha256": "e73f7b8c6d8b81a69ce8021483d31c6c07e39db17f09ba995df000c3eb2013ac"
+    },
+    "data-sources": {
+      "revision": 2,
+      "sha256": "370646abdc46f4cf673877229d3d99545ac9c12c5b46b25c8e6cd6afb02a664f"
+    },
+    "catalog": {
+      "revision": 1,
+      "sha256": "e8a551d331a1a59983e7344c55799c19ce39d9c1df80c0255e99cdb8e15046eb"
+    }
+  },
+  "resources": {
+    "tenants": {
+      "alpha": 2,
+      "beta": 1
+    },
+    "data-sources": {
+      "alpha-primary": 2,
+      "beta-primary": 1
+    }
+  },
+  "registry": {
+    "generation": 2,
+    "sha256": "4d32b61d4fb355b1d0ba06492aac484aad06b543b77c47409f1715799e8346ca"
+  }
+}
