@@ -17,7 +17,9 @@ Four contracts, each from the D01 dispositions on saas-fabric #108:
     revision and sha256 in one generation. Documents that do not match it are
     an incomplete generation. Its reader floor must not exceed the runtime's
     reader contract, and the held record's publisher floor must not exceed
-    the publisher's contract (D01-21).
+    the publisher's contract (D01-21). Its `resources` history (saas-fabric
+    #138) must cover every published tenant binding and DataSource at no
+    less than its revision, and never lowers or drops a held entry.
   * **Per-client composition** (D01-3). Platform composition per client or
     instance: its namespace, database, connector processes and the issuer its
     edge admits. It references Fabric's data sources and tenants by id and
@@ -73,10 +75,11 @@ CONTRACT_KEYS = {
 PUBLICATION_RECORD_CONTRACT_KEYS = {"document", "key", "readerContract"}
 PUBLICATION_RECORD_FILE = "publication.json"
 PUBLICATION_RECORD_KEYS = {
-    "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents",
+    "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents", "resources",
 }
+RESOURCE_HISTORY_KEYS = {"tenants", "data-sources"}
 RECORDED_DOCUMENT_KEYS = {"revision", "sha256"}
-SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 CONTRACT_DOCUMENT_KEYS = {
     "document", "configMap", "owner", "shape", "revision", "payloadKey", "manifestKey", "configKey", "mountPath",
 }
@@ -85,10 +88,20 @@ REVISION_POLICIES = ("roll-forward",)
 MANIFEST_KEYS = {"contract_version", "document", "revision"}
 PLACEMENTS = ("shared", "dedicated", "high_availability", "regulated", "development", "ephemeral")
 
-IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
-TENANT_ID = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-DNS_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-ISSUER = re.compile(r"^https://[a-z0-9.-]+(:[0-9]{1,5})?/realms/(?P<realm>[A-Za-z0-9_-]+)$")
+# Every pattern in this module is applied with `fullmatch`, never `match`: `$` also
+# matches before a trailing newline, so `match` would accept "alpha\n" as a
+# tenant id that Fabric's own parser refuses.
+IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,62}")
+TENANT_ID = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
+DNS_LABEL = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
+ISSUER = re.compile(r"https://[a-z0-9.-]+(:[0-9]{1,5})?/realms/(?P<realm>[A-Za-z0-9_-]+)")
+
+# The widths Fabric reads these numbers into. A value one past the width parses
+# here as a Python int but makes the whole document unreadable to the runtime,
+# so it must be refused rather than counted as ready.
+U64_MAX = 2**64 - 1  # BindingRevision, DocumentRevision, generations
+U32_MAX = 2**32 - 1  # contract versions and floors
+INT32_MAX = 2**31 - 1  # Deployment.spec.replicas
 
 TENANT_BINDING_KEYS = {"tenant", "revision", "data", "configuration", "secrets", "features", "storage"}
 TENANT_DATA_BINDING_KEYS = {"data_source", "isolation"}
@@ -134,8 +147,9 @@ class Evaluation:
     replicas: int | None = None
 
 
-def _is_count(value, minimum: int = 1) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= minimum
+def _is_count(value, minimum: int = 1, maximum: int = U64_MAX) -> bool:
+    """An int (never a bool) in [minimum, maximum] -- by default a positive u64."""
+    return isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= maximum
 
 
 def _digest(text: str) -> str:
@@ -163,9 +177,9 @@ def contract_problems(contract) -> list[str]:
         return [f"{where}: keys must be exactly {sorted(CONTRACT_KEYS)} -- {UNSUPPORTED}"]
     if contract["schemaVersion"] != 1:
         problems.append(f"{where}: schemaVersion {contract['schemaVersion']!r} -- {UNSUPPORTED}")
-    if not _is_count(contract["publicationContractVersion"]):
+    if not _is_count(contract["publicationContractVersion"], maximum=U32_MAX):
         problems.append(f"{where}: publicationContractVersion must be a positive integer")
-    if not isinstance(contract["namespace"], str) or not DNS_LABEL.match(contract["namespace"]):
+    if not isinstance(contract["namespace"], str) or not DNS_LABEL.fullmatch(contract["namespace"]):
         problems.append(f"{where}: namespace must be a DNS label")
     record = contract["publicationRecord"]
     if not isinstance(record, dict) or set(record) != PUBLICATION_RECORD_CONTRACT_KEYS:
@@ -173,7 +187,7 @@ def contract_problems(contract) -> list[str]:
     else:
         if record["document"] != "tenants" or record["key"] != PUBLICATION_RECORD_FILE:
             problems.append(f"{where}: publicationRecord must be {PUBLICATION_RECORD_FILE} in the tenants document -- {UNSUPPORTED}")
-        if not _is_count(record["readerContract"]):
+        if not _is_count(record["readerContract"], maximum=U32_MAX):
             problems.append(f"{where}: publicationRecord.readerContract must be a positive integer")
     runtime = contract["runtime"]
     if not isinstance(runtime, dict) or set(runtime) != {"deployment", "container"}:
@@ -354,7 +368,7 @@ def replicas_of(contract: dict, documents: list[dict]) -> int | None:
         return None
     # Kubernetes defaults an absent replica count to one.
     replicas = (deployment.get("spec") or {}).get("replicas", 1)
-    return replicas if _is_count(replicas, minimum=0) else None
+    return replicas if _is_count(replicas, minimum=0, maximum=INT32_MAX) else None
 
 
 def static_replica_problems(contract: dict, documents: list[dict], where: str) -> list[str]:
@@ -409,7 +423,7 @@ def _tenant_bindings_problems(payload, where: str) -> list[str]:
                             f"and include tenant, revision, data -- {UNSUPPORTED}")
             continue
         tenant = binding["tenant"]
-        if not isinstance(tenant, str) or not TENANT_ID.match(tenant):
+        if not isinstance(tenant, str) or not TENANT_ID.fullmatch(tenant):
             problems.append(f"{where}: tenant {tenant!r} is not a tenant id")
         elif tenant in seen:
             problems.append(f"{where}: tenant {tenant!r} bound twice")
@@ -423,6 +437,9 @@ def _tenant_bindings_problems(payload, where: str) -> list[str]:
         for logical, entry in data.items():
             if not isinstance(entry, dict) or set(entry) != TENANT_DATA_BINDING_KEYS:
                 problems.append(f"{where}: tenant {tenant!r} data {logical!r} keys must be {sorted(TENANT_DATA_BINDING_KEYS)} -- {UNSUPPORTED}")
+                continue
+            if not IDENTIFIER.fullmatch(logical) or not isinstance(entry["data_source"], str) or not IDENTIFIER.fullmatch(entry["data_source"]):
+                problems.append(f"{where}: tenant {tenant!r} data {logical!r} -> {entry['data_source']!r} is not an identifier pair")
                 continue
             isolation = entry["isolation"]
             kind = isolation.get("kind") if isinstance(isolation, dict) else None
@@ -441,14 +458,14 @@ def _data_sources_problems(payload, where: str) -> list[str]:
                             f"and include {sorted(DATA_SOURCE_REQUIRED_KEYS)} -- {UNSUPPORTED}")
             continue
         identifier = source["id"]
-        if not isinstance(identifier, str) or not IDENTIFIER.match(identifier):
+        if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier):
             problems.append(f"{where}: data source id {identifier!r} is not an identifier")
         elif identifier in seen:
             problems.append(f"{where}: data source {identifier!r} declared twice")
         seen.add(identifier)
         if not _is_count(source["revision"]):
             problems.append(f"{where}: data source {identifier!r} revision must be a positive integer")
-        if not isinstance(source["connector"], str) or not IDENTIFIER.match(source["connector"]):
+        if not isinstance(source["connector"], str) or not IDENTIFIER.fullmatch(source["connector"]):
             problems.append(f"{where}: data source {identifier!r} connector is not an identifier")
         if source["placement"] not in PLACEMENTS:
             problems.append(f"{where}: data source {identifier!r} placement {source['placement']!r} -- {UNSUPPORTED}")
@@ -470,7 +487,7 @@ def _catalog_problems(payload, where: str) -> list[str]:
                             f"and include data_source, collection -- {UNSUPPORTED}")
             continue
         operations = resource.get("operations", ["read", "list"])
-        if not isinstance(operations, list) or not set(operations) <= OPERATIONS:
+        if not isinstance(operations, list) or not all(isinstance(o, str) and o in OPERATIONS for o in operations):
             problems.append(f"{where}: resource {name!r} operations -- {UNSUPPORTED}")
     return problems
 
@@ -483,7 +500,7 @@ def _manifest_problems(contract: dict, name: str, text, where: str) -> tuple[lis
     if not isinstance(manifest, dict) or set(manifest) != MANIFEST_KEYS:
         return [f"{where}: manifest keys must be exactly {sorted(MANIFEST_KEYS)} -- {UNSUPPORTED}"], None
     problems = []
-    if manifest["contract_version"] != contract["publicationContractVersion"]:
+    if not _is_count(manifest["contract_version"], maximum=U32_MAX) or manifest["contract_version"] != contract["publicationContractVersion"]:
         problems.append(
             f"{where}: manifest contract_version {manifest['contract_version']!r}, contract says "
             f"{contract['publicationContractVersion']} -- {UNSUPPORTED}"
@@ -520,7 +537,7 @@ def held_problems(held) -> list[str]:
         not isinstance(publication, dict)
         or set(publication) != HELD_PUBLICATION_KEYS
         or not _is_count(publication["generation"])
-        or not _is_count(publication["minimumPublisherContract"])
+        or not _is_count(publication["minimumPublisherContract"], maximum=U32_MAX)
     ):
         problems.append(f"{where}: publication must be null or a generation, a sha256 and a minimumPublisherContract")
     registry = held["registry"]
@@ -663,16 +680,16 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
     problems = []
     publisher = contract["publicationContractVersion"]
     reader = contract["publicationRecord"]["readerContract"]
-    if record["contract_version"] != publisher:
+    if not _is_count(record["contract_version"], maximum=U32_MAX) or record["contract_version"] != publisher:
         problems.append(f"{where}: contract_version {record['contract_version']!r}, contract says {publisher} -- {UNSUPPORTED}")
-    if not _is_count(record["minimum_reader_contract"]):
+    if not _is_count(record["minimum_reader_contract"], maximum=U32_MAX):
         problems.append(f"{where}: minimum_reader_contract must be a positive integer")
     elif record["minimum_reader_contract"] > reader:
         problems.append(
             f"{where}: minimum_reader_contract {record['minimum_reader_contract']} is above the runtime's reader "
             f"contract {reader} -- the runtime would refuse this generation and keep its last one"
         )
-    if not _is_count(record["minimum_publisher_contract"]):
+    if not _is_count(record["minimum_publisher_contract"], maximum=U32_MAX):
         problems.append(f"{where}: minimum_publisher_contract must be a positive integer")
     elif record["minimum_publisher_contract"] > publisher:
         problems.append(
@@ -685,6 +702,7 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
     documents = record["documents"]
     if not isinstance(documents, dict) or set(documents) != set(SHAPE_OF_DOCUMENT):
         return problems + [f"{where}: documents must name exactly {sorted(SHAPE_OF_DOCUMENT)} -- {UNSUPPORTED}"]
+    problems.extend(_resource_history_problems(record["resources"], texts, held, where))
     for name in sorted(SHAPE_OF_DOCUMENT):
         recorded = documents[name]
         if (
@@ -692,7 +710,7 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
             or set(recorded) != RECORDED_DOCUMENT_KEYS
             or not _is_count(recorded["revision"])
             or not isinstance(recorded["sha256"], str)
-            or not SHA256_HEX.match(recorded["sha256"])
+            or not SHA256_HEX.fullmatch(recorded["sha256"])
         ):
             problems.append(f"{where}: documents.{name} must be a positive revision and a lowercase hex sha256 -- {UNSUPPORTED}")
             continue
@@ -727,6 +745,59 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
     return problems
 
 
+def _resource_history_problems(history, texts: dict, held: dict, where: str) -> list[str]:
+    """`resources` (saas-fabric #138): the highest revision each resource was ever published at.
+
+    It must cover every tenant binding and DataSource published now at no
+    less than its current revision, and it rolls forward against the held
+    record's history (`held.yaml` `resources`): no entry is ever lowered or
+    removed, so a resource that left its document cannot be redeclared
+    below a revision a reader may still hold (D01-1).
+    """
+    if not isinstance(history, dict) or set(history) != RESOURCE_HISTORY_KEYS:
+        return [f"{where}: resources must map exactly {sorted(RESOURCE_HISTORY_KEYS)} -- {UNSUPPORTED}"]
+    problems = []
+    pattern = {"tenants": TENANT_ID, "data-sources": IDENTIFIER}
+    for name in sorted(RESOURCE_HISTORY_KEYS):
+        entries = history[name]
+        if not isinstance(entries, dict) or not all(
+            isinstance(key, str) and pattern[name].fullmatch(key) and _is_count(value) for key, value in entries.items()
+        ):
+            problems.append(f"{where}: resources.{name} must map ids to positive revisions -- {UNSUPPORTED}")
+    if problems:
+        return problems
+    key_of = {"tenants": "tenant", "data-sources": "id"}
+    for name in sorted(RESOURCE_HISTORY_KEYS):
+        try:
+            published = json.loads(texts[name]) if isinstance(texts.get(name), str) else []
+        except json.JSONDecodeError:
+            published = []
+        for resource in published if isinstance(published, list) else []:
+            if not isinstance(resource, dict):
+                continue
+            identifier, current = resource.get(key_of[name]), resource.get("revision")
+            if not _is_count(current):
+                continue
+            highest = history[name].get(identifier)
+            if highest is None:
+                problems.append(f"{where}: resources.{name} has no entry for published {identifier!r}")
+            elif highest < current:
+                problems.append(
+                    f"{where}: resources.{name}[{identifier!r}] = {highest} is below its published revision {current}"
+                )
+        for identifier, before in sorted(((held.get("resources") or {}).get(name) or {}).items()):
+            after = history[name].get(identifier)
+            if after is None:
+                problems.append(
+                    f"{where}: resources.{name} drops {identifier!r}, held at {before} -- history entries are never removed"
+                )
+            elif after < before:
+                problems.append(
+                    f"{where}: resources.{name}[{identifier!r}] = {after} lowers the held {before} -- history rolls forward only"
+                )
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # Issuer registry and per-client composition
 # ---------------------------------------------------------------------------
@@ -747,9 +818,9 @@ def registry_problems(registry, held: dict) -> list[str]:
         if not isinstance(registration, dict) or set(registration) != REGISTRATION_KEYS:
             problems.append(f"{where}: a registration must be exactly {sorted(REGISTRATION_KEYS)} -- {UNSUPPORTED}")
             continue
-        if not isinstance(registration["issuer"], str) or not ISSUER.match(registration["issuer"]):
+        if not isinstance(registration["issuer"], str) or not ISSUER.fullmatch(registration["issuer"]):
             problems.append(f"{where}: issuer {registration['issuer']!r} is not https://<host>/realms/<realm>")
-        if not isinstance(registration["tenant"], str) or not TENANT_ID.match(registration["tenant"]):
+        if not isinstance(registration["tenant"], str) or not TENANT_ID.fullmatch(registration["tenant"]):
             problems.append(f"{where}: tenant {registration['tenant']!r} is not a tenant id")
         if registration["issuer"] in seen:
             problems.append(f"{where}: issuer {registration['issuer']!r} registered twice -- which wins would depend on order")
@@ -795,9 +866,9 @@ def composition_problems(composition, where: str) -> list[str]:
         return [f"{where}: keys must be exactly {sorted(COMPOSITION_KEYS)} at schemaVersion 1 -- {UNSUPPORTED}"]
     problems = []
     client = composition["client"]
-    if not isinstance(client, str) or not TENANT_ID.match(client):
+    if not isinstance(client, str) or not TENANT_ID.fullmatch(client):
         problems.append(f"{where}: client {client!r} is not a tenant id")
-    if not isinstance(composition["instance"], str) or not DNS_LABEL.match(composition["instance"]):
+    if not isinstance(composition["instance"], str) or not DNS_LABEL.fullmatch(composition["instance"]):
         problems.append(f"{where}: instance must be a DNS label")
     if composition["environment"] not in ENVIRONMENTS:
         problems.append(f"{where}: environment {composition['environment']!r} -- {UNSUPPORTED}")
@@ -807,7 +878,7 @@ def composition_problems(composition, where: str) -> list[str]:
     if not isinstance(identity, dict) or set(identity) != COMPOSITION_IDENTITY_KEYS:
         problems.append(f"{where}: identity must be exactly {sorted(COMPOSITION_IDENTITY_KEYS)} -- {UNSUPPORTED}")
     else:
-        match = ISSUER.match(identity["issuer"]) if isinstance(identity["issuer"], str) else None
+        match = ISSUER.fullmatch(identity["issuer"]) if isinstance(identity["issuer"], str) else None
         if not match or match.group("realm") != identity["realm"]:
             problems.append(f"{where}: issuer must be https://<host>/realms/{identity['realm']}")
     edge = composition["edge"]
@@ -820,7 +891,7 @@ def composition_problems(composition, where: str) -> list[str]:
     else:
         if database["kind"] not in DATABASE_KINDS:
             problems.append(f"{where}: database kind {database['kind']!r} -- {UNSUPPORTED}")
-        if not isinstance(database["cluster"], str) or not DNS_LABEL.match(database["cluster"]):
+        if not isinstance(database["cluster"], str) or not DNS_LABEL.fullmatch(database["cluster"]):
             problems.append(f"{where}: database cluster must be a DNS label")
         if not isinstance(database["dataSources"], list) or not database["dataSources"]:
             problems.append(f"{where}: database must back at least one data source")
@@ -833,13 +904,13 @@ def composition_problems(composition, where: str) -> list[str]:
         if not isinstance(connector, dict) or set(connector) != COMPOSITION_CONNECTOR_KEYS:
             problems.append(f"{where}: a connector must be exactly {sorted(COMPOSITION_CONNECTOR_KEYS)} -- {UNSUPPORTED}")
             continue
-        if not isinstance(connector["id"], str) or not IDENTIFIER.match(connector["id"]):
+        if not isinstance(connector["id"], str) or not IDENTIFIER.fullmatch(connector["id"]):
             problems.append(f"{where}: connector id {connector['id']!r} is not an identifier")
         if connector["kind"] not in CONNECTOR_KINDS:
             problems.append(f"{where}: connector kind {connector['kind']!r} -- {UNSUPPORTED}")
-        if not isinstance(connector["service"], str) or not DNS_LABEL.match(connector["service"]):
+        if not isinstance(connector["service"], str) or not DNS_LABEL.fullmatch(connector["service"]):
             problems.append(f"{where}: connector service must be a DNS label")
-        if not _is_count(connector["port"]) or connector["port"] > 65535:
+        if not _is_count(connector["port"], maximum=65535):
             problems.append(f"{where}: connector port must be 1-65535")
         served = connector["dataSources"]
         if not isinstance(served, list) or not served:

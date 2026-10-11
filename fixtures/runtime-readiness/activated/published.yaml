@@ -2,7 +2,8 @@
 # The three documents as the publisher writes them: one ConfigMap each, payload
 # and manifest keys, managed-by saas-fabric. The tenants ConfigMap also holds
 # publication.json, the record naming the revision and sha256 of every document
-# in this generation (saas-fabric #136).
+# in this generation (saas-fabric #136) and the highest revision each
+# resource was ever published at (saas-fabric #138).
 - apiVersion: v1
   kind: ConfigMap
   metadata:
@@ -64,6 +65,16 @@
           "catalog": {
             "revision": 2,
             "sha256": "e8a551d331a1a59983e7344c55799c19ce39d9c1df80c0255e99cdb8e15046eb"
+          }
+        },
+        "resources": {
+          "tenants": {
+            "alpha": 3,
+            "beta": 1
+          },
+          "data-sources": {
+            "alpha-primary": 2,
+            "beta-primary": 1
           }
         }
       }
