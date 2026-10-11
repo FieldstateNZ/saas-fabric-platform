@@ -69,6 +69,23 @@ def set_record(loaded: dict, value) -> None:
     published(loaded, "tenants")["data"]["publication.json"] = text
 
 
+def registry(loaded: dict) -> dict:
+    return json.loads(published(loaded, "tenants")["data"]["issuer-registry.json"])
+
+
+def set_registry(loaded: dict, value) -> None:
+    """Publish `value` as issuer-registry.json and name its exact bytes in the record, as the publisher does."""
+    text = value if isinstance(value, str) else json.dumps(value, indent=2) + "\n"
+    published(loaded, "tenants")["data"]["issuer-registry.json"] = text
+    current = record(loaded)
+    try:
+        generation = json.loads(text)["generation"]
+    except (ValueError, KeyError, TypeError):
+        generation = current["registry"]["generation"]
+    current["registry"] = {"generation": generation, "sha256": hashlib.sha256(text.encode()).hexdigest()}
+    set_record(loaded, current)
+
+
 def restamp(loaded: dict) -> None:
     """Rewrite publication.json the way the publisher does after a change.
 
@@ -213,9 +230,12 @@ class Inert(Assertions):
         self.assertEqual(problems, [])
 
     def test_fixture_issuers_use_a_reserved_host(self) -> None:
-        for path in FIXTURES.rglob("issuer-registry.json"):
-            for registration in json.loads(path.read_text())["issuers"]:
+        found = 0
+        for name in ("ready-at-zero", "activated"):
+            for registration in registry(scenario(name))["issuers"]:
+                found += 1
                 self.assertTrue(registration["issuer"].startswith("https://identity.example.invalid/"))
+        self.assertTrue(found)
 
 
 class Contract(Assertions):
@@ -317,8 +337,8 @@ class RuntimeDocuments(Assertions):
 
     def test_another_contract_version_is_unsupported(self) -> None:
         loaded = scenario("activated")
-        set_manifest(loaded, "tenants", contract_version=3)
-        self.assertRefused(evaluate(loaded), "manifest contract_version 3, contract accepts [1, 2]")
+        set_manifest(loaded, "tenants", contract_version=4)
+        self.assertRefused(evaluate(loaded), "manifest contract_version 4, contract accepts [1, 2, 3]")
 
     def test_a_manifest_with_an_extra_field_is_unsupported(self) -> None:
         loaded = scenario("activated")
@@ -417,12 +437,13 @@ class PublicationRecord(Assertions):
     def test_the_publisher_shaped_tenants_configmap_passes(self) -> None:
         loaded = scenario("activated")
         tenants = published(loaded, "tenants")
-        self.assertEqual(set(tenants["data"]), {"tenants.json", "tenants.manifest.json", "publication.json"})
+        self.assertEqual(
+            set(tenants["data"]), {"tenants.json", "tenants.manifest.json", "publication.json", "issuer-registry.json"})
         text = tenants["data"]["publication.json"]
         current = json.loads(text)
         self.assertEqual(list(current), [
             "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents",
-            "resources",
+            "resources", "registry",
         ])
         self.assertEqual(list(current["resources"]), ["tenants", "data-sources"])
         self.assertEqual(current["resources"]["tenants"], {"alpha": 3, "beta": 1})
@@ -504,21 +525,21 @@ class PublicationRecord(Assertions):
     def test_a_publisher_floor_above_its_own_contract_is_unsupported(self) -> None:
         loaded = scenario("activated")
         current = record(loaded)
-        current["minimum_publisher_contract"] = 3
+        current["minimum_publisher_contract"] = 4
         set_record(loaded, current)
-        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 3 is above the publisher contract 2")
+        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 4 is above the publisher contract 3")
 
     def test_a_publisher_below_the_held_rollback_floor_is_refused(self) -> None:
         loaded = scenario("activated")
-        loaded["held"]["publication"]["minimumPublisherContract"] = 3
-        self.assertRefused(evaluate(loaded), "held record's rollback floor is publisher contract 3, above this publisher's 2")
+        loaded["held"]["publication"]["minimumPublisherContract"] = 4
+        self.assertRefused(evaluate(loaded), "held record's rollback floor is publisher contract 4, above this publisher's 3")
 
     def test_another_record_contract_version_is_unsupported(self) -> None:
         loaded = scenario("activated")
         current = record(loaded)
-        current["contract_version"] = 3
+        current["contract_version"] = 4
         set_record(loaded, current)
-        self.assertRefused(evaluate(loaded), "publication.json: contract_version 3, contract says 2")
+        self.assertRefused(evaluate(loaded), "publication.json: contract_version 4, contract says 3")
 
     def test_a_generation_regression_is_refused(self) -> None:
         loaded = scenario("activated")
@@ -735,18 +756,20 @@ class ExactValues(Assertions):
         current = record(loaded)
         current["contract_version"] = True
         set_record(loaded, current)
-        self.assertRefused(evaluate(loaded), "publication.json: contract_version True, contract says 2")
+        self.assertRefused(evaluate(loaded), "publication.json: contract_version True, contract says 3")
 
     def test_a_boolean_manifest_contract_version_is_refused(self) -> None:
         loaded = scenario("activated")
         set_manifest(loaded, "catalog", contract_version=True)
-        self.assertRefused(evaluate(loaded), "manifest contract_version True, contract accepts [1, 2]")
+        self.assertRefused(evaluate(loaded), "manifest contract_version True, contract accepts [1, 2, 3]")
 
     def test_a_registry_issuer_with_a_trailing_newline_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"][1]["issuer"] += "\n"
+        changed = registry(loaded)
+        changed["issuers"][1]["issuer"] += "\n"
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
-        self.assertRefused(evaluate(loaded), "is not https://<host>/realms/<realm>")
+        self.assertRefused(evaluate(loaded), "is not https://<host>[:<port>]/realms/<realm>")
 
     def test_a_composition_client_with_a_trailing_newline_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
@@ -759,12 +782,13 @@ class ExactValues(Assertions):
         self.assertRefused(evaluate(loaded), "replica count is not a literal non-negative integer")
 
 
-class PublisherContractTwo(Assertions):
-    """saas-fabric #139: the publisher contract is 2, carried as the record's contract and rollback floor.
+class PublisherContract(Assertions):
+    """The publisher contract is 3 (saas-fabric #139 raised it to 2; #140 to 3 for the registry-bearing record).
 
+    It is carried as the record's contract and rollback floor.
     `minimum_reader_contract` and the runtime's reader contract stay 1. A
     manifest keeps the contract it was written at until its document changes,
-    so 1 and 2 are both accepted there.
+    so 1, 2 and 3 are all accepted there.
     """
 
     def stamp(self, loaded: dict, contract_version: int, floor: int) -> None:
@@ -773,47 +797,62 @@ class PublisherContractTwo(Assertions):
         current["minimum_publisher_contract"] = floor
         set_record(loaded, current)
 
-    def test_the_contract_declares_publisher_two_and_reader_one(self) -> None:
-        self.assertEqual(CONTRACT["publicationContractVersion"], 2)
-        self.assertEqual(CONTRACT["manifestContractVersions"], [1, 2])
+    def test_the_contract_declares_publisher_three_and_reader_one(self) -> None:
+        self.assertEqual(CONTRACT["publicationContractVersion"], 3)
+        self.assertEqual(CONTRACT["manifestContractVersions"], [1, 2, 3])
         self.assertEqual(CONTRACT["publicationRecord"]["readerContract"], 1)
 
-    def test_a_record_written_by_the_139_publisher_passes(self) -> None:
+    def test_a_record_written_by_the_contract_three_publisher_passes(self) -> None:
         loaded = scenario("activated")
         current = record(loaded)
         self.assertEqual(
             (current["contract_version"], current["minimum_publisher_contract"], current["minimum_reader_contract"]),
-            (2, 2, 1),
+            (3, 3, 1),
         )
         self.assertClean(evaluate(loaded))
 
-    def test_the_floor_raise_over_a_held_contract_one_record_passes_with_a_contract_one_manifest(self) -> None:
+    def test_the_floor_raise_over_a_held_contract_two_record_passes_with_a_contract_two_manifest(self) -> None:
         loaded = scenario("ready-at-zero")
-        self.assertEqual(loaded["held"]["publication"]["minimumPublisherContract"], 1)
-        self.assertEqual(json.loads(published(loaded, "data-sources")["data"]["data-sources.manifest.json"])["contract_version"], 1)
-        self.assertClean(evaluate(loaded))
-
-    def test_a_138_era_record_against_a_held_floor_of_two_is_refused(self) -> None:
-        loaded = scenario("activated")
         self.assertEqual(loaded["held"]["publication"]["minimumPublisherContract"], 2)
-        self.stamp(loaded, 1, 1)
-        self.assertRefused(
-            evaluate(loaded),
-            "minimum_publisher_contract 1 lowers the held rollback floor 2 -- the floor rolls forward only",
-            "contract_version 1, contract says 2 -- the deployed publisher has not rewritten this record",
-        )
+        manifest = json.loads(published(loaded, "data-sources")["data"]["data-sources.manifest.json"])
+        self.assertEqual(manifest["contract_version"], 2)
+        self.assertClean(evaluate(loaded))
 
-    def test_a_138_era_record_not_yet_rewritten_is_refused_even_over_a_floor_of_one(self) -> None:
+    def test_a_held_floor_of_one_accepts_three(self) -> None:
         loaded = scenario("ready-at-zero")
-        self.stamp(loaded, 1, 1)
+        loaded["held"]["publication"]["minimumPublisherContract"] = 1
+        self.assertClean(evaluate(loaded))
+
+    def test_old_records_against_a_held_floor_of_three_are_refused(self) -> None:
+        for old in (1, 2):
+            with self.subTest(old=old):
+                loaded = scenario("activated")
+                self.assertEqual(loaded["held"]["publication"]["minimumPublisherContract"], 3)
+                self.stamp(loaded, old, old)
+                self.assertRefused(
+                    evaluate(loaded),
+                    f"minimum_publisher_contract {old} lowers the held rollback floor 3 -- the floor rolls forward only",
+                    f"contract_version {old}, contract says 3 -- the deployed publisher has not rewritten this record",
+                )
+
+    def test_a_contract_two_record_not_yet_rewritten_is_refused_over_a_held_floor_of_two(self) -> None:
+        loaded = scenario("ready-at-zero")
+        self.stamp(loaded, 2, 2)
         result = evaluate(loaded)
-        self.assertRefused(result, "contract_version 1, contract says 2 -- the deployed publisher has not rewritten")
+        self.assertRefused(result, "contract_version 2, contract says 3 -- the deployed publisher has not rewritten")
         self.assertFalse(any("lowers the held rollback floor" in p for p in result.problems), result.problems)
 
+    def test_a_contract_one_record_over_a_held_floor_of_two_lowers_it(self) -> None:
+        loaded = scenario("ready-at-zero")
+        self.stamp(loaded, 1, 1)
+        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 1 lowers the held rollback floor 2")
+
     def test_a_floor_that_differs_from_the_record_contract_is_refused(self) -> None:
-        loaded = scenario("activated")
-        self.stamp(loaded, 2, 1)
-        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 1 differs from contract_version 2")
+        for floor in (1, 2):
+            with self.subTest(floor=floor):
+                loaded = scenario("activated")
+                self.stamp(loaded, 3, floor)
+                self.assertRefused(evaluate(loaded), f"minimum_publisher_contract {floor} differs from contract_version 3")
 
     def test_a_reader_floor_raised_to_two_is_refused(self) -> None:
         loaded = scenario("activated")
@@ -824,9 +863,9 @@ class PublisherContractTwo(Assertions):
 
     def test_versions_above_the_bounds_are_refused(self) -> None:
         cases = (
-            ("contract_version", 3, "contract_version 3, contract says 2"),
-            ("minimum_publisher_contract", 3, "minimum_publisher_contract 3 is above the publisher contract 2"),
-            ("contract_version", 2**32, "contract_version 4294967296, contract says 2"),
+            ("contract_version", 4, "contract_version 4, contract says 3"),
+            ("minimum_publisher_contract", 4, "minimum_publisher_contract 4 is above the publisher contract 3"),
+            ("contract_version", 2**32, "contract_version 4294967296, contract says 3"),
             ("minimum_publisher_contract", 2**32, "minimum_publisher_contract must be a positive integer"),
         )
         for field, value, fragment in cases:
@@ -838,19 +877,371 @@ class PublisherContractTwo(Assertions):
                 self.assertRefused(evaluate(loaded), fragment)
 
     def test_a_manifest_above_the_accepted_versions_is_refused(self) -> None:
-        for value in (3, 0, 2**32):
+        for value in (4, 0, 2**32):
             with self.subTest(value=value):
                 loaded = scenario("activated")
                 set_manifest(loaded, "catalog", contract_version=value)
-                self.assertRefused(evaluate(loaded), "contract accepts [1, 2]")
+                self.assertRefused(evaluate(loaded), "contract accepts [1, 2, 3]")
 
     def test_a_contract_whose_manifest_versions_do_not_end_at_the_publisher_is_refused(self) -> None:
-        for versions in ([1], [1, 2, 3], [2, 1], [1, 1, 2], [], [0, 2]):
+        for versions in ([1, 2], [1, 2, 3, 4], [3, 2, 1], [1, 2, 2, 3], [], [0, 3]):
             with self.subTest(versions=versions):
                 contract = copy.deepcopy(CONTRACT)
                 contract["manifestContractVersions"] = versions
                 problems = runtime_contract.contract_problems(contract)
                 self.assertTrue(any("manifestContractVersions" in p for p in problems), problems)
+
+
+class IssuerRegistryInTheRecord(Assertions):
+    """saas-fabric #140: issuer-registry.json in the tenants ConfigMap, named by the record over its exact bytes."""
+
+    def without_registry(self, loaded: dict) -> None:
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        current = record(loaded)
+        del current["registry"]
+        set_record(loaded, current)
+
+    def test_the_publisher_shaped_registry_passes(self) -> None:
+        loaded = scenario("activated")
+        text = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        document = json.loads(text)
+        self.assertEqual(list(document), ["schemaVersion", "generation", "issuers"])
+        self.assertEqual(text, json.dumps(document, indent=2) + "\n")
+        self.assertEqual(
+            [(r["issuer"], r["tenant"]) for r in document["issuers"]],
+            sorted((r["issuer"], r["tenant"]) for r in document["issuers"]),
+        )
+        self.assertEqual(
+            record(loaded)["registry"],
+            {"generation": document["generation"], "sha256": hashlib.sha256(text.encode()).hexdigest()},
+        )
+        self.assertClean(evaluate(loaded))
+
+    def test_a_record_naming_a_registry_the_configmap_lacks_is_refused(self) -> None:
+        loaded = scenario("activated")
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        self.assertRefused(evaluate(loaded), "names registry generation 2, and the tenants ConfigMap holds no issuer-registry.json")
+
+    def test_a_registry_the_record_does_not_name_is_unsupported(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["held"]["registry"] = None
+        current = record(loaded)
+        del current["registry"]
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "holds issuer-registry.json, which the record does not name")
+
+    def test_the_registry_key_on_another_document_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        published(loaded, "catalog")["data"]["issuer-registry.json"] = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        self.assertRefused(evaluate(loaded), "data keys must be exactly catalog.json, catalog.manifest.json --")
+
+    def test_registry_bytes_that_differ_from_the_record_are_an_incomplete_generation(self) -> None:
+        loaded = scenario("activated")
+        text = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        published(loaded, "tenants")["data"]["issuer-registry.json"] = json.dumps(json.loads(text)) + "\n"
+        self.assertRefused(evaluate(loaded), "registry generation 2 names issuer-registry.json bytes that are not the published ones")
+
+    def test_a_record_generation_that_differs_from_the_registry_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["registry"]["generation"] = 3
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "issuer-registry.json: generation 2, and the publication record names generation 3")
+
+    def test_a_changed_registry_reusing_the_held_generation_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["registry"] = {"generation": 2, "sha256": "0" * 64}
+        self.assertRefused(evaluate(loaded), "generation 2 is already held with different bytes -- a changed registry takes a new generation")
+
+    def test_the_held_registry_republished_unchanged_passes(self) -> None:
+        loaded = scenario("activated")
+        text = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        loaded["held"]["registry"] = {"generation": 2, "sha256": hashlib.sha256(text.encode()).hexdigest()}
+        self.assertClean(evaluate(loaded))
+
+    def test_a_registry_generation_regression_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["registry"]["generation"] = 5
+        self.assertRefused(evaluate(loaded), "issuer-registry.json: generation 2 regresses held generation 5")
+
+    def test_a_held_registry_cannot_be_withdrawn(self) -> None:
+        loaded = scenario("activated")
+        self.without_registry(loaded)
+        self.assertRefused(evaluate(loaded), "names no registry, and registry generation 1 is held")
+
+    def test_no_registry_ever_published_leaves_identity_unmet_at_zero(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["held"]["registry"] = None
+        self.without_registry(loaded)
+        result = evaluate(loaded)
+        self.assertClean(result)
+        self.assertIn("Fabric has not published a valid issuer registry generation", result.unmet["identity"])
+
+    def test_a_malformed_recorded_registry_is_unsupported(self) -> None:
+        for value in (
+            {"generation": 0, "sha256": "0" * 64},
+            {"generation": 2**64, "sha256": "0" * 64},
+            {"generation": True, "sha256": "0" * 64},
+            {"generation": 2, "sha256": "A" * 64},
+            {"generation": 2, "sha256": "0" * 64 + "\n"},
+            {"generation": 2, "sha256": "0" * 64, "issuers": 2},
+            None,
+        ):
+            with self.subTest(value=value):
+                loaded = scenario("activated")
+                current = record(loaded)
+                current["registry"] = value
+                set_record(loaded, current)
+                self.assertRefused(evaluate(loaded), "registry must be exactly a positive u64 generation and a lowercase hex sha256")
+
+    def test_registry_generations_are_u64(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["generation"] = 2**64
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "registry must be exactly a positive u64 generation")
+
+    def test_a_u64_max_registry_generation_applied_at_every_edge_passes(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["generation"] = U64_MAX
+        set_registry(loaded, changed)
+        for composition in loaded["compositions"].values():
+            composition["edge"]["registryGeneration"] = U64_MAX
+        self.assertClean(evaluate(loaded))
+
+    def test_a_new_registry_generation_the_edge_has_not_applied_is_refused(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["generation"] = 3
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "edge applies registry generation 2, Fabric's registry is at 3")
+
+    def test_registrations_out_of_canonical_order_are_unsupported(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["issuers"].reverse()
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "issuers are not in the publisher's canonical order")
+
+    def test_a_boolean_registry_schema_version_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["schemaVersion"] = True
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "issuer-registry.json: schemaVersion True")
+
+    def test_an_issuer_with_a_path_after_the_realm_is_refused(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["issuers"][0]["issuer"] += "/account"
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "is not https://<host>[:<port>]/realms/<realm>")
+
+    def test_a_held_registry_digest_that_is_not_hex_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["registry"]["sha256"] = "not-a-digest"
+        self.assertRefused(evaluate(loaded), "registry must be null or a generation and a lowercase hex sha256")
+
+    def test_the_contract_names_the_registry_key(self) -> None:
+        self.assertEqual(CONTRACT["publicationRecord"]["registryKey"], "issuer-registry.json")
+        contract = copy.deepcopy(CONTRACT)
+        contract["publicationRecord"]["registryKey"] = "registry.json"
+        problems = runtime_contract.contract_problems(contract)
+        self.assertTrue(any("registryKey must be issuer-registry.json" in p for p in problems), problems)
+
+
+PRODUCER = FIXTURES / "producer"
+PRODUCED_DOCUMENTS = ("tenants", "data-sources", "catalog")
+
+
+def produced_configmaps(state: str, run: str = "fresh") -> list[dict]:
+    """The files saas-fabric's own publisher wrote, as the Kubernetes adapter carries them: one ConfigMap per document."""
+    configmaps = []
+    for document in PRODUCED_DOCUMENTS:
+        directory = PRODUCER / run / state / document
+        configmaps.append({
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": f"fabric-runtime-{document}",
+                "namespace": "platform-system",
+                "labels": {"app.kubernetes.io/managed-by": "saas-fabric"},
+            },
+            "data": {path.name: path.read_text() for path in sorted(directory.iterdir())},
+        })
+    return configmaps
+
+
+def held_from(configmaps: list[dict]) -> dict:
+    """What a platform observer holds after seeing `configmaps`: exact-byte digests and the record's own history."""
+    data = {c["metadata"]["name"].removeprefix("fabric-runtime-"): c["data"] for c in configmaps}
+    record_text = data["tenants"]["publication.json"]
+    current = json.loads(record_text)
+    registry_text = data["tenants"].get("issuer-registry.json")
+
+    def sha(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    return {
+        "schemaVersion": 1,
+        "documents": {
+            name: {"revision": json.loads(data[name][f"{name}.manifest.json"])["revision"], "sha256": sha(data[name][f"{name}.json"])}
+            for name in PRODUCED_DOCUMENTS
+        },
+        "resources": current["resources"],
+        "publication": {
+            "generation": current["generation"],
+            "sha256": sha(record_text),
+            "minimumPublisherContract": current["minimum_publisher_contract"],
+        },
+        "registry": (
+            None if registry_text is None
+            else {"generation": json.loads(registry_text)["generation"], "sha256": sha(registry_text)}
+        ),
+    }
+
+
+class ProducerToChecker(Assertions):
+    """Bytes written by saas-fabric's own `FilesystemRuntimePublication` (fixtures/runtime-readiness/producer/).
+
+    The harnesses in producer/ publish with the Fabric commits named in
+    producer/PROVENANCE. `fresh` is the contract-3 publisher alone: alpha,
+    then alpha and beta. `migration` is the contract-2 publisher's state with
+    the contract-3 publisher's first pass over it. These tests feed those
+    exact files through this checker, so a drift between what Fabric writes
+    and what the platform accepts fails here rather than at the first live
+    publication.
+    """
+
+    def scenario(self, run: str = "fresh") -> dict:
+        loaded = scenario("activated")
+        loaded["published"] = produced_configmaps("published", run)
+        loaded["held"] = held_from(produced_configmaps("held", run))
+        generation = registry(loaded)["generation"]
+        for composition in loaded["compositions"].values():
+            composition["edge"]["registryGeneration"] = generation
+        return loaded
+
+    def test_the_provenance_names_a_saas_fabric_commit(self) -> None:
+        provenance = (PRODUCER / "PROVENANCE").read_text()
+        self.assertRegex(provenance, r"saas-fabric commit: [0-9a-f]{40}\n")
+
+    def test_the_producer_writes_this_contract(self) -> None:
+        current = record(self.scenario())
+        self.assertEqual(current["contract_version"], CONTRACT["publicationContractVersion"])
+        self.assertEqual(current["minimum_publisher_contract"], CONTRACT["publicationContractVersion"])
+        self.assertEqual(current["minimum_reader_contract"], CONTRACT["publicationRecord"]["readerContract"])
+        for name in PRODUCED_DOCUMENTS:
+            manifest = json.loads(published(self.scenario(), name)["data"][f"{name}.manifest.json"])
+            self.assertIn(manifest["contract_version"], CONTRACT["manifestContractVersions"])
+
+    def test_the_produced_generation_passes_over_the_produced_held_generation(self) -> None:
+        loaded = self.scenario()
+        self.assertEqual(loaded["held"]["registry"]["generation"] + 1, registry(loaded)["generation"])
+        result = evaluate(loaded)
+        self.assertClean(result)
+        self.assertEqual(result.unmet, {gate: [] for gate in runtime_contract.GATES})
+
+    def test_the_produced_first_generation_passes_from_nothing_held(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["published"] = produced_configmaps("held")
+        loaded["held"] = {
+            "schemaVersion": 1, "documents": {}, "resources": {"tenants": {}, "data-sources": {}},
+            "publication": None, "registry": None,
+        }
+        result = evaluate(loaded)
+        # Only alpha is published here, while the fixture's compositions and
+        # runtime config also carry beta; this test is about the published set.
+        self.assertEqual([p for p in result.problems if p.startswith(("published ", "issuer-registry.json"))], [])
+        self.assertEqual(result.unmet["documents"], [])
+
+    def test_the_produced_generation_republished_unchanged_passes(self) -> None:
+        loaded = self.scenario()
+        loaded["held"] = held_from(produced_configmaps("published"))
+        self.assertClean(evaluate(loaded))
+
+    def test_the_held_generation_is_refused_as_a_regression_after_the_produced_one(self) -> None:
+        loaded = self.scenario()
+        loaded["published"] = produced_configmaps("held")
+        loaded["held"] = held_from(produced_configmaps("published"))
+        self.assertRefused(
+            evaluate(loaded),
+            "issuer-registry.json: generation 1 regresses held generation 2",
+            "generation 1 regresses held generation 2 -- generations roll forward only",
+        )
+
+    def test_the_produced_registry_reformatted_is_refused(self) -> None:
+        loaded = self.scenario()
+        text = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        published(loaded, "tenants")["data"]["issuer-registry.json"] = json.dumps(json.loads(text), indent=4) + "\n"
+        self.assertRefused(evaluate(loaded), "names issuer-registry.json bytes that are not the published ones")
+
+    def test_the_produced_registry_without_its_key_is_refused(self) -> None:
+        loaded = self.scenario()
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        self.assertRefused(evaluate(loaded), "and the tenants ConfigMap holds no issuer-registry.json")
+
+    def test_the_produced_record_at_an_older_contract_is_refused(self) -> None:
+        for old in (1, 2):
+            with self.subTest(old=old):
+                loaded = self.scenario()
+                current = record(loaded)
+                current["contract_version"] = old
+                current["minimum_publisher_contract"] = old
+                set_record(loaded, current)
+                self.assertRefused(
+                    evaluate(loaded),
+                    f"lowers the held rollback floor {CONTRACT['publicationContractVersion']}",
+                    "the deployed publisher has not rewritten this record",
+                )
+
+    def test_the_produced_registry_changed_at_its_own_generation_is_refused(self) -> None:
+        loaded = self.scenario()
+        loaded["held"] = held_from(produced_configmaps("published"))
+        changed = registry(loaded)
+        changed["issuers"] = changed["issuers"][:1]
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "generation 2 is already held with different bytes")
+
+    def test_the_actual_contract_two_to_three_migration_passes(self) -> None:
+        loaded = self.scenario("migration")
+        self.assertEqual(loaded["held"]["publication"]["minimumPublisherContract"], 2)
+        self.assertIsNone(loaded["held"]["registry"])
+        manifests = {
+            name: json.loads(published(loaded, name)["data"][f"{name}.manifest.json"])["contract_version"]
+            for name in PRODUCED_DOCUMENTS
+        }
+        self.assertEqual(manifests, {"tenants": 3, "data-sources": 3, "catalog": 2})
+        self.assertEqual(record(loaded)["minimum_publisher_contract"], 3)
+        result = evaluate(loaded)
+        self.assertClean(result)
+        self.assertEqual(result.unmet, {gate: [] for gate in runtime_contract.GATES})
+
+    def test_the_contract_two_state_is_refused_once_its_floor_is_held_at_three(self) -> None:
+        loaded = self.scenario("migration")
+        loaded["published"] = produced_configmaps("held", "migration")
+        loaded["held"] = held_from(produced_configmaps("published", "migration"))
+        self.assertRefused(
+            evaluate(loaded),
+            "minimum_publisher_contract 2 lowers the held rollback floor 3",
+            "contract_version 2, contract says 3 -- the deployed publisher has not rewritten this record",
+            "names no registry, and registry generation 1 is held",
+        )
+
+    def test_the_unmigrated_contract_two_state_is_refused_for_readiness(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["published"] = produced_configmaps("held", "migration")
+        loaded["held"] = held_from(produced_configmaps("held", "migration"))
+        self.assertRefused(evaluate(loaded), "contract_version 2, contract says 3 -- the deployed publisher has not rewritten")
+
+    def test_the_produced_registry_withdrawn_is_refused(self) -> None:
+        loaded = self.scenario()
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        current = record(loaded)
+        del current["registry"]
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "names no registry, and registry generation 1 is held")
 
 
 class Placement(Assertions):
@@ -1082,13 +1473,17 @@ class RegistryHandoff(Assertions):
 
     def test_an_edge_admitting_an_unregistered_issuer_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"] = loaded["registry"]["issuers"][:1]
+        changed = registry(loaded)
+        changed["issuers"] = changed["issuers"][:1]
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
         self.assertRefused(evaluate(loaded), "edge admits https://identity.example.invalid/realms/beta")
 
     def test_an_issuer_bound_to_another_tenant_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"][1]["tenant"] = "alpha"
+        changed = registry(loaded)
+        changed["issuers"][1]["tenant"] = "alpha"
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
         self.assertRefused(evaluate(loaded), "client 'beta' admits", "which the registry binds to tenant 'alpha'")
 
@@ -1109,11 +1504,13 @@ class RegistryHandoff(Assertions):
     def test_changing_a_held_generation_in_place_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
         loaded["held"]["registry"]["generation"] = 2
-        self.assertRefused(evaluate(loaded), "generation 2 is already held with different registrations")
+        self.assertRefused(evaluate(loaded), "generation 2 is already held with different bytes")
 
     def test_an_issuer_registered_twice_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"].append(dict(loaded["registry"]["issuers"][0]))
+        changed = registry(loaded)
+        changed["issuers"].append(dict(changed["issuers"][0]))
+        set_registry(loaded, changed)
         self.assertRefused(evaluate(loaded), "registered twice")
 
     def test_a_registry_tenant_the_tenants_document_does_not_bind_is_refused(self) -> None:
@@ -1130,14 +1527,20 @@ class RegistryHandoff(Assertions):
 
     def test_an_unmodelled_registry_field_is_unsupported(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["audience"] = "saas-fabric"
+        changed = registry(loaded)
+        changed["audience"] = "saas-fabric"
+        set_registry(loaded, changed)
         self.assertRefused(evaluate(loaded), "issuer-registry.json: keys must be exactly")
 
     def test_no_registry_with_replicas_is_refused(self) -> None:
         loaded = scenario("activated")
-        loaded["registry"] = None
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        current = record(loaded)
+        del current["registry"]
+        set_record(loaded, current)
+        loaded["held"]["registry"] = None
         self.assertRefused(
-            evaluate(loaded), "identity gate is unmet: Fabric has not produced an issuer registry generation")
+            evaluate(loaded), "identity gate is unmet: Fabric has not published a valid issuer registry generation")
 
 
 class Readiness(Assertions):
@@ -1175,7 +1578,9 @@ class Readiness(Assertions):
     def test_activation_with_a_connector_nothing_composes_is_refused(self) -> None:
         loaded = scenario("activated")
         del loaded["compositions"]["beta.yaml"]
-        loaded["registry"]["issuers"] = loaded["registry"]["issuers"][:1]
+        changed = registry(loaded)
+        changed["issuers"] = changed["issuers"][:1]
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
         self.assertRefused(evaluate(loaded), "connector 'postgres-beta' is configured but no composition deploys it")
 

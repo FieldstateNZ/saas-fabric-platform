@@ -1,0 +1,18 @@
+{
+  "notes": {
+    "data_source": "primary",
+    "collection": "notes",
+    "key_field": "id",
+    "operations": [
+      "read",
+      "list",
+      "create",
+      "update",
+      "delete"
+    ],
+    "queryable_fields": [
+      "id",
+      "title"
+    ]
+  }
+}

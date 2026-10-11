@@ -28,23 +28,33 @@ by itself; that is a deliberate operator action (D01-18).
   `publication.json`, the record naming the revision and sha256 of every
   document in one generation (saas-fabric #136), and `resources`, the highest
   revision each tenant binding and DataSource was ever published at
-  (saas-fabric #138). The record states contract 2 as its publisher's
-  rollback floor (saas-fabric #139). `ready-at-zero` is the #139 publisher's
-  first pass over a held contract-1 record: the data-sources manifest is
-  unchanged since contract 1 and still says 1.
+  (saas-fabric #138). The record states contract 3 as its publisher's
+  rollback floor (saas-fabric #139, raised to 3 by #140). `ready-at-zero` is
+  the contract-3 publisher's first pass over a held contract-2 record: the
+  data-sources manifest is unchanged since contract 2 and still says 2. The tenants ConfigMap also holds
+  `issuer-registry.json`, the issuer-to-tenant registry generation (D01-4,
+  saas-fabric #140), which the record names with its generation and the
+  sha256 of its exact bytes.
 - `held.yaml`: the document revisions, resource revisions, publication
-  generation (with its rollback floor) and registry generation held before
+  generation (with its rollback floor) and registry generation and sha256 held before
   this publication, with a sha256 of each held payload. Its `resources` is the
   held record's resource history, which the new record may raise but never
   lower or drop.
   Revisions only roll forward (D01-1, D01-27).
-- `issuer-registry.json`: the issuer-to-tenant registry generation that Fabric
-  would produce (D01-4). This shape is a proposal: Fabric does not publish a
-  registry yet.
 - `compositions/<client>.yaml`: the platform composition for one client or
   instance (D01-3). It holds the namespace, the database, the connector
   processes, and the issuer plus registry generation that its edge applies.
 - `runtime.yaml`: the runtime Deployment and its config ConfigMap.
+
+## Producer output
+
+`producer/` holds files written byte for byte by saas-fabric's own publisher,
+not by hand. `producer/PROVENANCE` names the Fabric commits, and the harnesses
+beside it regenerate them. `ProducerToChecker` in
+`scripts/test_runtime_contract.py` feeds them through the checker:
+- `fresh/`: the contract-3 publisher's first two generations;
+- `migration/`: a contract-2 state, then the contract-3 publisher's first pass
+  over it.
 
 Run one scenario by hand:
 

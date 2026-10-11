@@ -17,22 +17,25 @@ schemaVersion: 1
 
 # fabric-runtime-publication's CONTRACT_VERSION: the contract of the
 # publisher this platform deploys. saas-fabric #139 raised it from 1 to 2 as
-# the publisher's rollback floor (D01-21). A publication record from that
-# publisher states 2 as both `contract_version` and
-# `minimum_publisher_contract`; its `minimum_reader_contract` stays 1, and so
-# does the runtime's reader contract below. A record still at an earlier
-# contract has not been rewritten by the deployed publisher, so its floor is
-# not in place, and it is refused.
-publicationContractVersion: 2
+# the publisher's rollback floor (D01-21). #140 raised it to 3 for the
+# registry-bearing record (saas-fabric #140, comment 6114792311), so a
+# contract-1 or contract-2 publisher refuses that record by its floor before
+# it reads the registry. A publication record from the deployed publisher
+# states 3 as both `contract_version` and `minimum_publisher_contract`; its
+# `minimum_reader_contract` stays 1, and so does the runtime's reader contract
+# below. A record still at an earlier contract has not been rewritten by the
+# deployed publisher, so its floor is not in place, and it is refused.
+publicationContractVersion: 3
 
 # The manifest `contract_version`s a published document may carry. The
-# manifest's shape did not change between 1 and 2. The #139 publisher raises
-# the floor by rewriting only the record, so the tenants manifest written
-# beside it moves to 2 while an unchanged data-sources or catalog manifest
-# keeps the 1 it was written at. A breaking change of meaning ships as new
+# manifest's shape has not changed since 1. A publisher raises the floor by
+# rewriting only the record (and the registry). A document it leaves unchanged
+# keeps the manifest, and the contract, it was written with -- the tenants
+# manifest included, even though its ConfigMap is rewritten to carry the new
+# record (saas-fabric #140, `tenants_object.rs`). A breaking change of meaning ships as new
 # file names beside the old ones, never as a reinterpretation of these
 # numbers, so any other value is refused rather than read.
-manifestContractVersions: [1, 2]
+manifestContractVersions: [1, 2, 3]
 
 namespace: platform-system
 
@@ -56,9 +59,16 @@ namespace: platform-system
 # its revision, and no entry may be lowered or dropped from the held record's
 # history, so a removed resource cannot be redeclared below a revision a
 # reader may still hold (D01-1).
+#
+# `registryKey` is the issuer registry (saas-fabric #140, `registry/`): a
+# fourth key of the tenants ConfigMap, present exactly when the record names
+# `registry: {generation, sha256}`. The sha256 is over the registry's exact
+# published bytes. Its generation rolls forward and is never reused for
+# different bytes, and once a registry is held it is never dropped.
 publicationRecord:
   document: tenants
   key: publication.json
+  registryKey: issuer-registry.json
   readerContract: 1
 
 # The consumer. The mount and config-key checks are about this one container.

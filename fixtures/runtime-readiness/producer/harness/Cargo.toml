@@ -1,0 +1,20 @@
+# Regenerates ../held and ../published with saas-fabric's own publisher:
+#
+#   cargo run --manifest-path fixtures/runtime-readiness/producer/harness/Cargo.toml \
+#     -- fixtures/runtime-readiness/producer
+#
+# Not built by CI: it fetches the private saas-fabric repository at the
+# commit ../PROVENANCE names. Move `rev` and that file together.
+[package]
+name = "publication-producer-harness"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+fabric-core = { git = "https://github.com/FieldstateNZ/saas-fabric", rev = "3d543b4982a0a02adc1fca797a1d357461a532dd" }
+fabric-runtime-publication = { git = "https://github.com/FieldstateNZ/saas-fabric", rev = "3d543b4982a0a02adc1fca797a1d357461a532dd" }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[workspace]

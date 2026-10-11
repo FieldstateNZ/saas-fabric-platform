@@ -1,0 +1,50 @@
+[
+  {
+    "id": "alpha-primary",
+    "revision": 2,
+    "connector": "postgres-alpha",
+    "connection": {
+      "kind": "named",
+      "name": "alpha-primary"
+    },
+    "placement": "dedicated",
+    "residency": {
+      "region": "nz-north",
+      "jurisdiction": "NZ"
+    },
+    "pool": {
+      "max_connections": 20,
+      "idle_timeout_seconds": 300,
+      "acquire_timeout_seconds": 5
+    },
+    "capabilities": {
+      "writable": false,
+      "accepts_new_tenants": false
+    },
+    "labels": {}
+  },
+  {
+    "id": "beta-primary",
+    "revision": 1,
+    "connector": "postgres-beta",
+    "connection": {
+      "kind": "named",
+      "name": "beta-primary"
+    },
+    "placement": "dedicated",
+    "residency": {
+      "region": "nz-north",
+      "jurisdiction": "NZ"
+    },
+    "pool": {
+      "max_connections": 20,
+      "idle_timeout_seconds": 300,
+      "acquire_timeout_seconds": 5
+    },
+    "capabilities": {
+      "writable": false,
+      "accepts_new_tenants": false
+    },
+    "labels": {}
+  }
+]

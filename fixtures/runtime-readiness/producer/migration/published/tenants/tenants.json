@@ -1,0 +1,30 @@
+[
+  {
+    "tenant": "alpha",
+    "revision": 2,
+    "data": {
+      "primary": {
+        "data_source": "alpha-primary",
+        "isolation": {
+          "kind": "database"
+        }
+      }
+    },
+    "features": {},
+    "storage": {}
+  },
+  {
+    "tenant": "beta",
+    "revision": 1,
+    "data": {
+      "primary": {
+        "data_source": "beta-primary",
+        "isolation": {
+          "kind": "database"
+        }
+      }
+    },
+    "features": {},
+    "storage": {}
+  }
+]
