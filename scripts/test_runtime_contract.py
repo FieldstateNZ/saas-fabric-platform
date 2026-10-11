@@ -623,6 +623,142 @@ class ResourceHistory(Assertions):
         self.assertClean(evaluate(loaded))
 
 
+U64_MAX = 2**64 - 1
+
+
+class ExactValues(Assertions):
+    """Ids match whole strings and numbers fit the width Fabric reads them into.
+
+    `re.match` with `$` accepts a trailing newline, and Python ints are
+    unbounded, so either flaw let a record Fabric cannot read pass as ready.
+    """
+
+    def history(self, loaded: dict, name: str, entries: dict) -> None:
+        current = record(loaded)
+        current["resources"][name] = entries
+        set_record(loaded, current)
+
+    def test_a_tenant_history_id_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "tenants", {"alpha": 3, "beta": 1, "gamma\n": 1})
+        self.assertRefused(evaluate(loaded), "resources.tenants must map ids to positive revisions")
+
+    def test_a_data_source_history_id_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "data-sources", {"alpha-primary": 2, "beta-primary": 1, "gamma-primary\n": 1})
+        self.assertRefused(evaluate(loaded), "resources.data-sources must map ids to positive revisions")
+
+    def test_a_history_revision_of_two_to_the_sixty_four_is_refused(self) -> None:
+        for name, entries in (("tenants", {"alpha": 2**64, "beta": 1}),
+                              ("data-sources", {"alpha-primary": 2**64, "beta-primary": 1})):
+            with self.subTest(name=name):
+                loaded = scenario("activated")
+                self.history(loaded, name, entries)
+                self.assertRefused(evaluate(loaded), f"resources.{name} must map ids to positive revisions")
+
+    def test_a_history_revision_of_u64_max_is_accepted(self) -> None:
+        loaded = scenario("activated")
+        self.history(loaded, "tenants", {"alpha": U64_MAX, "beta": 1})
+        self.history(loaded, "data-sources", {"alpha-primary": U64_MAX, "beta-primary": 1})
+        self.assertClean(evaluate(loaded))
+
+    def test_history_revisions_that_are_not_positive_ints_are_refused(self) -> None:
+        for value in (True, 2.0, 0, -1):
+            with self.subTest(value=value):
+                loaded = scenario("activated")
+                self.history(loaded, "tenants", {"alpha": 3, "beta": value})
+                self.assertRefused(evaluate(loaded), "resources.tenants must map ids to positive revisions")
+
+    def test_a_tenant_binding_id_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("activated")
+        tenants = payload(loaded, "tenants")
+        tenants[1]["tenant"] = "beta\n"
+        set_payload(loaded, "tenants", tenants)
+        self.assertRefused(evaluate(loaded), "tenant 'beta\\n' is not a tenant id")
+
+    def test_a_data_source_id_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("activated")
+        sources = payload(loaded, "data-sources")
+        sources[1]["id"] = "beta-primary\n"
+        set_payload(loaded, "data-sources", sources)
+        self.assertRefused(evaluate(loaded), "data source id 'beta-primary\\n' is not an identifier")
+
+    def test_a_binding_naming_a_data_source_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("activated")
+        tenants = payload(loaded, "tenants")
+        tenants[1]["data"]["primary"]["data_source"] = "beta-primary\n"
+        set_payload(loaded, "tenants", tenants)
+        self.assertRefused(evaluate(loaded), "is not an identifier pair")
+
+    def test_a_record_digest_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["documents"]["catalog"]["sha256"] += "\n"
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "documents.catalog must be a positive revision and a lowercase hex sha256")
+
+    def test_a_resource_revision_of_two_to_the_sixty_four_is_refused(self) -> None:
+        loaded = scenario("activated")
+        tenants = payload(loaded, "tenants")
+        tenants[1]["revision"] = 2**64
+        set_payload(loaded, "tenants", tenants)
+        self.assertRefused(evaluate(loaded), "tenant 'beta' revision must be a positive integer")
+
+    def test_a_manifest_revision_of_two_to_the_sixty_four_is_refused(self) -> None:
+        loaded = scenario("activated")
+        set_manifest(loaded, "catalog", revision=2**64)
+        self.assertRefused(evaluate(loaded), "manifest revision must be a positive integer")
+
+    def test_a_record_generation_of_two_to_the_sixty_four_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["generation"] = 2**64
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "generation must be a positive integer")
+
+    def test_a_record_generation_of_u64_max_is_accepted(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["generation"] = U64_MAX
+        set_record(loaded, current)
+        self.assertClean(evaluate(loaded))
+
+    def test_a_reader_floor_beyond_u32_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["minimum_reader_contract"] = 2**32
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "minimum_reader_contract must be a positive integer")
+
+    def test_a_boolean_contract_version_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["contract_version"] = True
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "publication.json: contract_version True, contract says 1")
+
+    def test_a_boolean_manifest_contract_version_is_refused(self) -> None:
+        loaded = scenario("activated")
+        set_manifest(loaded, "catalog", contract_version=True)
+        self.assertRefused(evaluate(loaded), "manifest contract_version True, contract says 1")
+
+    def test_a_registry_issuer_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["registry"]["issuers"][1]["issuer"] += "\n"
+        loaded["held"]["registry"] = None
+        self.assertRefused(evaluate(loaded), "is not https://<host>/realms/<realm>")
+
+    def test_a_composition_client_with_a_trailing_newline_is_refused(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["compositions"]["beta.yaml"]["client"] = "beta\n"
+        self.assertRefused(evaluate(loaded), "client 'beta\\n' is not a tenant id")
+
+    def test_replicas_beyond_int32_are_unsupported(self) -> None:
+        loaded = scenario("activated")
+        deployment(loaded)["spec"]["replicas"] = 2**31
+        self.assertRefused(evaluate(loaded), "replica count is not a literal non-negative integer")
+
+
 class Placement(Assertions):
     """Only a 'shared' data source serves more than one client; every published source has a serving composition."""
 
