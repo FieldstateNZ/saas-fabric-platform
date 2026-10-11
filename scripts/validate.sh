@@ -15,14 +15,14 @@ RENDER="${ROOT}/.render"
 # it. Every other kind, including Argo CD and CloudNativePG custom resources,
 # is validated against a real schema rather than waved through.
 #
-# The catalog is pinned to a commit, not `main`: it is a third-party repository
-# that republishes schemas whenever upstream CRDs change, so an unpinned URL
-# lets a commit there fail this repository's CI with nothing here changed.
-# That happened on 2026-10-08 (datreeio/CRDs-catalog b7e2015), when the
-# external-secrets.io SecretStore and ClusterSecretStore v1 schemas stopped
-# loading in kubeconform v0.7.0 ("could not find schema"). Move the pin
-# deliberately, together with the chart versions whose CRDs it describes.
-CRD_CATALOG_REVISION='f1e7f6bc0537bf0622ffe6e47dbaa85914fabbec'
+# Pinned to a catalog commit, never `main`: a catalog change is a change to
+# what this validates against and has to arrive through a reviewed commit
+# here. fd90051 is the catalog the last green main run (40ebcf7) used. Its
+# successor b7e2015 ("update external-secrets.io CRDs") ships a SecretStore
+# and ClusterSecretStore schema with `additionalProperties: false` written as
+# a property schema, which kubeconform cannot compile and reports as "could
+# not find schema". Move the pin once upstream fixes that.
+CRD_CATALOG_REVISION='fd90051867733c60d32d16450556e9cd18459aef'
 CRD_CATALOG="https://raw.githubusercontent.com/datreeio/CRDs-catalog/${CRD_CATALOG_REVISION}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 KUBERNETES_VERSION='1.30.0'
 
