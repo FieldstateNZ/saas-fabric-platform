@@ -1,0 +1,24 @@
+# Synthetic. Never applied: no Kustomization or Application references fixtures/.
+# Platform composition for client beta: no credential, no registration.
+schemaVersion: 1
+client: beta
+instance: beta
+environment: lucentroot
+namespace: client-beta
+identity:
+  realm: beta
+  issuer: https://identity.example.invalid/realms/beta
+edge:
+  registryGeneration: 2
+database:
+  kind: cloudnative-pg
+  cluster: beta-db
+  dataSources:
+  - beta-primary
+connectors:
+- id: postgres-beta
+  kind: ndc-postgres
+  service: ndc-postgres-beta
+  port: 8080
+  dataSources:
+  - beta-primary

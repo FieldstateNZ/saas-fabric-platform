@@ -20,7 +20,7 @@ Five groups:
   * `RollingSyncFixture` reads scripts/fixtures/rolling-sync/ and shows the
     same scenario blocked, recovery unblocked, and the fixture's template
     agreeing with the Applications it would replace.
-  * `RecordedOrdering` drives check.py's section 21 against synthetic
+  * `RecordedOrdering` drives check.py's section 22 against synthetic
     renders: the current wiring passes, and adopting RollingSync, enabling
     progressive syncs or losing the health assessment each fail it.
   * `FixturesAreInert` proves nothing under scripts/ or docs/ is reachable
@@ -585,7 +585,7 @@ class RollingSyncFixture(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# check.py section 21, against synthetic renders
+# check.py section 22, against synthetic renders
 # ---------------------------------------------------------------------------
 
 def recorded_problems(platform: list[dict], bootstrap: list[dict]) -> list[str]:

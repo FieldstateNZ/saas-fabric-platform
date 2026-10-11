@@ -1,0 +1,24 @@
+# Synthetic. Never applied: no Kustomization or Application references fixtures/.
+# Platform composition for client alpha: no credential, no registration.
+schemaVersion: 1
+client: alpha
+instance: alpha
+environment: lucentroot
+namespace: client-alpha
+identity:
+  realm: alpha
+  issuer: https://identity.example.invalid/realms/alpha
+edge:
+  registryGeneration: 2
+database:
+  kind: cloudnative-pg
+  cluster: alpha-db
+  dataSources:
+  - alpha-primary
+connectors:
+- id: postgres-alpha
+  kind: ndc-postgres
+  service: ndc-postgres-alpha
+  port: 8080
+  dataSources:
+  - alpha-primary

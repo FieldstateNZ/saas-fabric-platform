@@ -51,7 +51,7 @@ It consults no sibling.
 ### What holds, and when
 
 All of the following are read from the render and asserted by `scripts/check.py`
-§21. `scripts/test_ordering.py` (`CurrentManifests`) asserts them again against
+§22. `scripts/test_ordering.py` (`CurrentManifests`) asserts them again against
 the source files.
 
 | Dependency (before → after) | Environment | Waves | On create | On update |
@@ -177,7 +177,7 @@ The scenarios below are pinned in `RollingSyncFixture`:
   person to sync by hand. Any integer, or any other percentage, syncs only part
   of a step at a time. The model reports each of these as unmodelled rather
   than answering for it, and so does any strategy key it does not read, such as
-  `deletionOrder`. Section 21 then fails.
+  `deletionOrder`. Section 22 then fails.
 
 ---
 
@@ -226,7 +226,7 @@ None of it happens by merging this PR.
 | E6 | `platform-root` stops authoring the three Applications and authors the ApplicationSet instead. Without the step in R1, its `prune: true` deletes them, and their `resources-finalizer` cascades | the root | repository semantics (`docs/architecture.md#deletion-semantics`) |
 | E7 | `platform-root`'s waves no longer gate on the chain's health. The root waits on the ApplicationSet object's health, not on the Applications it generates. `operator-access` (wave 50, LucentRoot) is the only Application after wave 40, and it would stop waiting on the control plane at creation | the root's creation order | model (`RollingSyncFixture.test_the_root_no_longer_waits_on_the_chain`), plus the built-in ApplicationSet health (**to establish**: V1) |
 | E8 | A manual sync from the UI or CLI of a step-3 Application bypasses the step order | operators | upstream docs |
-| E9 | `scripts/check.py` §21 fails until `UPDATES_ORDERED` and `PROGRESSIVE_SYNCS_ENABLED` are changed in the same PR that adopts B | this repository | `RecordedOrdering` tests |
+| E9 | `scripts/check.py` §22 fails until `UPDATES_ORDERED` and `PROGRESSIVE_SYNCS_ENABLED` are changed in the same PR that adopts B | this repository | `RecordedOrdering` tests |
 
 ---
 
@@ -245,7 +245,7 @@ not in effect.
 | G5 | A failed convergence is not re-run on its own: automated sync acts only on OutOfSync (`docs/master-instance-convergence.md`, cause 2). Recovery is a fix commit, or an authorised manual sync, which is itself gated | as G1 |
 | G6 | Exit: the durable pilot does not start on option A. B, or a mechanism Brett chooses instead, must pass section 7 first | D01-20 |
 
-`scripts/check.py` §21 enforces what can be enforced offline: every dependency
+`scripts/check.py` §22 enforces what can be enforced offline: every dependency
 in section 1 stays ordered at creation, in both environments. Losing the health
 assessment, or moving the control plane into wave 30, fails CI
 (`RecordedOrdering`).
@@ -285,7 +285,7 @@ assessment, or moving the control plane into wave 30, fails CI
 
 | Claim | Proven by | Status |
 |---|---|---|
-| Current manifests order the chain at creation and not on update, in both environments | `check.py` §21 on the CI render; `test_ordering.CurrentManifests` on source | **this PR, offline** |
+| Current manifests order the chain at creation and not on update, in both environments | `check.py` §22 on the CI render; `test_ordering.CurrentManifests` on source | **this PR, offline** |
 | The 2026-09-22 sequence is what the current wiring permits | `CurrentManifests.test_failed_convergence_*` | **this PR, offline (model)** |
 | The fixture is a valid ApplicationSet, generates exactly the chain, and agrees field by field with the Applications it replaces | kubeconform in `validate.sh`; `RollingSyncFixture` | **this PR, offline** |
 | Under documented RollingSync semantics, failed or running convergence holds the control plane, and recovery unblocks it | `RollingSyncFixture` | **this PR, offline (model)** |

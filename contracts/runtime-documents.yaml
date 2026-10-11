@@ -1,0 +1,79 @@
+# The documents SaaS Fabric's tenant runtime cannot serve without: who writes
+# each one, how its version may move, and where the runtime reads it.
+#
+# Nothing under contracts/ is a manifest. No Kustomization and no Argo CD
+# Application references this directory, so nothing here is ever applied to a
+# cluster. scripts/check.py holds the rendered runtime Deployment of every
+# environment to it; scripts/runtime_contract.py holds published documents,
+# per-client composition and the issuer registry handoff to it (synthetic
+# fixtures under fixtures/runtime-readiness/ today).
+#
+# The values restate fabric-runtime-publication and
+# fabric-publication-kubernetes in the application repository: object names
+# from `object.rs`, the managed-by label from `wire.rs`, the data keys from the
+# file constants in `manifest.rs`, and the manifest's `contract_version` from
+# `CONTRACT_VERSION`. A change there is a change here, in the same release.
+schemaVersion: 1
+
+# fabric-runtime-publication's CONTRACT_VERSION. A breaking change of meaning
+# ships as new file names beside the old ones, never as a reinterpretation of
+# this number, so a manifest stating another one is refused rather than read.
+publicationContractVersion: 1
+
+namespace: platform-system
+
+# The publication record (saas-fabric #136, `record.rs`): a third key of the
+# tenants ConfigMap, written last, naming the revision and sha256 of every
+# document that forms one generation. A set of documents whose bytes do not
+# match the record is between two generations, or after an interrupted
+# publication, and is refused rather than served.
+#
+# `readerContract` is the runtime reader contract the deployed image
+# implements (`READER_CONTRACT` in fabric-tenant-runtime). A record whose
+# `minimum_reader_contract` is above it would be refused by that reader, so it
+# is refused here too. The record's `minimum_publisher_contract` is the
+# rollback floor (D01-21): `publicationContractVersion` below the held floor
+# is refused.
+publicationRecord:
+  document: tenants
+  key: publication.json
+  readerContract: 1
+
+# The consumer. The mount and config-key checks are about this one container.
+runtime:
+  deployment: saas-fabric
+  container: saas-fabric
+
+# `revision: roll-forward` is the only supported policy (D01-1, D01-27): a
+# document's manifest revision and every resource revision inside it only move
+# forward, and earlier content comes back as a new revision, never a reset.
+documents:
+  - document: tenants
+    configMap: fabric-runtime-tenants
+    owner: saas-fabric
+    shape: tenant-bindings
+    revision: roll-forward
+    payloadKey: tenants.json
+    manifestKey: tenants.manifest.json
+    configKey: tenants_path
+    mountPath: /etc/fabric/state/tenants
+
+  - document: data-sources
+    configMap: fabric-runtime-data-sources
+    owner: saas-fabric
+    shape: data-sources
+    revision: roll-forward
+    payloadKey: data-sources.json
+    manifestKey: data-sources.manifest.json
+    configKey: data_sources_path
+    mountPath: /etc/fabric/state/data-sources
+
+  - document: catalog
+    configMap: fabric-runtime-catalog
+    owner: saas-fabric
+    shape: resource-catalog
+    revision: roll-forward
+    payloadKey: catalog.json
+    manifestKey: catalog.manifest.json
+    configKey: catalog_path
+    mountPath: /etc/fabric/state/catalog
