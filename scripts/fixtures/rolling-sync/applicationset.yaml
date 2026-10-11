@@ -1,0 +1,158 @@
+# SYNTHETIC FIXTURE -- validated offline only, never applied.
+#
+# What the RollingSync candidate in docs/ordered-updates.md would look like for
+# the operator sign-in chain on LucentRoot. Nothing renders this file: no
+# kustomization lists it and no Application's source path reaches
+# scripts/ (scripts/test_ordering.py pins both). Adopting it is a gated
+# operational change; see that document's "Gated operational actions".
+#
+# It generates the three Applications that today are authored by hand under
+# applications/core/ and ordered by root sync waves 10, 30 and 40 -- ordering
+# that holds when LucentRoot is first brought up and not on an update
+# (platform #44). Here each is a RollingSync step, so step 3 waits for step 2
+# to be Healthy on every sync, including when step 2's convergence Job has
+# failed and left it Degraded.
+#
+# Keycloak (wave 20) stays outside the set: RollingSync orders only what one
+# ApplicationSet generates. The root would apply this object at wave 30, so
+# Keycloak precedes the whole set at creation and not on an update -- the same
+# creation-only property the chain has today.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: operator-sign-in
+  namespace: argocd
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+
+  generators:
+    - list:
+        # Each element carries its Application's own syncPolicy, exactly as
+        # applications/core/<name>/application.yaml declares it today less
+        # `automated` -- they differ (the credential skips dry-run for a CRD
+        # its own wave installs, and retries for longer), and folding them
+        # into one would change behaviour this candidate is not proposing to
+        # change.
+        elements:
+          - name: master-instance-credential
+            step: "1"
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+                - SkipDryRunOnMissingResource=true
+              managedNamespaceMetadata:
+                labels:
+                  fieldstate.nz/system: saas-fabric
+                  fieldstate.nz/layer: platform
+                  fieldstate.nz/plane: operator
+                  fieldstate.nz/operator-gateway-access: "true"
+              retry:
+                limit: 10
+                backoff:
+                  duration: 15s
+                  factor: 2
+                  maxDuration: 10m
+          # No `ApplyOutOfSyncOnly=true`, as today: the convergence Job
+          # re-runs only because every resource is re-applied on every sync
+          # (applications/core/master-instance/base/job.yaml).
+          - name: master-instance
+            step: "2"
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+              managedNamespaceMetadata:
+                labels:
+                  fieldstate.nz/system: saas-fabric
+                  fieldstate.nz/layer: platform
+                  fieldstate.nz/plane: operator
+                  fieldstate.nz/operator-gateway-access: "true"
+              retry:
+                limit: 5
+                backoff:
+                  duration: 10s
+                  factor: 2
+                  maxDuration: 5m
+          - name: saas-fabric-control-plane
+            step: "3"
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+              managedNamespaceMetadata:
+                labels:
+                  fieldstate.nz/system: saas-fabric
+                  fieldstate.nz/layer: platform
+                  fieldstate.nz/plane: operator
+                  fieldstate.nz/operator-gateway-access: "true"
+              retry:
+                limit: 5
+                backoff:
+                  duration: 10s
+                  factor: 2
+                  maxDuration: 5m
+
+  strategy:
+    type: RollingSync
+    rollingSync:
+      steps:
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "1"
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "2"
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "3"
+
+  syncPolicy:
+    # Deleting this ApplicationSet must not cascade into the workloads its
+    # Applications manage -- the same reason platform-root carries no
+    # resources-finalizer (docs/architecture.md#deletion-semantics).
+    preserveResourcesOnDeletion: true
+    # Removing an element must not delete an Application either; that stays a
+    # deliberate act.
+    applicationsSync: create-update
+
+  template:
+    metadata:
+      name: "{{.name}}"
+      namespace: argocd
+      labels:
+        fieldstate.nz/source: kustomize
+        fieldstate.nz/class: core
+        fieldstate.nz/rollout-step: "{{.step}}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: saas-fabric-platform
+
+      source:
+        repoURL: https://github.com/FieldstateNZ/saas-fabric-platform.git
+        targetRevision: main
+        path: "applications/core/{{.name}}/overlays/lucentroot"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: operator-system
+
+  # Each Application's syncPolicy, whole from its element: a list is replaced,
+  # not merged. No `automated` block, here or in any element -- under
+  # RollingSync the applicationset-controller disables each generated
+  # Application's automated sync and starts syncs itself, step by step.
+  templatePatch: |
+    spec:
+      syncPolicy: {{ toJson .syncPolicy }}
