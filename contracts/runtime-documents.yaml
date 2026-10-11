@@ -56,9 +56,16 @@ namespace: platform-system
 # its revision, and no entry may be lowered or dropped from the held record's
 # history, so a removed resource cannot be redeclared below a revision a
 # reader may still hold (D01-1).
+#
+# `registryKey` is the issuer registry (saas-fabric #140, `registry/`): a
+# fourth key of the tenants ConfigMap, present exactly when the record names
+# `registry: {generation, sha256}`. The sha256 is over the registry's exact
+# published bytes. Its generation rolls forward and is never reused for
+# different bytes, and once a registry is held it is never dropped.
 publicationRecord:
   document: tenants
   key: publication.json
+  registryKey: issuer-registry.json
   readerContract: 1
 
 # The consumer. The mount and config-key checks are about this one container.

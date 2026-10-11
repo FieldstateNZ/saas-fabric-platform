@@ -27,9 +27,12 @@ Four contracts, each from the D01 dispositions on saas-fabric #108:
     data source has exactly one serving composition, and only a `shared` one
     may be bound by a tenant other than that composition's client.
   * **Versioned registry handoff** (D01-4). Fabric produces one generation of
-    the issuer-to-tenant registry; platform composition applies it at the
-    edge. Every composition must state the registry generation it applied,
-    and a mismatch is refused. Fabric is never given a gateway object to
+    the issuer-to-tenant registry, published as `issuer-registry.json` in the
+    tenants ConfigMap and named by the publication record (saas-fabric #140)
+    with its generation and the sha256 of its exact bytes. Platform
+    composition applies it at the edge. Every composition must state the
+    registry generation it applied, and a mismatch is refused; the runtime's
+    `[identity].trusted_issuers` must equal the same generation. Fabric is never given a gateway object to
     write: the edge is platform-composed from the registry, not by Fabric.
   * **Readiness gating** (D01-18). Three gates -- documents, identity,
     connectors. Zero replicas is always a valid, explicit incomplete state;
@@ -44,7 +47,6 @@ A scenario directory holds:
   published.yaml         the fabric-runtime-* ConfigMaps as observed (may be
                          an empty list -- the awaiting state)
   held.yaml              the revisions and generations previously held
-  issuer-registry.json   Fabric's registry generation (absent until produced)
   compositions/*.yaml    one platform composition per client or instance
   runtime.yaml           the runtime Deployment and its config ConfigMap
 """
@@ -73,11 +75,16 @@ CONTRACT_KEYS = {
     "schemaVersion", "publicationContractVersion", "manifestContractVersions", "namespace", "publicationRecord",
     "runtime", "documents",
 }
-PUBLICATION_RECORD_CONTRACT_KEYS = {"document", "key", "readerContract"}
+PUBLICATION_RECORD_CONTRACT_KEYS = {"document", "key", "registryKey", "readerContract"}
 PUBLICATION_RECORD_FILE = "publication.json"
+ISSUER_REGISTRY_FILE = "issuer-registry.json"
+RECORDED_REGISTRY_KEYS = {"generation", "sha256"}
 PUBLICATION_RECORD_KEYS = {
     "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents", "resources",
 }
+# `registry` is present exactly when the generation carries an issuer
+# registry (saas-fabric #140): omitted, never null, until one is published.
+PUBLICATION_RECORD_OPTIONAL_KEYS = {"registry"}
 RESOURCE_HISTORY_KEYS = {"tenants", "data-sources"}
 RECORDED_DOCUMENT_KEYS = {"revision", "sha256"}
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
@@ -157,11 +164,6 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def canonical_registry_digest(registry: dict) -> str:
-    """The digest a held registry generation is compared by: key order and whitespace never count."""
-    return _digest(json.dumps(registry, sort_keys=True, separators=(",", ":")))
-
-
 # ---------------------------------------------------------------------------
 # The contract itself
 # ---------------------------------------------------------------------------
@@ -200,6 +202,8 @@ def contract_problems(contract) -> list[str]:
     else:
         if record["document"] != "tenants" or record["key"] != PUBLICATION_RECORD_FILE:
             problems.append(f"{where}: publicationRecord must be {PUBLICATION_RECORD_FILE} in the tenants document -- {UNSUPPORTED}")
+        if record["registryKey"] != ISSUER_REGISTRY_FILE:
+            problems.append(f"{where}: publicationRecord.registryKey must be {ISSUER_REGISTRY_FILE} -- {UNSUPPORTED}")
         if not _is_count(record["readerContract"], maximum=U32_MAX):
             problems.append(f"{where}: publicationRecord.readerContract must be a positive integer")
     runtime = contract["runtime"]
@@ -555,14 +559,23 @@ def held_problems(held) -> list[str]:
         problems.append(f"{where}: publication must be null or a generation, a sha256 and a minimumPublisherContract")
     registry = held["registry"]
     if registry is not None and (
-        not isinstance(registry, dict) or set(registry) != {"generation", "sha256"} or not _is_count(registry["generation"])
+        not isinstance(registry, dict)
+        or set(registry) != RECORDED_REGISTRY_KEYS
+        or not _is_count(registry["generation"])
+        or not isinstance(registry["sha256"], str)
+        or not SHA256_HEX.fullmatch(registry["sha256"])
     ):
-        problems.append(f"{where}: registry must be null or a generation and a sha256")
+        problems.append(f"{where}: registry must be null or a generation and a lowercase hex sha256")
     return problems
 
 
-def published_document_problems(contract: dict, configmaps, held: dict) -> tuple[list[str], dict[str, object], list[str]]:
-    """(refusals, payloads of the documents that are present and valid, documents absent).
+def published_document_problems(
+    contract: dict, configmaps, held: dict
+) -> tuple[list[str], dict[str, object], list[str], dict | None]:
+    """(refusals, payloads of the documents that are present and valid, documents absent, issuer registry).
+
+    The issuer registry is returned only when the record names it and its
+    published bytes match the record; otherwise it is None.
 
     An absent document is not a refusal here: zero replicas over absent
     documents is the explicit awaiting state. `evaluate` turns absence into a
@@ -573,11 +586,12 @@ def published_document_problems(contract: dict, configmaps, held: dict) -> tuple
     declared = _contract_documents(contract)
     by_name = {entry["configMap"]: name for name, entry in declared.items()}
     if not isinstance(configmaps, list):
-        return [f"published.yaml: must be a list of ConfigMaps -- {UNSUPPORTED}"], {}, sorted(declared)
+        return [f"published.yaml: must be a list of ConfigMaps -- {UNSUPPORTED}"], {}, sorted(declared), None
     seen: set[str] = set()
     texts: dict[str, object] = {}
     revisions: dict[str, int | None] = {}
     record_text = None
+    registry_text = None
     for configmap in configmaps:
         if not isinstance(configmap, dict) or configmap.get("kind") != "ConfigMap":
             problems.append(f"published.yaml: only ConfigMaps are modelled -- {UNSUPPORTED}")
@@ -607,16 +621,18 @@ def published_document_problems(contract: dict, configmaps, held: dict) -> tuple
             document_problems.append(f"{where}: binaryData -- {UNSUPPORTED}")
         data = configmap.get("data") or {}
         expected_keys = {entry["payloadKey"], entry["manifestKey"]}
+        optional_keys: set[str] = set()
         if name == contract["publicationRecord"]["document"]:
             expected_keys.add(contract["publicationRecord"]["key"])
-        if set(data) != expected_keys:
-            document_problems.append(
-                f"{where}: data keys must be exactly {', '.join(sorted(expected_keys))} -- {UNSUPPORTED}"
-            )
+            optional_keys.add(contract["publicationRecord"]["registryKey"])
+        if not expected_keys <= set(data) <= expected_keys | optional_keys:
+            allowed = ", ".join(sorted(expected_keys)) + "".join(f" (and optionally {k})" for k in sorted(optional_keys))
+            document_problems.append(f"{where}: data keys must be exactly {allowed} -- {UNSUPPORTED}")
             problems.extend(document_problems)
             continue
         if name == contract["publicationRecord"]["document"]:
             record_text = data[contract["publicationRecord"]["key"]]
+            registry_text = data.get(contract["publicationRecord"]["registryKey"])
         manifest_problems, revision = _manifest_problems(contract, name, data[entry["manifestKey"]], where)
         document_problems.extend(manifest_problems)
         text = data[entry["payloadKey"]]
@@ -667,13 +683,17 @@ def published_document_problems(contract: dict, configmaps, held: dict) -> tuple
                         f"published fabric-runtime-tenants: {binding['tenant']!r} binds {logical!r} to "
                         f"{entry['data_source']!r}, which fabric-runtime-data-sources does not declare"
                     )
+    registry = None
     if record_text is not None:
-        problems.extend(publication_record_problems(contract, record_text, texts, revisions, held))
+        record_problems, registry = publication_record_problems(contract, record_text, registry_text, texts, revisions, held)
+        problems.extend(record_problems)
     absent = sorted(name for name, entry in declared.items() if entry["configMap"] not in seen)
-    return problems, payloads, absent
+    return problems, payloads, absent, registry
 
 
-def publication_record_problems(contract: dict, text, texts: dict, revisions: dict, held: dict) -> list[str]:
+def publication_record_problems(
+    contract: dict, text, registry_text, texts: dict, revisions: dict, held: dict
+) -> tuple[list[str], dict | None]:
     """The generation `publication.json` names is complete, compatible and rolls forward.
 
     Every document must be present with exactly the revision and the bytes
@@ -687,9 +707,12 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
     except json.JSONDecodeError:
         record = None
     if not isinstance(record, dict):
-        return [f"{where}: not a JSON object -- {UNSUPPORTED}"]
-    if set(record) != PUBLICATION_RECORD_KEYS:
-        return [f"{where}: keys must be exactly {sorted(PUBLICATION_RECORD_KEYS)} -- {UNSUPPORTED}"]
+        return [f"{where}: not a JSON object -- {UNSUPPORTED}"], None
+    if not PUBLICATION_RECORD_KEYS <= set(record) <= PUBLICATION_RECORD_KEYS | PUBLICATION_RECORD_OPTIONAL_KEYS:
+        return [
+            f"{where}: keys must be exactly {sorted(PUBLICATION_RECORD_KEYS)}, and optionally "
+            f"{sorted(PUBLICATION_RECORD_OPTIONAL_KEYS)} -- {UNSUPPORTED}"
+        ], None
     problems = []
     publisher = contract["publicationContractVersion"]
     reader = contract["publicationRecord"]["readerContract"]
@@ -724,7 +747,7 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
         problems.append(f"{where}: generation must be a positive integer")
     documents = record["documents"]
     if not isinstance(documents, dict) or set(documents) != set(SHAPE_OF_DOCUMENT):
-        return problems + [f"{where}: documents must name exactly {sorted(SHAPE_OF_DOCUMENT)} -- {UNSUPPORTED}"]
+        return problems + [f"{where}: documents must name exactly {sorted(SHAPE_OF_DOCUMENT)} -- {UNSUPPORTED}"], None
     problems.extend(_resource_history_problems(record["resources"], texts, held, where))
     for name in sorted(SHAPE_OF_DOCUMENT):
         recorded = documents[name]
@@ -771,7 +794,60 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
                 )
             elif generation == held_publication["generation"] and _digest(text) != held_publication["sha256"]:
                 problems.append(f"{where}: generation {generation} is already held with a different record")
-    return problems
+    registry_problems_found, registry = _recorded_registry(record.get("registry", _ABSENT), registry_text, held, where)
+    problems.extend(registry_problems_found)
+    return problems, (registry if not problems else None)
+
+
+# `registry` is omitted, never null, while no registry is published, so an
+# explicit null is a shape no publisher writes.
+_ABSENT = object()
+
+
+def _recorded_registry(recorded, registry_text, held: dict, where: str) -> tuple[list[str], dict | None]:
+    """The issuer registry the record names (saas-fabric #140), checked against its exact published bytes.
+
+    `issuer-registry.json` is a key of the tenants ConfigMap exactly when the
+    record names `registry`; its sha256 over the published bytes must equal
+    the record's. Once a registry has been held it is never withdrawn: a
+    record without one over a held registry is refused.
+    """
+    key = ISSUER_REGISTRY_FILE
+    held_registry = held.get("registry")
+    if recorded is _ABSENT:
+        problems = []
+        if registry_text is not None:
+            problems.append(f"{where}: the tenants ConfigMap holds {key}, which the record does not name -- {UNSUPPORTED}")
+        if held_registry:
+            problems.append(
+                f"{where}: names no registry, and registry generation {held_registry['generation']} is held -- "
+                "an issuer is withdrawn by a generation that leaves it out, never by dropping the registry"
+            )
+        return problems, None
+    if (
+        not isinstance(recorded, dict)
+        or set(recorded) != RECORDED_REGISTRY_KEYS
+        or not _is_count(recorded["generation"])
+        or not isinstance(recorded["sha256"], str)
+        or not SHA256_HEX.fullmatch(recorded["sha256"])
+    ):
+        return [f"{where}: registry must be exactly a positive u64 generation and a lowercase hex sha256 -- {UNSUPPORTED}"], None
+    if registry_text is None:
+        return [f"{where}: names registry generation {recorded['generation']}, and the tenants ConfigMap holds no {key}"], None
+    if not isinstance(registry_text, str) or _digest(registry_text) != recorded["sha256"]:
+        return [
+            f"{where}: registry generation {recorded['generation']} names {key} bytes that are not the published "
+            "ones -- incomplete generation"
+        ], None
+    problems = registry_problems(registry_text, held)
+    registry = json.loads(registry_text) if not problems else None
+    if registry is not None and registry["generation"] != recorded["generation"]:
+        problems.append(
+            f"{key}: generation {registry['generation']}, and the publication record names generation "
+            f"{recorded['generation']}"
+        )
+        registry = None
+    return problems, registry
 
 
 def _resource_history_problems(history, texts: dict, held: dict, where: str) -> list[str]:
@@ -831,11 +907,25 @@ def _resource_history_problems(history, texts: dict, held: dict, where: str) -> 
 # Issuer registry and per-client composition
 # ---------------------------------------------------------------------------
 
-def registry_problems(registry, held: dict) -> list[str]:
-    where = "issuer-registry.json"
-    if not isinstance(registry, dict) or set(registry) != REGISTRY_KEYS or registry.get("schemaVersion") != 1:
-        return [f"{where}: keys must be exactly {sorted(REGISTRY_KEYS)} at schemaVersion 1 -- {UNSUPPORTED}"]
+def registry_problems(text, held: dict) -> list[str]:
+    """`issuer-registry.json` as the publisher writes it (saas-fabric #140), checked over its exact bytes.
+
+    Canonical: `schemaVersion` 1, a positive u64 `generation`, and `issuers`
+    sorted by issuer then tenant with no issuer twice. The generation rolls
+    forward against the held one and is never reused: the same generation
+    over different bytes is refused, so a changed registry must take a new
+    generation.
+    """
+    where = ISSUER_REGISTRY_FILE
+    try:
+        registry = json.loads(text) if isinstance(text, str) else None
+    except json.JSONDecodeError:
+        registry = None
+    if not isinstance(registry, dict) or set(registry) != REGISTRY_KEYS:
+        return [f"{where}: keys must be exactly {sorted(REGISTRY_KEYS)} -- {UNSUPPORTED}"]
     problems = []
+    if not _is_count(registry["schemaVersion"], maximum=U32_MAX) or registry["schemaVersion"] != 1:
+        problems.append(f"{where}: schemaVersion {registry['schemaVersion']!r} -- {UNSUPPORTED}")
     generation = registry["generation"]
     if not _is_count(generation):
         problems.append(f"{where}: generation must be a positive integer")
@@ -843,17 +933,24 @@ def registry_problems(registry, held: dict) -> list[str]:
     if not isinstance(issuers, list):
         return problems + [f"{where}: issuers must be a list -- {UNSUPPORTED}"]
     seen = set()
+    order = []
     for registration in issuers:
         if not isinstance(registration, dict) or set(registration) != REGISTRATION_KEYS:
             problems.append(f"{where}: a registration must be exactly {sorted(REGISTRATION_KEYS)} -- {UNSUPPORTED}")
             continue
-        if not isinstance(registration["issuer"], str) or not ISSUER.fullmatch(registration["issuer"]):
-            problems.append(f"{where}: issuer {registration['issuer']!r} is not https://<host>/realms/<realm>")
-        if not isinstance(registration["tenant"], str) or not TENANT_ID.fullmatch(registration["tenant"]):
-            problems.append(f"{where}: tenant {registration['tenant']!r} is not a tenant id")
-        if registration["issuer"] in seen:
-            problems.append(f"{where}: issuer {registration['issuer']!r} registered twice -- which wins would depend on order")
-        seen.add(registration["issuer"])
+        issuer, tenant = registration["issuer"], registration["tenant"]
+        if not isinstance(issuer, str) or not ISSUER.fullmatch(issuer):
+            problems.append(f"{where}: issuer {issuer!r} is not https://<host>[:<port>]/realms/<realm>")
+            continue
+        if not isinstance(tenant, str) or not TENANT_ID.fullmatch(tenant):
+            problems.append(f"{where}: tenant {tenant!r} is not a tenant id")
+            continue
+        if issuer in seen:
+            problems.append(f"{where}: issuer {issuer!r} registered twice -- which wins would depend on order")
+        seen.add(issuer)
+        order.append((issuer, tenant))
+    if not problems and order != sorted(order):
+        problems.append(f"{where}: issuers are not in the publisher's canonical order (issuer, then tenant) -- {UNSUPPORTED}")
     held_registry = held.get("registry")
     if held_registry and _is_count(generation):
         if generation < held_registry["generation"]:
@@ -861,8 +958,11 @@ def registry_problems(registry, held: dict) -> list[str]:
                 f"{where}: generation {generation} regresses held generation {held_registry['generation']} -- "
                 "the registry rolls forward only"
             )
-        elif generation == held_registry["generation"] and canonical_registry_digest(registry) != held_registry["sha256"]:
-            problems.append(f"{where}: generation {generation} is already held with different registrations")
+        elif generation == held_registry["generation"] and _digest(text) != held_registry["sha256"]:
+            problems.append(
+                f"{where}: generation {generation} is already held with different bytes -- a changed registry "
+                "takes a new generation, never a reused one"
+            )
     return problems
 
 
@@ -971,11 +1071,9 @@ def _load(path: Path, problems: list[str]):
 
 def load_scenario(directory: Path) -> dict:
     problems: list[str] = []
-    registry_path = directory / "issuer-registry.json"
     scenario = {
         "published": _load(directory / "published.yaml", problems),
         "held": _load(directory / "held.yaml", problems),
-        "registry": _load(registry_path, problems) if registry_path.exists() else None,
         "compositions": {
             path.name: _load(path, problems) for path in sorted((directory / "compositions").glob("*.yaml"))
         },
@@ -1009,26 +1107,20 @@ def evaluate(contract: dict, scenario: dict) -> Evaluation:
     config, refusal = runtime_config(contract, runtime)
     config = config or {}
 
-    document_problems, payloads, absent = published_document_problems(contract, scenario["published"], held)
+    document_problems, payloads, absent, registry = published_document_problems(contract, scenario["published"], held)
     problems.extend(document_problems)
     for name in absent:
         unmet["documents"].append(f"missing required document {name} ({_contract_documents(contract)[name]['configMap']})")
     if document_problems:
         unmet["documents"].append("a published document is refused")
 
-    registry = scenario["registry"]
     registrations: dict[str, str] | None = None
     if registry is None:
-        unmet["identity"].append("Fabric has not produced an issuer registry generation")
+        unmet["identity"].append("Fabric has not published a valid issuer registry generation")
     else:
-        refused = registry_problems(registry, held)
-        problems.extend(refused)
-        if refused:
-            unmet["identity"].append("the issuer registry is refused")
-        else:
-            registrations = {r["issuer"]: r["tenant"] for r in registry["issuers"]}
-            if not registrations:
-                unmet["identity"].append("the issuer registry names no issuer")
+        registrations = {r["issuer"]: r["tenant"] for r in registry["issuers"]}
+        if not registrations:
+            unmet["identity"].append("the issuer registry names no issuer")
 
     compositions = {}
     for name, composition in scenario["compositions"].items():

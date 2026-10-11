@@ -5,7 +5,9 @@
 # in this generation (saas-fabric #136), the highest revision each resource was
 # ever published at (saas-fabric #138), and contract 2 as the publisher's
 # rollback floor (saas-fabric #139). A manifest keeps the contract it was
-# written at until its document changes.
+# written at until its document changes. issuer-registry.json is the issuer
+# registry generation the record names with the sha256 of these exact bytes
+# (saas-fabric #140).
 - apiVersion: v1
   kind: ConfigMap
   metadata:
@@ -78,7 +80,26 @@
             "alpha-primary": 2,
             "beta-primary": 1
           }
+        },
+        "registry": {
+          "generation": 2,
+          "sha256": "4d32b61d4fb355b1d0ba06492aac484aad06b543b77c47409f1715799e8346ca"
         }
+      }
+    issuer-registry.json: |
+      {
+        "schemaVersion": 1,
+        "generation": 2,
+        "issuers": [
+          {
+            "issuer": "https://identity.example.invalid/realms/alpha",
+            "tenant": "alpha"
+          },
+          {
+            "issuer": "https://identity.example.invalid/realms/beta",
+            "tenant": "beta"
+          }
+        ]
       }
 - apiVersion: v1
   kind: ConfigMap

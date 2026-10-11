@@ -31,16 +31,16 @@ by itself; that is a deliberate operator action (D01-18).
   (saas-fabric #138). The record states contract 2 as its publisher's
   rollback floor (saas-fabric #139). `ready-at-zero` is the #139 publisher's
   first pass over a held contract-1 record: the data-sources manifest is
-  unchanged since contract 1 and still says 1.
+  unchanged since contract 1 and still says 1. The tenants ConfigMap also holds
+  `issuer-registry.json`, the issuer-to-tenant registry generation (D01-4,
+  saas-fabric #140), which the record names with its generation and the
+  sha256 of its exact bytes.
 - `held.yaml`: the document revisions, resource revisions, publication
-  generation (with its rollback floor) and registry generation held before
+  generation (with its rollback floor) and registry generation and sha256 held before
   this publication, with a sha256 of each held payload. Its `resources` is the
   held record's resource history, which the new record may raise but never
   lower or drop.
   Revisions only roll forward (D01-1, D01-27).
-- `issuer-registry.json`: the issuer-to-tenant registry generation that Fabric
-  would produce (D01-4). This shape is a proposal: Fabric does not publish a
-  registry yet.
 - `compositions/<client>.yaml`: the platform composition for one client or
   instance (D01-3). It holds the namespace, the database, the connector
   processes, and the issuer plus registry generation that its edge applies.

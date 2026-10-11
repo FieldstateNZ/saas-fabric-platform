@@ -69,6 +69,23 @@ def set_record(loaded: dict, value) -> None:
     published(loaded, "tenants")["data"]["publication.json"] = text
 
 
+def registry(loaded: dict) -> dict:
+    return json.loads(published(loaded, "tenants")["data"]["issuer-registry.json"])
+
+
+def set_registry(loaded: dict, value) -> None:
+    """Publish `value` as issuer-registry.json and name its exact bytes in the record, as the publisher does."""
+    text = value if isinstance(value, str) else json.dumps(value, indent=2) + "\n"
+    published(loaded, "tenants")["data"]["issuer-registry.json"] = text
+    current = record(loaded)
+    try:
+        generation = json.loads(text)["generation"]
+    except (ValueError, KeyError, TypeError):
+        generation = current["registry"]["generation"]
+    current["registry"] = {"generation": generation, "sha256": hashlib.sha256(text.encode()).hexdigest()}
+    set_record(loaded, current)
+
+
 def restamp(loaded: dict) -> None:
     """Rewrite publication.json the way the publisher does after a change.
 
@@ -213,9 +230,12 @@ class Inert(Assertions):
         self.assertEqual(problems, [])
 
     def test_fixture_issuers_use_a_reserved_host(self) -> None:
-        for path in FIXTURES.rglob("issuer-registry.json"):
-            for registration in json.loads(path.read_text())["issuers"]:
+        found = 0
+        for name in ("ready-at-zero", "activated"):
+            for registration in registry(scenario(name))["issuers"]:
+                found += 1
                 self.assertTrue(registration["issuer"].startswith("https://identity.example.invalid/"))
+        self.assertTrue(found)
 
 
 class Contract(Assertions):
@@ -417,12 +437,13 @@ class PublicationRecord(Assertions):
     def test_the_publisher_shaped_tenants_configmap_passes(self) -> None:
         loaded = scenario("activated")
         tenants = published(loaded, "tenants")
-        self.assertEqual(set(tenants["data"]), {"tenants.json", "tenants.manifest.json", "publication.json"})
+        self.assertEqual(
+            set(tenants["data"]), {"tenants.json", "tenants.manifest.json", "publication.json", "issuer-registry.json"})
         text = tenants["data"]["publication.json"]
         current = json.loads(text)
         self.assertEqual(list(current), [
             "contract_version", "minimum_reader_contract", "minimum_publisher_contract", "generation", "documents",
-            "resources",
+            "resources", "registry",
         ])
         self.assertEqual(list(current["resources"]), ["tenants", "data-sources"])
         self.assertEqual(current["resources"]["tenants"], {"alpha": 3, "beta": 1})
@@ -744,9 +765,11 @@ class ExactValues(Assertions):
 
     def test_a_registry_issuer_with_a_trailing_newline_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"][1]["issuer"] += "\n"
+        changed = registry(loaded)
+        changed["issuers"][1]["issuer"] += "\n"
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
-        self.assertRefused(evaluate(loaded), "is not https://<host>/realms/<realm>")
+        self.assertRefused(evaluate(loaded), "is not https://<host>[:<port>]/realms/<realm>")
 
     def test_a_composition_client_with_a_trailing_newline_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
@@ -851,6 +874,165 @@ class PublisherContractTwo(Assertions):
                 contract["manifestContractVersions"] = versions
                 problems = runtime_contract.contract_problems(contract)
                 self.assertTrue(any("manifestContractVersions" in p for p in problems), problems)
+
+
+class IssuerRegistryInTheRecord(Assertions):
+    """saas-fabric #140: issuer-registry.json in the tenants ConfigMap, named by the record over its exact bytes."""
+
+    def without_registry(self, loaded: dict) -> None:
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        current = record(loaded)
+        del current["registry"]
+        set_record(loaded, current)
+
+    def test_the_publisher_shaped_registry_passes(self) -> None:
+        loaded = scenario("activated")
+        text = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        document = json.loads(text)
+        self.assertEqual(list(document), ["schemaVersion", "generation", "issuers"])
+        self.assertEqual(text, json.dumps(document, indent=2) + "\n")
+        self.assertEqual(
+            [(r["issuer"], r["tenant"]) for r in document["issuers"]],
+            sorted((r["issuer"], r["tenant"]) for r in document["issuers"]),
+        )
+        self.assertEqual(
+            record(loaded)["registry"],
+            {"generation": document["generation"], "sha256": hashlib.sha256(text.encode()).hexdigest()},
+        )
+        self.assertClean(evaluate(loaded))
+
+    def test_a_record_naming_a_registry_the_configmap_lacks_is_refused(self) -> None:
+        loaded = scenario("activated")
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        self.assertRefused(evaluate(loaded), "names registry generation 2, and the tenants ConfigMap holds no issuer-registry.json")
+
+    def test_a_registry_the_record_does_not_name_is_unsupported(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["held"]["registry"] = None
+        current = record(loaded)
+        del current["registry"]
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "holds issuer-registry.json, which the record does not name")
+
+    def test_the_registry_key_on_another_document_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        published(loaded, "catalog")["data"]["issuer-registry.json"] = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        self.assertRefused(evaluate(loaded), "data keys must be exactly catalog.json, catalog.manifest.json --")
+
+    def test_registry_bytes_that_differ_from_the_record_are_an_incomplete_generation(self) -> None:
+        loaded = scenario("activated")
+        text = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        published(loaded, "tenants")["data"]["issuer-registry.json"] = json.dumps(json.loads(text)) + "\n"
+        self.assertRefused(evaluate(loaded), "registry generation 2 names issuer-registry.json bytes that are not the published ones")
+
+    def test_a_record_generation_that_differs_from_the_registry_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["registry"]["generation"] = 3
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "issuer-registry.json: generation 2, and the publication record names generation 3")
+
+    def test_a_changed_registry_reusing_the_held_generation_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["registry"] = {"generation": 2, "sha256": "0" * 64}
+        self.assertRefused(evaluate(loaded), "generation 2 is already held with different bytes -- a changed registry takes a new generation")
+
+    def test_the_held_registry_republished_unchanged_passes(self) -> None:
+        loaded = scenario("activated")
+        text = published(loaded, "tenants")["data"]["issuer-registry.json"]
+        loaded["held"]["registry"] = {"generation": 2, "sha256": hashlib.sha256(text.encode()).hexdigest()}
+        self.assertClean(evaluate(loaded))
+
+    def test_a_registry_generation_regression_is_refused(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["registry"]["generation"] = 5
+        self.assertRefused(evaluate(loaded), "issuer-registry.json: generation 2 regresses held generation 5")
+
+    def test_a_held_registry_cannot_be_withdrawn(self) -> None:
+        loaded = scenario("activated")
+        self.without_registry(loaded)
+        self.assertRefused(evaluate(loaded), "names no registry, and registry generation 1 is held")
+
+    def test_no_registry_ever_published_leaves_identity_unmet_at_zero(self) -> None:
+        loaded = scenario("ready-at-zero")
+        loaded["held"]["registry"] = None
+        self.without_registry(loaded)
+        result = evaluate(loaded)
+        self.assertClean(result)
+        self.assertIn("Fabric has not published a valid issuer registry generation", result.unmet["identity"])
+
+    def test_a_malformed_recorded_registry_is_unsupported(self) -> None:
+        for value in (
+            {"generation": 0, "sha256": "0" * 64},
+            {"generation": 2**64, "sha256": "0" * 64},
+            {"generation": True, "sha256": "0" * 64},
+            {"generation": 2, "sha256": "A" * 64},
+            {"generation": 2, "sha256": "0" * 64 + "\n"},
+            {"generation": 2, "sha256": "0" * 64, "issuers": 2},
+            None,
+        ):
+            with self.subTest(value=value):
+                loaded = scenario("activated")
+                current = record(loaded)
+                current["registry"] = value
+                set_record(loaded, current)
+                self.assertRefused(evaluate(loaded), "registry must be exactly a positive u64 generation and a lowercase hex sha256")
+
+    def test_registry_generations_are_u64(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["generation"] = 2**64
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "registry must be exactly a positive u64 generation")
+
+    def test_a_u64_max_registry_generation_applied_at_every_edge_passes(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["generation"] = U64_MAX
+        set_registry(loaded, changed)
+        for composition in loaded["compositions"].values():
+            composition["edge"]["registryGeneration"] = U64_MAX
+        self.assertClean(evaluate(loaded))
+
+    def test_a_new_registry_generation_the_edge_has_not_applied_is_refused(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["generation"] = 3
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "edge applies registry generation 2, Fabric's registry is at 3")
+
+    def test_registrations_out_of_canonical_order_are_unsupported(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["issuers"].reverse()
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "issuers are not in the publisher's canonical order")
+
+    def test_a_boolean_registry_schema_version_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["schemaVersion"] = True
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "issuer-registry.json: schemaVersion True")
+
+    def test_an_issuer_with_a_path_after_the_realm_is_refused(self) -> None:
+        loaded = scenario("activated")
+        changed = registry(loaded)
+        changed["issuers"][0]["issuer"] += "/account"
+        set_registry(loaded, changed)
+        self.assertRefused(evaluate(loaded), "is not https://<host>[:<port>]/realms/<realm>")
+
+    def test_a_held_registry_digest_that_is_not_hex_is_unsupported(self) -> None:
+        loaded = scenario("activated")
+        loaded["held"]["registry"]["sha256"] = "not-a-digest"
+        self.assertRefused(evaluate(loaded), "registry must be null or a generation and a lowercase hex sha256")
+
+    def test_the_contract_names_the_registry_key(self) -> None:
+        self.assertEqual(CONTRACT["publicationRecord"]["registryKey"], "issuer-registry.json")
+        contract = copy.deepcopy(CONTRACT)
+        contract["publicationRecord"]["registryKey"] = "registry.json"
+        problems = runtime_contract.contract_problems(contract)
+        self.assertTrue(any("registryKey must be issuer-registry.json" in p for p in problems), problems)
 
 
 class Placement(Assertions):
@@ -1082,13 +1264,17 @@ class RegistryHandoff(Assertions):
 
     def test_an_edge_admitting_an_unregistered_issuer_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"] = loaded["registry"]["issuers"][:1]
+        changed = registry(loaded)
+        changed["issuers"] = changed["issuers"][:1]
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
         self.assertRefused(evaluate(loaded), "edge admits https://identity.example.invalid/realms/beta")
 
     def test_an_issuer_bound_to_another_tenant_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"][1]["tenant"] = "alpha"
+        changed = registry(loaded)
+        changed["issuers"][1]["tenant"] = "alpha"
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
         self.assertRefused(evaluate(loaded), "client 'beta' admits", "which the registry binds to tenant 'alpha'")
 
@@ -1109,11 +1295,13 @@ class RegistryHandoff(Assertions):
     def test_changing_a_held_generation_in_place_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
         loaded["held"]["registry"]["generation"] = 2
-        self.assertRefused(evaluate(loaded), "generation 2 is already held with different registrations")
+        self.assertRefused(evaluate(loaded), "generation 2 is already held with different bytes")
 
     def test_an_issuer_registered_twice_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["issuers"].append(dict(loaded["registry"]["issuers"][0]))
+        changed = registry(loaded)
+        changed["issuers"].append(dict(changed["issuers"][0]))
+        set_registry(loaded, changed)
         self.assertRefused(evaluate(loaded), "registered twice")
 
     def test_a_registry_tenant_the_tenants_document_does_not_bind_is_refused(self) -> None:
@@ -1130,14 +1318,20 @@ class RegistryHandoff(Assertions):
 
     def test_an_unmodelled_registry_field_is_unsupported(self) -> None:
         loaded = scenario("ready-at-zero")
-        loaded["registry"]["audience"] = "saas-fabric"
+        changed = registry(loaded)
+        changed["audience"] = "saas-fabric"
+        set_registry(loaded, changed)
         self.assertRefused(evaluate(loaded), "issuer-registry.json: keys must be exactly")
 
     def test_no_registry_with_replicas_is_refused(self) -> None:
         loaded = scenario("activated")
-        loaded["registry"] = None
+        del published(loaded, "tenants")["data"]["issuer-registry.json"]
+        current = record(loaded)
+        del current["registry"]
+        set_record(loaded, current)
+        loaded["held"]["registry"] = None
         self.assertRefused(
-            evaluate(loaded), "identity gate is unmet: Fabric has not produced an issuer registry generation")
+            evaluate(loaded), "identity gate is unmet: Fabric has not published a valid issuer registry generation")
 
 
 class Readiness(Assertions):
@@ -1175,7 +1369,9 @@ class Readiness(Assertions):
     def test_activation_with_a_connector_nothing_composes_is_refused(self) -> None:
         loaded = scenario("activated")
         del loaded["compositions"]["beta.yaml"]
-        loaded["registry"]["issuers"] = loaded["registry"]["issuers"][:1]
+        changed = registry(loaded)
+        changed["issuers"] = changed["issuers"][:1]
+        set_registry(loaded, changed)
         loaded["held"]["registry"] = None
         self.assertRefused(evaluate(loaded), "connector 'postgres-beta' is configured but no composition deploys it")
 
