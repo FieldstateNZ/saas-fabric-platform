@@ -33,6 +33,7 @@ verification can establish.
 """
 from __future__ import annotations
 
+import copy
 import posixpath
 import sys
 import tempfile
@@ -309,6 +310,63 @@ class Model(unittest.TestCase):
         (generated,) = ordering.generate(document)
         self.assertEqual(generated["spec"]["syncPolicy"], {"syncOptions": ["Validate=false"], "retry": {"limit": 5}})
 
+    def test_a_step_capacity_other_than_the_default_is_reported(self):
+        # 0 leaves the step for a person to sync by hand upstream; an integer
+        # or a smaller percentage syncs only part of the step at a time. None
+        # of that is what may_sync's step rule describes.
+        for capacity in (0, 1, 2, "0%", "50%", "99%"):
+            with self.subTest(maxUpdate=capacity):
+                document = rolling_set([("a", "1"), ("b", "2")], [["1"], ["2"]])
+                document["spec"]["strategy"]["rollingSync"]["steps"][1]["maxUpdate"] = capacity
+                wiring = ordering.read_wiring([argocd_cm(), cmd_params(progressive=True), document], [argocd_cm()])
+                self.assertIn("chain", wiring.unmodelled)
+                self.assertIn("maxUpdate", wiring.unmodelled["chain"])
+                self.assertEqual(wiring.rolling_sets, {})
+
+    def test_the_default_step_capacity_is_modelled(self):
+        document = rolling_set([("a", "1"), ("b", "2")], [["1"], ["2"]])
+        for step in document["spec"]["strategy"]["rollingSync"]["steps"]:
+            step["maxUpdate"] = ordering.DEFAULT_MAX_UPDATE
+        wiring = ordering.read_wiring([argocd_cm(), cmd_params(progressive=True), document], [argocd_cm()])
+        self.assertEqual(wiring.unmodelled, {})
+        self.assertTrue(ordering.guarantee(wiring, "a", "b").update)
+
+    def test_unmodelled_strategy_shapes_are_reported(self):
+        def deletion_order(strategy):
+            strategy["deletionOrder"] = "Reverse"
+
+        def unknown_type(strategy):
+            strategy["type"] = "Canary"
+
+        def unknown_rolling_key(strategy):
+            strategy["rollingSync"]["pause"] = True
+
+        def no_steps(strategy):
+            strategy["rollingSync"]["steps"] = []
+
+        def unknown_step_key(strategy):
+            strategy["rollingSync"]["steps"][0]["pause"] = True
+
+        def empty_selector(strategy):
+            strategy["rollingSync"]["steps"][0]["matchExpressions"] = []
+
+        def unknown_expression_key(strategy):
+            strategy["rollingSync"]["steps"][0]["matchExpressions"][0]["valuesFrom"] = "x"
+
+        def rolling_sync_without_its_type(strategy):
+            strategy["type"] = "AllAtOnce"
+
+        for mutate in (
+            deletion_order, unknown_type, unknown_rolling_key, no_steps,
+            unknown_step_key, empty_selector, unknown_expression_key, rolling_sync_without_its_type,
+        ):
+            with self.subTest(shape=mutate.__name__):
+                document = rolling_set([("a", "1")], [["1"]])
+                mutate(document["spec"]["strategy"])
+                wiring = ordering.read_wiring([argocd_cm(), document], [argocd_cm()])
+                self.assertIn("chain", wiring.unmodelled)
+                self.assertEqual(wiring.rolling_sets, {})
+
     def test_an_unmodelled_selector_operator_is_reported(self):
         document = rolling_set([("a", "1")], [["1"]])
         document["spec"]["strategy"]["rollingSync"]["steps"][0]["matchExpressions"][0]["operator"] = "Exists"
@@ -452,6 +510,29 @@ class RollingSyncFixture(unittest.TestCase):
             fixture_wiring(), "saas-fabric-control-plane", health, {"saas-fabric-control-plane"},
         ))
 
+    def test_a_zero_capacity_control_plane_step_is_not_modelled(self):
+        # Review 5484630763: maxUpdate 0 on the control plane's step used to
+        # read as modelled, and may_sync let the control plane through once
+        # master-instance was Healthy. Upstream syncs nothing in that step.
+        document = copy.deepcopy(self.application_set)
+        document["spec"]["strategy"]["rollingSync"]["steps"][2]["maxUpdate"] = 0
+        wiring = ordering.read_wiring(
+            [argocd_cm(), cmd_params(progressive=True), application("keycloak", 20), document],
+            [argocd_cm()],
+        )
+        self.assertIn("operator-sign-in", wiring.unmodelled)
+        self.assertNotIn("operator-sign-in", wiring.rolling_sets)
+        health = {name: ordering.HEALTHY for name in CHAIN}
+        with self.assertRaises(ordering.NotModelled) as refused:
+            ordering.may_sync(wiring, "saas-fabric-control-plane", health, {"saas-fabric-control-plane"})
+        self.assertIn("operator-sign-in", str(refused.exception))
+        with self.assertRaises(ordering.NotModelled):
+            ordering.guarantee(wiring, "master-instance", "saas-fabric-control-plane")
+
+    def test_the_fixture_declares_no_step_capacity(self):
+        for step in self.application_set["spec"]["strategy"]["rollingSync"]["steps"]:
+            self.assertNotIn("maxUpdate", step)
+
     def test_without_the_flag_it_orders_nothing(self):
         verdict = ordering.guarantee(fixture_wiring(progressive=False), "master-instance", "saas-fabric-control-plane")
         self.assertFalse(verdict.update)
@@ -562,6 +643,15 @@ class RecordedOrdering(unittest.TestCase):
         problems = recorded_problems(platform, current_bootstrap())
         self.assertTrue(
             any("master-instance -> saas-fabric-control-plane is not ordered at creation" in p for p in problems),
+            problems,
+        )
+
+    def test_a_zero_capacity_step_fails_the_record(self):
+        document = load(FIXTURES / "applicationset.yaml")[0]
+        document["spec"]["strategy"]["rollingSync"]["steps"][2]["maxUpdate"] = 0
+        problems = recorded_problems(current_platform() + [document], current_bootstrap())
+        self.assertTrue(
+            any("operator-sign-in cannot be read for ordering" in p and "maxUpdate" in p for p in problems),
             problems,
         )
 

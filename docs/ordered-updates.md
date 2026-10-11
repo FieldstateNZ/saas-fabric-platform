@@ -171,8 +171,13 @@ The scenarios below are pinned in `RollingSyncFixture`:
   in the chain.
 - **Production.** Production runs no `master-instance`, and its control plane
   stays a hand-written Application.
-- **Anything within a step.** Each step holds one Application, so `maxUpdate`
-  has nothing to limit.
+- **Any other step capacity.** The fixture leaves `maxUpdate` at its default,
+  `100%`. That is the only capacity the model reads. A step with
+  `maxUpdate: 0` is never synced by the controller: upstream leaves it for a
+  person to sync by hand. Any integer, or any other percentage, syncs only part
+  of a step at a time. The model reports each of these as unmodelled rather
+  than answering for it, and so does any strategy key it does not read, such as
+  `deletionOrder`. Section 21 then fails.
 
 ---
 

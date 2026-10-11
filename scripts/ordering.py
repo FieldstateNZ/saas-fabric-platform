@@ -30,6 +30,11 @@ controller. It encodes three mechanisms and nothing else:
      only while the applicationset-controller runs with progressive syncs
      enabled. Generated Applications have their own automated sync disabled
      by the controller; one selected by no step is never synced by it.
+     Only the step shape that rule describes is modelled: a non-empty
+     `matchExpressions` per step and `maxUpdate` absent or at its documented
+     default of 100%. Any other capacity -- `0`, which upstream leaves for a
+     person to sync by hand, an integer, or any other percentage -- and any
+     strategy key this model does not read is reported as unmodelled.
   3. Nothing else orders anything. Two Applications in one wave race, and a
      manually synced Application is ordered by whoever presses sync.
 
@@ -51,6 +56,10 @@ PROGRESSIVE_SYNCS_KEY = "applicationsetcontroller.enable.progressive.syncs"
 ROOT_APPLICATION = "platform-root"
 
 HEALTHY = "Healthy"
+
+
+class NotModelled(LookupError):
+    """The model makes no claim about this Application."""
 
 
 @dataclass(frozen=True)
@@ -140,6 +149,52 @@ def _matches(labels: dict[str, str], expressions: list[dict]) -> bool:
     return True
 
 
+# Upstream's default capacity for a step: every Application it selects.
+DEFAULT_MAX_UPDATE = "100%"
+STRATEGY_KEYS = {"type", "rollingSync"}
+STRATEGY_TYPES = ("AllAtOnce", "RollingSync")
+ROLLING_SYNC_KEYS = {"steps"}
+STEP_KEYS = {"matchExpressions", "maxUpdate"}
+EXPRESSION_KEYS = {"key", "operator", "values"}
+
+
+def _check_strategy(strategy: dict) -> None:
+    """Raise for any strategy shape `may_sync`'s step rule does not describe."""
+    unknown = set(strategy) - STRATEGY_KEYS
+    if unknown:
+        raise ValueError(f"strategy.{sorted(unknown)[0]} is not modelled")
+    kind = strategy.get("type", "AllAtOnce")
+    if kind not in STRATEGY_TYPES:
+        raise ValueError(f"strategy.type {kind!r} is not modelled")
+    if kind != "RollingSync":
+        if "rollingSync" in strategy:
+            raise ValueError("strategy.rollingSync without type RollingSync is not modelled")
+        return
+    rolling = strategy.get("rollingSync") or {}
+    unknown = set(rolling) - ROLLING_SYNC_KEYS
+    if unknown:
+        raise ValueError(f"rollingSync.{sorted(unknown)[0]} is not modelled")
+    steps = rolling.get("steps") or []
+    if not steps:
+        raise ValueError("a RollingSync strategy with no steps is not modelled")
+    for number, step in enumerate(steps, start=1):
+        unknown = set(step) - STEP_KEYS
+        if unknown:
+            raise ValueError(f"step {number}: {sorted(unknown)[0]} is not modelled")
+        if "maxUpdate" in step and step["maxUpdate"] != DEFAULT_MAX_UPDATE:
+            raise ValueError(
+                f"step {number}: maxUpdate {step['maxUpdate']!r} is not modelled;"
+                f" only the default {DEFAULT_MAX_UPDATE!r} is"
+            )
+        expressions = step.get("matchExpressions") or []
+        if not expressions:
+            raise ValueError(f"step {number}: a step with no matchExpressions is not modelled")
+        for expression in expressions:
+            unknown = set(expression) - EXPRESSION_KEYS
+            if unknown:
+                raise ValueError(f"step {number}: matchExpressions.{sorted(unknown)[0]} is not modelled")
+
+
 _TO_JSON = re.compile(r"\{\{-?\s*toJson\s+\.(\w+)\s*-?\}\}")
 
 
@@ -191,6 +246,7 @@ def _read_application_set(document: dict, wiring: Wiring) -> None:
     name = document["metadata"]["name"]
     strategy = (document["spec"].get("strategy") or {})
     try:
+        _check_strategy(strategy)
         generated = generate(document)
     except (ValueError, KeyError) as error:
         wiring.unmodelled[name] = str(error)
@@ -216,7 +272,7 @@ def _read_application_set(document: dict, wiring: Wiring) -> None:
         steps = tuple(
             frozenset(
                 child for child in names
-                if _matches(wiring.children[child].labels, step.get("matchExpressions") or [])
+                if _matches(wiring.children[child].labels, step["matchExpressions"])
             )
             for step in (strategy.get("rollingSync") or {}).get("steps") or []
         )
@@ -258,6 +314,16 @@ def read_wiring(platform: list[dict], bootstrap: list[dict]) -> Wiring:
         elif kind == "ApplicationSet":
             _read_application_set(document, wiring)
     return wiring
+
+
+def _child(wiring: Wiring, application: str) -> Child:
+    if application in wiring.children:
+        return wiring.children[application]
+    suffix = (
+        f"; unmodelled ApplicationSets: {', '.join(sorted(wiring.unmodelled))}"
+        if wiring.unmodelled else ""
+    )
+    raise NotModelled(f"{application} is not an Application this model can read{suffix}")
 
 
 def _rolling_set(wiring: Wiring, child: Child) -> RollingSet | None:
@@ -337,7 +403,7 @@ def _update(wiring: Wiring, before: Child, after: Child) -> tuple[bool, str]:
 
 
 def guarantee(wiring: Wiring, before: str, after: str) -> Guarantee:
-    first, second = wiring.children[before], wiring.children[after]
+    first, second = _child(wiring, before), _child(wiring, after)
     create, create_because = _creation(wiring, first, second)
     update, update_because = _update(wiring, first, second)
     return Guarantee(create, update, create_because, update_because)
@@ -349,11 +415,13 @@ def may_sync(wiring: Wiring, application: str, health: dict[str, str], out_of_sy
     `health` maps Application name to its health status (Healthy, Progressing,
     Degraded, Missing ...); `out_of_sync` names the ones whose live state
     differs from Git. Applies only to an environment that already exists --
-    the root's waves are not running.
+    the root's waves are not running. Raises NotModelled for an Application
+    the model cannot read, including every Application of an unmodelled
+    ApplicationSet, rather than answering for it.
     """
+    child = _child(wiring, application)
     if application not in out_of_sync:
         return False
-    child = wiring.children[application]
     rolling = _rolling_set(wiring, child)
     if rolling is not None and wiring.progressive_syncs:
         step = rolling.step_of(application)
