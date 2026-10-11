@@ -44,7 +44,12 @@ Checks, in order of how much damage they prevent:
      data source;
  20. no rendered manifest declares a `fabric-runtime-*` ConfigMap in
      `platform-system` -- the runtime publisher owns those, and Git must not
-     be able to revert a publication (ADR 0023 §4, application repository).
+     be able to revert a publication (ADR 0023 §4, application repository);
+ 21. the runtime Deployment reads each required runtime document from the
+     ConfigMap, mount path and config key `contracts/runtime-documents.yaml`
+     declares, and stays at zero replicas while its own configuration has no
+     connector or no issuer registry -- scaling cannot supply an absent input
+     (D01-18; scripts/runtime_contract.py holds the full readiness model).
 """
 from __future__ import annotations
 
@@ -57,6 +62,8 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+
+import runtime_contract
 
 ENVIRONMENTS = ("lucentroot", "production")
 
@@ -3577,6 +3584,31 @@ def _check_runtime_document_path(
         fail(problems, f"{where}: {key} = {value!r}: {document_dirs[posixpath.dirname(value)]}")
 
 
+def check_runtime_document_contract(render: Path, problems: list[str]) -> None:
+    """Every environment's runtime Deployment honours the runtime document contract.
+
+    The contract is checked first, and a contract this checker cannot read
+    stops here rather than being half-applied. Then, for each environment, the
+    rendered runtime Deployment must mount each declared ConfigMap whole at the
+    declared path with the config key pointing inside it, and must be at zero
+    replicas unless its configuration names connectors and trusted issuers.
+    """
+    contract = runtime_contract.load_contract()
+    refused = runtime_contract.contract_problems(contract)
+    if refused:
+        problems.extend(refused)
+        return
+    for environment in ENVIRONMENTS:
+        documents = [
+            document
+            for path in sorted((render / environment / "applications").glob("*.yaml"))
+            for document in load_all(path, problems)
+        ]
+        where = f"{environment}: runtime"
+        problems.extend(runtime_contract.runtime_mount_problems(contract, documents, where))
+        problems.extend(runtime_contract.static_replica_problems(contract, documents, where))
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -3591,6 +3623,7 @@ def main() -> int:
     check_no_duplicate_resources(render, problems)
     check_no_runtime_publication_configmaps(render, problems)
     check_runtime_config_document_paths(render, problems)
+    check_runtime_document_contract(render, problems)
     check_applications_match_their_project(render, problems)
     check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)

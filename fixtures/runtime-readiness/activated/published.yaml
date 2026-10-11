@@ -1,0 +1,126 @@
+# Synthetic. Never applied: no Kustomization or Application references fixtures/.
+# The three documents as the publisher writes them: one ConfigMap each, payload
+# and manifest keys, managed-by saas-fabric.
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: fabric-runtime-tenants
+    namespace: platform-system
+    labels:
+      app.kubernetes.io/managed-by: saas-fabric
+  data:
+    tenants.json: |
+      [
+        {
+          "tenant": "alpha",
+          "revision": 3,
+          "data": {
+            "primary": {
+              "data_source": "alpha-primary",
+              "isolation": {
+                "kind": "database"
+              }
+            }
+          },
+          "features": {}
+        },
+        {
+          "tenant": "beta",
+          "revision": 1,
+          "data": {
+            "primary": {
+              "data_source": "beta-primary",
+              "isolation": {
+                "kind": "database"
+              }
+            }
+          },
+          "features": {}
+        }
+      ]
+    tenants.manifest.json: |
+      {
+        "contract_version": 1,
+        "document": "tenants",
+        "revision": 4
+      }
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: fabric-runtime-data-sources
+    namespace: platform-system
+    labels:
+      app.kubernetes.io/managed-by: saas-fabric
+  data:
+    data-sources.json: |
+      [
+        {
+          "id": "alpha-primary",
+          "revision": 2,
+          "connector": "postgres-alpha",
+          "connection": {
+            "kind": "named",
+            "name": "alpha-primary"
+          },
+          "placement": "dedicated",
+          "residency": {
+            "region": "nz-north",
+            "jurisdiction": "NZ"
+          },
+          "labels": {}
+        },
+        {
+          "id": "beta-primary",
+          "revision": 1,
+          "connector": "postgres-beta",
+          "connection": {
+            "kind": "named",
+            "name": "beta-primary"
+          },
+          "placement": "dedicated",
+          "residency": {
+            "region": "nz-north",
+            "jurisdiction": "NZ"
+          },
+          "labels": {}
+        }
+      ]
+    data-sources.manifest.json: |
+      {
+        "contract_version": 1,
+        "document": "data-sources",
+        "revision": 3
+      }
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: fabric-runtime-catalog
+    namespace: platform-system
+    labels:
+      app.kubernetes.io/managed-by: saas-fabric
+  data:
+    catalog.json: |
+      {
+        "notes": {
+          "data_source": "primary",
+          "collection": "notes",
+          "key_field": "id",
+          "operations": [
+            "read",
+            "list",
+            "create",
+            "update",
+            "delete"
+          ],
+          "queryable_fields": [
+            "id",
+            "title"
+          ]
+        }
+      }
+    catalog.manifest.json: |
+      {
+        "contract_version": 1,
+        "document": "catalog",
+        "revision": 2
+      }
