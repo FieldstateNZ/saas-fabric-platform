@@ -317,8 +317,8 @@ class RuntimeDocuments(Assertions):
 
     def test_another_contract_version_is_unsupported(self) -> None:
         loaded = scenario("activated")
-        set_manifest(loaded, "tenants", contract_version=2)
-        self.assertRefused(evaluate(loaded), "contract_version 2, contract says 1")
+        set_manifest(loaded, "tenants", contract_version=3)
+        self.assertRefused(evaluate(loaded), "manifest contract_version 3, contract accepts [1, 2]")
 
     def test_a_manifest_with_an_extra_field_is_unsupported(self) -> None:
         loaded = scenario("activated")
@@ -504,21 +504,21 @@ class PublicationRecord(Assertions):
     def test_a_publisher_floor_above_its_own_contract_is_unsupported(self) -> None:
         loaded = scenario("activated")
         current = record(loaded)
-        current["minimum_publisher_contract"] = 2
+        current["minimum_publisher_contract"] = 3
         set_record(loaded, current)
-        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 2 is above the publisher contract 1")
+        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 3 is above the publisher contract 2")
 
     def test_a_publisher_below_the_held_rollback_floor_is_refused(self) -> None:
         loaded = scenario("activated")
-        loaded["held"]["publication"]["minimumPublisherContract"] = 2
-        self.assertRefused(evaluate(loaded), "held record's rollback floor is publisher contract 2")
+        loaded["held"]["publication"]["minimumPublisherContract"] = 3
+        self.assertRefused(evaluate(loaded), "held record's rollback floor is publisher contract 3, above this publisher's 2")
 
     def test_another_record_contract_version_is_unsupported(self) -> None:
         loaded = scenario("activated")
         current = record(loaded)
-        current["contract_version"] = 2
+        current["contract_version"] = 3
         set_record(loaded, current)
-        self.assertRefused(evaluate(loaded), "publication.json: contract_version 2, contract says 1")
+        self.assertRefused(evaluate(loaded), "publication.json: contract_version 3, contract says 2")
 
     def test_a_generation_regression_is_refused(self) -> None:
         loaded = scenario("activated")
@@ -735,12 +735,12 @@ class ExactValues(Assertions):
         current = record(loaded)
         current["contract_version"] = True
         set_record(loaded, current)
-        self.assertRefused(evaluate(loaded), "publication.json: contract_version True, contract says 1")
+        self.assertRefused(evaluate(loaded), "publication.json: contract_version True, contract says 2")
 
     def test_a_boolean_manifest_contract_version_is_refused(self) -> None:
         loaded = scenario("activated")
         set_manifest(loaded, "catalog", contract_version=True)
-        self.assertRefused(evaluate(loaded), "manifest contract_version True, contract says 1")
+        self.assertRefused(evaluate(loaded), "manifest contract_version True, contract accepts [1, 2]")
 
     def test_a_registry_issuer_with_a_trailing_newline_is_refused(self) -> None:
         loaded = scenario("ready-at-zero")
@@ -757,6 +757,100 @@ class ExactValues(Assertions):
         loaded = scenario("activated")
         deployment(loaded)["spec"]["replicas"] = 2**31
         self.assertRefused(evaluate(loaded), "replica count is not a literal non-negative integer")
+
+
+class PublisherContractTwo(Assertions):
+    """saas-fabric #139: the publisher contract is 2, carried as the record's contract and rollback floor.
+
+    `minimum_reader_contract` and the runtime's reader contract stay 1. A
+    manifest keeps the contract it was written at until its document changes,
+    so 1 and 2 are both accepted there.
+    """
+
+    def stamp(self, loaded: dict, contract_version: int, floor: int) -> None:
+        current = record(loaded)
+        current["contract_version"] = contract_version
+        current["minimum_publisher_contract"] = floor
+        set_record(loaded, current)
+
+    def test_the_contract_declares_publisher_two_and_reader_one(self) -> None:
+        self.assertEqual(CONTRACT["publicationContractVersion"], 2)
+        self.assertEqual(CONTRACT["manifestContractVersions"], [1, 2])
+        self.assertEqual(CONTRACT["publicationRecord"]["readerContract"], 1)
+
+    def test_a_record_written_by_the_139_publisher_passes(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        self.assertEqual(
+            (current["contract_version"], current["minimum_publisher_contract"], current["minimum_reader_contract"]),
+            (2, 2, 1),
+        )
+        self.assertClean(evaluate(loaded))
+
+    def test_the_floor_raise_over_a_held_contract_one_record_passes_with_a_contract_one_manifest(self) -> None:
+        loaded = scenario("ready-at-zero")
+        self.assertEqual(loaded["held"]["publication"]["minimumPublisherContract"], 1)
+        self.assertEqual(json.loads(published(loaded, "data-sources")["data"]["data-sources.manifest.json"])["contract_version"], 1)
+        self.assertClean(evaluate(loaded))
+
+    def test_a_138_era_record_against_a_held_floor_of_two_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.assertEqual(loaded["held"]["publication"]["minimumPublisherContract"], 2)
+        self.stamp(loaded, 1, 1)
+        self.assertRefused(
+            evaluate(loaded),
+            "minimum_publisher_contract 1 lowers the held rollback floor 2 -- the floor rolls forward only",
+            "contract_version 1, contract says 2 -- the deployed publisher has not rewritten this record",
+        )
+
+    def test_a_138_era_record_not_yet_rewritten_is_refused_even_over_a_floor_of_one(self) -> None:
+        loaded = scenario("ready-at-zero")
+        self.stamp(loaded, 1, 1)
+        result = evaluate(loaded)
+        self.assertRefused(result, "contract_version 1, contract says 2 -- the deployed publisher has not rewritten")
+        self.assertFalse(any("lowers the held rollback floor" in p for p in result.problems), result.problems)
+
+    def test_a_floor_that_differs_from_the_record_contract_is_refused(self) -> None:
+        loaded = scenario("activated")
+        self.stamp(loaded, 2, 1)
+        self.assertRefused(evaluate(loaded), "minimum_publisher_contract 1 differs from contract_version 2")
+
+    def test_a_reader_floor_raised_to_two_is_refused(self) -> None:
+        loaded = scenario("activated")
+        current = record(loaded)
+        current["minimum_reader_contract"] = 2
+        set_record(loaded, current)
+        self.assertRefused(evaluate(loaded), "minimum_reader_contract 2 is above the runtime's reader contract 1")
+
+    def test_versions_above_the_bounds_are_refused(self) -> None:
+        cases = (
+            ("contract_version", 3, "contract_version 3, contract says 2"),
+            ("minimum_publisher_contract", 3, "minimum_publisher_contract 3 is above the publisher contract 2"),
+            ("contract_version", 2**32, "contract_version 4294967296, contract says 2"),
+            ("minimum_publisher_contract", 2**32, "minimum_publisher_contract must be a positive integer"),
+        )
+        for field, value, fragment in cases:
+            with self.subTest(field=field, value=value):
+                loaded = scenario("activated")
+                current = record(loaded)
+                current[field] = value
+                set_record(loaded, current)
+                self.assertRefused(evaluate(loaded), fragment)
+
+    def test_a_manifest_above_the_accepted_versions_is_refused(self) -> None:
+        for value in (3, 0, 2**32):
+            with self.subTest(value=value):
+                loaded = scenario("activated")
+                set_manifest(loaded, "catalog", contract_version=value)
+                self.assertRefused(evaluate(loaded), "contract accepts [1, 2]")
+
+    def test_a_contract_whose_manifest_versions_do_not_end_at_the_publisher_is_refused(self) -> None:
+        for versions in ([1], [1, 2, 3], [2, 1], [1, 1, 2], [], [0, 2]):
+            with self.subTest(versions=versions):
+                contract = copy.deepcopy(CONTRACT)
+                contract["manifestContractVersions"] = versions
+                problems = runtime_contract.contract_problems(contract)
+                self.assertTrue(any("manifestContractVersions" in p for p in problems), problems)
 
 
 class Placement(Assertions):

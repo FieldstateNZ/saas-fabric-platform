@@ -1,6 +1,8 @@
 # Synthetic. Never applied: no Kustomization or Application references fixtures/.
 # What was held before this publication. Every revision here is at or below the
 # published one, so the publication rolls forward.
+# The held record is a contract-1 (#138) record, floor 1. This publication is the
+# #139 publisher's first: it raises the floor to 2.
 schemaVersion: 1
 documents:
   tenants:

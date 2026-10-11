@@ -70,7 +70,8 @@ ENVIRONMENTS = ("lucentroot", "production")
 GATES = ("documents", "identity", "connectors")
 
 CONTRACT_KEYS = {
-    "schemaVersion", "publicationContractVersion", "namespace", "publicationRecord", "runtime", "documents",
+    "schemaVersion", "publicationContractVersion", "manifestContractVersions", "namespace", "publicationRecord",
+    "runtime", "documents",
 }
 PUBLICATION_RECORD_CONTRACT_KEYS = {"document", "key", "readerContract"}
 PUBLICATION_RECORD_FILE = "publication.json"
@@ -179,6 +180,18 @@ def contract_problems(contract) -> list[str]:
         problems.append(f"{where}: schemaVersion {contract['schemaVersion']!r} -- {UNSUPPORTED}")
     if not _is_count(contract["publicationContractVersion"], maximum=U32_MAX):
         problems.append(f"{where}: publicationContractVersion must be a positive integer")
+    manifests = contract["manifestContractVersions"]
+    if (
+        not isinstance(manifests, list)
+        or not manifests
+        or not all(_is_count(v, maximum=U32_MAX) for v in manifests)
+        or manifests != sorted(set(manifests))
+        or manifests[-1] != contract["publicationContractVersion"]
+    ):
+        problems.append(
+            f"{where}: manifestContractVersions must be ascending distinct positive integers ending at "
+            "publicationContractVersion"
+        )
     if not isinstance(contract["namespace"], str) or not DNS_LABEL.fullmatch(contract["namespace"]):
         problems.append(f"{where}: namespace must be a DNS label")
     record = contract["publicationRecord"]
@@ -500,10 +513,10 @@ def _manifest_problems(contract: dict, name: str, text, where: str) -> tuple[lis
     if not isinstance(manifest, dict) or set(manifest) != MANIFEST_KEYS:
         return [f"{where}: manifest keys must be exactly {sorted(MANIFEST_KEYS)} -- {UNSUPPORTED}"], None
     problems = []
-    if not _is_count(manifest["contract_version"], maximum=U32_MAX) or manifest["contract_version"] != contract["publicationContractVersion"]:
+    if not _is_count(manifest["contract_version"], maximum=U32_MAX) or manifest["contract_version"] not in contract["manifestContractVersions"]:
         problems.append(
-            f"{where}: manifest contract_version {manifest['contract_version']!r}, contract says "
-            f"{contract['publicationContractVersion']} -- {UNSUPPORTED}"
+            f"{where}: manifest contract_version {manifest['contract_version']!r}, contract accepts "
+            f"{contract['manifestContractVersions']} -- {UNSUPPORTED}"
         )
     if manifest["document"] != name:
         problems.append(f"{where}: manifest describes {manifest['document']!r}, not {name!r}")
@@ -680,8 +693,13 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
     problems = []
     publisher = contract["publicationContractVersion"]
     reader = contract["publicationRecord"]["readerContract"]
-    if not _is_count(record["contract_version"], maximum=U32_MAX) or record["contract_version"] != publisher:
+    if not _is_count(record["contract_version"], maximum=U32_MAX) or record["contract_version"] > publisher:
         problems.append(f"{where}: contract_version {record['contract_version']!r}, contract says {publisher} -- {UNSUPPORTED}")
+    elif record["contract_version"] < publisher:
+        problems.append(
+            f"{where}: contract_version {record['contract_version']}, contract says {publisher} -- the deployed "
+            "publisher has not rewritten this record, so its rollback floor is not in place (D01-21)"
+        )
     if not _is_count(record["minimum_reader_contract"], maximum=U32_MAX):
         problems.append(f"{where}: minimum_reader_contract must be a positive integer")
     elif record["minimum_reader_contract"] > reader:
@@ -695,6 +713,11 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
         problems.append(
             f"{where}: minimum_publisher_contract {record['minimum_publisher_contract']} is above the publisher "
             f"contract {publisher} that wrote it -- {UNSUPPORTED}"
+        )
+    elif record["minimum_publisher_contract"] != record["contract_version"]:
+        problems.append(
+            f"{where}: minimum_publisher_contract {record['minimum_publisher_contract']} differs from "
+            f"contract_version {record['contract_version']!r} -- a publisher stamps its own contract as the floor"
         )
     generation = record["generation"]
     if not _is_count(generation):
@@ -733,6 +756,12 @@ def publication_record_problems(contract: dict, text, texts: dict, revisions: di
             problems.append(
                 f"{where}: the held record's rollback floor is publisher contract "
                 f"{held_publication['minimumPublisherContract']}, above this publisher's {publisher} (D01-21)"
+            )
+        floor = record["minimum_publisher_contract"]
+        if _is_count(floor, maximum=U32_MAX) and floor < held_publication["minimumPublisherContract"]:
+            problems.append(
+                f"{where}: minimum_publisher_contract {floor} lowers the held rollback floor "
+                f"{held_publication['minimumPublisherContract']} -- the floor rolls forward only (D01-21)"
             )
         if _is_count(generation):
             if generation < held_publication["generation"]:

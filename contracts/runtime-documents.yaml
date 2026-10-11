@@ -15,10 +15,24 @@
 # `CONTRACT_VERSION`. A change there is a change here, in the same release.
 schemaVersion: 1
 
-# fabric-runtime-publication's CONTRACT_VERSION. A breaking change of meaning
-# ships as new file names beside the old ones, never as a reinterpretation of
-# this number, so a manifest stating another one is refused rather than read.
-publicationContractVersion: 1
+# fabric-runtime-publication's CONTRACT_VERSION: the contract of the
+# publisher this platform deploys. saas-fabric #139 raised it from 1 to 2 as
+# the publisher's rollback floor (D01-21). A publication record from that
+# publisher states 2 as both `contract_version` and
+# `minimum_publisher_contract`; its `minimum_reader_contract` stays 1, and so
+# does the runtime's reader contract below. A record still at an earlier
+# contract has not been rewritten by the deployed publisher, so its floor is
+# not in place, and it is refused.
+publicationContractVersion: 2
+
+# The manifest `contract_version`s a published document may carry. The
+# manifest's shape did not change between 1 and 2. The #139 publisher raises
+# the floor by rewriting only the record, so the tenants manifest written
+# beside it moves to 2 while an unchanged data-sources or catalog manifest
+# keeps the 1 it was written at. A breaking change of meaning ships as new
+# file names beside the old ones, never as a reinterpretation of these
+# numbers, so any other value is refused rather than read.
+manifestContractVersions: [1, 2]
 
 namespace: platform-system
 
@@ -32,8 +46,9 @@ namespace: platform-system
 # implements (`READER_CONTRACT` in fabric-tenant-runtime). A record whose
 # `minimum_reader_contract` is above it would be refused by that reader, so it
 # is refused here too. The record's `minimum_publisher_contract` is the
-# rollback floor (D01-21): `publicationContractVersion` below the held floor
-# is refused.
+# rollback floor (D01-21). It rolls forward: it may not fall below the held
+# record's floor, and `publicationContractVersion` below the held floor is
+# refused.
 #
 # The record's `resources` (saas-fabric #138, `resource_history.rs`) is the
 # highest revision every tenant binding and DataSource has ever been published
