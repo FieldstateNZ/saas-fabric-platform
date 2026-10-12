@@ -61,6 +61,12 @@ the platform never has to be changed to admit a new client.
 Platform namespaces receive the label through each Application's
 `managedNamespaceMetadata`.
 
+Attaching here does not open a path into SaaS Fabric's tenant data. A client
+instance's routes never reach a runtime service's `/v1/data`; SaaS Fabric's
+runtime route is the only way in. See
+[`../saas-fabric`](../saas-fabric/README.md#the-runtime-route-and-client-routes)
+and ADR 0019's D01-5 amendment in the application repository.
+
 ## Listeners
 
 | Environment | Listeners |

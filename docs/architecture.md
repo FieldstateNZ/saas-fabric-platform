@@ -73,6 +73,14 @@ own namespace and attach to the same Gateway. See
 [Exposure planes](#exposure-planes) and
 [`applications/core/platform-gateway`](../applications/core/platform-gateway/).
 
+SaaS Fabric's runtime route on `fabric.<domain>` is the only way into the
+runtime's Data API, `/v1/data/*`, and this repository owns the edge in front of
+it (G1–G17 in [ADR 0019](https://github.com/FieldstateNZ/saas-fabric/blob/main/docs/decisions/0019-the-edge-proves-the-token-and-the-issuer-names-the-tenant.md)'s platform checklist, not yet implemented).
+Client-instance routes never reach `/v1/data`: a client route that did would be
+a second edge, even with a JWT policy of its own. That is ADR 0019's
+[D01-5 amendment](https://github.com/FieldstateNZ/saas-fabric/blob/main/docs/decisions/0019-the-edge-proves-the-token-and-the-issuer-names-the-tenant.md#amendment-2026-10-12-d01-5-client-routes); see
+[`applications/core/saas-fabric`](../applications/core/saas-fabric/README.md#the-runtime-route-and-client-routes).
+
 No resource may have competing ownership. If both an Argo CD Application and
 OpenTofu could plausibly reconcile something, the boundary is wrong and must be
 moved before the resource is created — not resolved afterwards by convention.

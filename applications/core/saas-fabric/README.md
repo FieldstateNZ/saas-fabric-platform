@@ -63,7 +63,8 @@ Promote to production only after LucentRoot has run the tag — see
 - Deployment, replica count and pod security context;
 - Service;
 - `HTTPRoute` and the platform hostname (`fabric.<domain>`), attached to the
-  shared platform `Gateway`;
+  shared platform `Gateway` — the runtime route, and the only way into
+  `/v1/data` (see [The runtime route](#the-runtime-route-and-client-routes));
 - ServiceAccount;
 - non-secret runtime configuration, and the *references* to secret
   configuration;
@@ -132,6 +133,29 @@ Not configured. An HPA needs a load profile, and there is no running image to
 measure. When one exists, a `HorizontalPodAutoscaler` belongs in the production
 overlay alongside a raised `replicas` floor — that is a platform concern and it
 belongs in this directory.
+
+## The runtime route and client routes
+
+[`base/httproute.yaml`](base/httproute.yaml) is the runtime route that
+[ADR 0019](https://github.com/FieldstateNZ/saas-fabric/blob/main/docs/decisions/0019-the-edge-proves-the-token-and-the-issuer-names-the-tenant.md) §G1 names in the application repository: one route per
+tenant runtime service, serving many tenants, and the only way into the
+runtime's Data API, `/v1/data/*`. The edge in front of it — G1 to G17 in that
+ADR's platform checklist — is this repository's to implement. None of it is
+implemented yet: no JWT policy is attached to the route.
+
+**Client-instance routes never reach `/v1/data`.** Client OpenTofu creates a
+route per client host for the instance's shell, its modules and its gateway
+sign-in session, and none of them routes to a runtime service's `/v1/data`. A
+client route that did would be a second edge, with nothing keeping its policy
+in step with G1's, and it would be no less a second edge for carrying a JWT
+policy of its own. G1's route is the only way in.
+
+The rule is ADR 0019's, accepted as amended under the D01-5 disposition on
+[saas-fabric #108](https://github.com/FieldstateNZ/saas-fabric/issues/108#issuecomment-6109518415):
+see its [D01-5 amendment, "client routes"](https://github.com/FieldstateNZ/saas-fabric/blob/main/docs/decisions/0019-the-edge-proves-the-token-and-the-issuer-names-the-tenant.md#amendment-2026-10-12-d01-5-client-routes).
+How a browser surface on a client instance reaches tenant data is owed to the
+application's ADR 0024 slice 5; until that is decided, no client-instance
+`/v1/data` or `/v1/identity` route is added.
 
 ## TLS
 
