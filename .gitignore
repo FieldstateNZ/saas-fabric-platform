@@ -1,3 +1,6 @@
 # Output of scripts/render.py, plus its staging directories
 .render/
 .render.*/
+
+__pycache__/
+*.pyc
