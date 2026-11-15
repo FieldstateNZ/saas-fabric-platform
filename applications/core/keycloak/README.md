@@ -34,8 +34,34 @@ elsewhere.
 | Clients, roles, groups, identity providers within a client realm | client OpenTofu |
 | Client hostname and `HTTPRoute` such as `acme.fieldstate.nz` | client OpenTofu |
 
-No realm is defined in this repository, including a "default" one. A realm here
-would compete with the client layer for ownership of the same object.
+No client realm is defined in this repository, including a "default" one. A
+realm here would compete with the client layer for ownership of the same
+object. The master realm is the exception, and it is converged by
+[`../master-instance`](../master-instance/), which does not own session length.
+
+## Access token lifespan
+
+Client-realm tokens cross the data API edge in
+[PR #64](https://github.com/FieldstateNZ/saas-fabric-platform/pull/64). That
+edge refuses a token whose `exp - now` is over 3630 seconds: one hour, plus
+30 seconds of clock skew. A realm whose access-token lifespan is left
+unmanaged, or set longer than an hour, mints tokens the edge rejects and
+locks those users out.
+
+No client `keycloak_realm` is declared in this repository yet, so there is
+nothing here to set. The smallest pin, on each client realm when that
+OpenTofu module exists, is Keycloak's own default of five minutes:
+
+```hcl
+access_token_lifespan = "300s"
+```
+
+`check_tenant_realm_access_token_lifespan` in `scripts/check.py` reads every
+`.tf` file. A `keycloak_realm` other than `realm = "master"` must set
+`access_token_lifespan`, as a bare number of seconds or a duration such as
+`300s`, `5m`, or `1h`, and the value must be at most 3600 seconds. `master`
+is skipped: its resource lists `access_token_lifespan` in `ignore_changes`
+and does not own operator session length.
 
 ## Why `keycloakx` rather than the Bitnami chart
 
