@@ -108,55 +108,153 @@ hand-made master-realm step; this resource is what removed it.
 
 Named in
 [`overlays/lucentroot/master-instance-config.yaml`](overlays/lucentroot/master-instance-config.yaml),
-by Keycloak username. One name today, the product owner's, declared on
-2026-09-22; the grants it carries on LucentRoot were made by hand before this
-module existed and are now converged, so they can never drift from the
-file. Adding an operator is adding a name; the next sync grants both roles.
-**Removing a name fails the convergence, at plan time, and revokes
-nothing.** `exhaustive = false` alone would not give that: removing a name
+by stable Keycloak user id. D01-6 option C: the operator is the built-in
+master-realm administrator, and the grant is bound to that account's id.
+LucentRoot's roster is empty until that id is read and written into the
+file. Adding an operator is adding an id; the next sync grants both roles.
+
+### How the account comes to exist (D01-6 option C)
+
+This module creates no accounts. On a fresh Keycloak, the operator account
+is the one Keycloak itself creates the first time the server starts.
+
+[`../keycloak-credentials`](../keycloak-credentials/) generates the password
+and pairs it with the username `admin` in the `keycloak-admin` Secret.
+Keycloak reads that pair once, as `KC_BOOTSTRAP_ADMIN_USERNAME` and
+`KC_BOOTSTRAP_ADMIN_PASSWORD` (see [`../keycloak/values.yaml`](../keycloak/values.yaml)),
+writes the user into the master realm, and assigns the user an id. The same
+startup grants that user the realm role `admin`. Both of those acts are
+Keycloak's. This module does not create the user, does not set the password,
+and does not choose the id.
+
+The id stays with that user record. Deleting the user and creating another
+whose username is `admin` assigns a new id. The roster still names the
+original id, so the new account is not an operator and this module does not
+grant it `fabric-operator` or master-realm `admin`. That is P2-SEC7 / R6:
+master admin must not follow a reused username. The provider's username
+lookup (`data.keycloak_user`, `GetUserByUsername`) is the path that would
+follow it — refresh of the old grant 404s, the provider drops the grant from
+state, and the next plan would create both roles for the new id, with no
+destroy for `prevent_destroy` to refuse. This module does not use that
+lookup. `check_master_instance_lookups_precede_apply` rejects a
+`data.keycloak_user` block, and `variable "operators"` rejects a value that
+is not a UUID, so the username `admin` cannot be fed in as a roster entry.
+
+### Accepted risk (D01-6 option C)
+
+Under option C the human operator and this Job share one account. Both use
+the bootstrap administrator Keycloak created at first start, and both
+present the same password from the `keycloak-admin` Secret. That account
+has no MFA, and nothing separates a person signing in from the automation
+that converges the realm. Keycloak treats this bootstrap administrator as
+temporary: the server creates it so it can start, and expects it to be
+replaced. The planned exit is D01-6 option A, an external identity provider
+with the master realm brokering to it. Until that is carried out, the shared
+credential is the accepted risk of option C, and the grant stays bound to
+this one account's id.
+
+### How the stable id is obtained and fed in
+
+The id is an input. It is not derived inside the module, and it is not
+known until Keycloak has created the account, so Git does not contain it
+yet. After Keycloak is up, an authorised read of the master realm returns
+it. The username is only the query that finds the account Keycloak created.
+The value that is committed is `id`, from the object whose `username` is
+exactly `admin` (Keycloak's search can return other users whose names share
+that prefix):
+
+```console
+$ kcadm.sh get users -r master -q username=admin --fields id,username
+```
+
+The same read is `GET /admin/realms/master/users?username=admin` on the
+admin API. The credential for either read is the bootstrap administrator
+[`../keycloak-credentials`](../keycloak-credentials/) already generated.
+The command above does not take a password on its command line; `kcadm.sh
+config credentials` is how the session is opened, and the config file it
+writes holds a token and has to be deleted afterwards. This is the same
+class of authorised read as step 6 of
+[docs/master-instance-convergence.md](../../../docs/master-instance-convergence.md).
+
+Put that id, alone, in the overlay. `TF_VAR_operators` is decoded as JSON,
+and `operators` is `set(string)`:
+
+```yaml
+operators: '["<id>"]'
+```
+
+`<id>` looks like `a1b2c3d4-e5f6-7890-abcd-ef1234567890`. The next sync reads
+`data.keycloak_user_realm_roles.operator` for that id during `tofu plan`
+(`GET /admin/realms/master/users/{id}/role-mappings`) and grants
+`fabric-operator` and master-realm `admin` to it. An id the realm does not
+hold fails the plan, before anything is written. A new account that reused
+the username `admin` has a different id, fails that read of the old id, and
+receives no grant.
+
+Until the id is in the file the roster is `[]`. An empty roster grants
+nothing, to nobody, and blocks no sync. It does not by itself make the
+built-in administrator an operator of this module: Keycloak's own startup
+grant of realm `admin` is Keycloak's, and `fabric-operator` is granted only
+once the id is here.
+
+### Rebuilding Keycloak
+
+A fresh Keycloak assigns the built-in administrator a new id. The roster
+still names the previous one, and the plan fails on that lookup before
+anything is written. The failure is the binding working: the new account
+does not inherit `fabric-operator` or master-realm `admin` from the old id.
+Recovery is four steps:
+
+1. Read the new id with the same authorised `kcadm.sh` query above, and take
+   the object whose username is exactly `admin`.
+2. Commit that id as the `operators` entry, in place of the old one.
+3. If Keycloak's DB is NOT restored, set `adoptExisting` to `"false"` before
+   the first sync. Owner: Casey (cluster rebuild) to confirm restore status;
+   the change lands as its own PR. This overlay stays `"true"` until that
+   PR. On a fresh realm `import = true` looks up hand-made objects that are
+   not there and errors at apply, which can happen after `frontendUrl` has
+   already been written (cause 10 in
+   [docs/master-instance-convergence.md](../../../docs/master-instance-convergence.md)).
+4. Sync this Application. The next run grants the two roles to the new id.
+
+The old id is gone with the old realm, so the refresh drops the previous
+grant from state and the sync after the commit creates the grant for the
+new id. Putting the old id back is not a recovery: that id does not exist
+on the new realm, and the plan keeps failing.
+
+**Removing an id fails the convergence, at plan time, and revokes
+nothing.** `exhaustive = false` alone would not give that: removing an id
 plans a destroy of that operator's `keycloak_user_roles` instance, and the
 provider's delete removes every role it lists — `fabric-operator` *and*
 master-realm `admin` — from the account, partial assignment or not. On a
-roster naming the bootstrap administrator this Job authenticates as, that
+roster naming the built-in administrator this Job authenticates as, that
 one edit would revoke the Job's own authority. `prevent_destroy` on the grant
 refuses the plan instead (`check_master_instance_lookups_precede_apply` in
-`scripts/check.py` keeps it there). The same refusal meets two other changes
-that plan the same destroy:
-- renaming a roster entry (its `for_each` key changes);
-- a *different*, still-existing account coming to hold the declared
-  username, for example the original renamed away and a new one created
-  under the old name. The old grant still refreshes, the lookup returns a
-  new user id, and `user_id` forces replacement.
-
-**The guard does not cover an account deleted and re-created under the same
-username.** The grant follows the username, not the person. The refresh asks
-for the old user id, gets a `404`, and the provider drops the grant from
-state without an error (5.9.0 `resourceKeycloakUserRolesRead` →
-`handleNotFoundError` → `SetId("")`). The lookup then resolves the new
-account, and the plan *creates* a grant, `fabric-operator` and master-realm
-`admin` both, with nothing destroyed for `prevent_destroy` to refuse. The
-old account's grant went when the account was deleted. Whoever holds a
-declared username after a re-creation is an operator. Keeping that username
-pointed at the right person is outside what this module checks, and so is
-how an operator's identity is bound (D01-6).
+`scripts/check.py` keeps it there). Replacing an id plans the same destroy,
+because the `for_each` key is the id. A state entry left from the earlier
+username roster (`keycloak_user_roles.operator["brett@fieldstate.nz"]`, if a
+run ever recorded one) is the same kind of key change: the plan is refused
+until that address is retired by the state step below. The username-reuse
+case is not a destroy. The old id 404s, the plan fails on the lookup, and
+the new id is absent from the roster.
 
 **A refused plan blocks the whole module, not only that grant.** The Job
 stops at plan, so nothing else here converges either — `frontendUrl`, the
 clients' redirect URIs, the gateway secret on rotation — until the plan
 passes again. The two ways out:
 
-1. **Restore the name.** The next sync plans as before.
+1. **Restore the id.** The next sync plans as before.
 2. **Retire it without revoking**, as an authorised state write, made with
    the Job's own identity (`master-instance` in `operator-system`, which
    the state Role in `master-instance-state` binds) against a checkout of
    `base/module` configured for this backend:
 
    ```console
-   $ tofu state rm 'keycloak_user_roles.operator["<name>"]'
+   $ tofu state rm 'keycloak_user_roles.operator["<user-id>"]'
    ```
 
    This makes the module forget the grant — Keycloak keeps both roles on
-   the account — and only *then* is the name removed from the roster, so
+   the account — and only *then* is the id removed from the roster, so
    the next plan finds nothing to destroy. OpenTofu's own `removed {}` block
    cannot do this declaratively: in 1.12.6 it addresses a whole resource,
    never one `for_each` instance (`internal/addrs/remove_endpoint.go` through
@@ -167,21 +265,13 @@ passes again. The two ways out:
 Revoking the roles themselves is then an act in Keycloak, and how an
 operator is retired at all is an open product decision (D01-6b in the
 application repository's `docs/roadmap/m0-contract-decisions.md`); until it
-is made, revocation is not something a roster edit can do by accident. An
-empty roster is a valid starting state: it grants nothing, to nobody, and
-blocks no sync — but emptying a roster that has granted something is a
-removal like any other.
+is made, revocation is not something a roster edit can do by accident.
+Emptying a roster that has granted something is a removal like any other.
 
-The module's `keycloak_user` lookup resolves by username only, not by email —
-see `base/module/main.tf`'s comment on `data.keycloak_user.operator` for why
-an email-shaped username still works, and what does not.
-
-**A name that does not already exist as a Keycloak user fails the whole
-convergence, at plan time.** `keycloak_user` is a data source, and its read
-happens during `tofu plan`, before anything is applied — a typo, or an
-operator declared before their account exists, fails this Job before it
-changes anything else, not partway through, and `apply.sh` says so in the
-Job's log. That holds only because no lookup in `main.tf` references a
+**An id that is not a current Keycloak user fails the whole convergence, at
+plan time.** `keycloak_user_realm_roles` is a data source, and its read
+happens during `tofu plan`, before anything is applied. `apply.sh` says so
+in the Job's log. That holds only because no lookup in `main.tf` references a
 managed resource: OpenTofu treats such a reference as `depends_on` and moves
 the read into apply whenever that resource has changes pending. Until
 platform #48 both lookups named `keycloak_realm.master.id`, and the imported
@@ -192,16 +282,15 @@ console client and the gateway client had been written — see
 `check_master_instance_lookups_precede_apply` now refuses any lookup that
 names a managed resource.
 
-**Creating that account is the one thing this module does not do.** On a
-fresh environment the only account that exists is the bootstrap administrator
-this Job authenticates as. Granting an operator the two roles above requires
-their Keycloak user to already exist — by Keycloak's own bootstrap, or by
-someone signing in once through a path this module does not provide. See
-ADR 0025's own "What this does not decide": client-realm provisioning stays
-with the control plane for now, and whether operator *accounts* are
-provisioned the same declarative way this module provisions their grants is
-a question this Application leaves open, not one it has quietly answered by
-omission.
+**Creating an account is the one thing this module does not do.** Option C
+leaves account creation with Keycloak's bootstrap. Granting the two roles
+requires the built-in administrator's id to already exist and to have been
+fed in. See ADR 0025's own "What this does not decide": client-realm
+provisioning stays with the control plane for now. Creating local accounts
+in this module (D01-6 option B) is not what this Application does. Brokering
+to an external identity provider (D01-6 option A) is the planned exit from
+the shared bootstrap credential, under "Accepted risk" above, and it is not
+implemented here.
 
 ## Adopting LucentRoot's hand-made history
 
@@ -240,9 +329,9 @@ what has to happen in order on a realm with this history. In order:
    creates it outright, with the secret
    [`../master-instance-credential`](../master-instance-credential/)
    generated ahead of this Application's own sync.
-3. **Grant.** Each declared operator (today: none — see "Who the operators
-   are" above) is looked up and, if found, granted `fabric-operator` and
-   master-realm `admin`.
+3. **Grant.** Each declared operator id (today: none, until the built-in
+   administrator's id is fed in — see "Who the operators are" above) is
+   read by that id and granted `fabric-operator` and master-realm `admin`.
 4. **Sign in.** Only once 1–3 have all succeeded and this Job has reached
    `Complete` does [`../saas-fabric-control-plane`](../saas-fabric-control-plane/)
    (wave `40`) sync at all — and only then is the first sign-in through the
@@ -468,11 +557,11 @@ editing anything in Keycloak's admin console** — the same declarative
 mechanism `keycloak_realm.master` already uses unconditionally, added
 narrowly and temporarily (or `tofu import` run directly against the same
 state) rather than left in place, since these resources are not meant to be
-adopted in the ordinary course. `keycloak_user_roles.operator` needs no such
-step: it has no `lifecycle` block and no import concern, because a role
-*grant* is not an object with an identity of its own — losing state and
-re-applying simply re-grants the same two roles to the same operators, which
-is idempotent, not destructive.
+adopted in the ordinary course. `keycloak_user_roles.operator` needs no import
+step. The grant's identity is the user id in the roster: losing state and
+re-applying grants the same two roles to those same ids. `prevent_destroy`
+still refuses a plan that would drop an id already recorded in state (see
+"Who the operators are").
 
 #### Resources unsafe to prune
 

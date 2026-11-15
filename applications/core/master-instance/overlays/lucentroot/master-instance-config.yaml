@@ -24,20 +24,32 @@ data:
   # history (see module/main.tf's comment on `keycloak_role.fabric_operator`
   # and this Application's README, "What this does not decide"). A fresh
   # environment has no such history and leaves this `false`.
+  # TODO: if a rebuilt Keycloak's database is NOT restored, set this to
+  # "false" before the first sync. Owner: Casey (cluster rebuild) confirms
+  # the restore; that change is its own PR. README, "Rebuilding Keycloak".
+  # Left "true" until then, because LucentRoot's current realm still has the
+  # hand-made objects this adopts.
   adoptExisting: "true"
 
   # TF_VAR_operators reads this value verbatim, so it has to be valid JSON --
   # Terraform decodes a TF_VAR_* environment variable as HCL/JSON for
   # anything but a plain string, and `operators` is `set(string)`
-  # (module/variables.tf). One Keycloak username per entry; the module's
-  # `keycloak_user` lookup resolves by username only, never by email -- see
-  # main.tf's comment on data.keycloak_user.operator.
+  # (module/variables.tf). One Keycloak user id per entry, never a username.
+  # The module reads that id and grants it; see main.tf's comment on
+  # data.keycloak_user_realm_roles.operator.
   #
-  # One operator today, named by the product owner on 2026-09-22. Adding an
-  # operator is adding a name here; the next sync grants the two roles.
-  # Removing (or renaming) a name fails the convergence at plan time and
-  # revokes nothing -- `prevent_destroy` on the grant, not `exhaustive =
+  # D01-6 option C. The operator on a fresh Keycloak is the built-in
+  # administrator Keycloak creates at first start. This module does not
+  # create that account. Its id is read once from the realm and added here;
+  # the procedure is this Application's README, "Who the operators are".
+  # The id is not known to Git. An empty list grants nobody and is valid.
+  # The string "admin" is a username, and a deleted account re-created under
+  # that name must not inherit master-realm admin, so it is not an entry.
+  #
+  # Adding an operator is adding an id here; the next sync grants the two
+  # roles. Removing (or replacing) an id fails the convergence at plan time
+  # and revokes nothing -- `prevent_destroy` on the grant, not `exhaustive =
   # false`, is what guarantees that -- and blocks every other convergence in
-  # this module until the name is restored or retired by the state step in
+  # this module until the id is restored or retired by the state step in
   # this Application's README, "Who the operators are".
-  operators: '["brett@fieldstate.nz"]'
+  operators: '[]'

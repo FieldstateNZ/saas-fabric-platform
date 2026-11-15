@@ -153,8 +153,9 @@ resource "keycloak_realm" "master" {
 # time when that resource has changes pending, which on this module is every
 # run that imports the realm or converges `frontendUrl`; a lookup that fails
 # there fails after the resources ahead of it were already written. See
-# data.keycloak_user.operator below, and `check_master_instance_lookups_precede_apply`
-# in scripts/check.py, which holds every lookup here to this.
+# data.keycloak_user_realm_roles.operator below, and
+# `check_master_instance_lookups_precede_apply` in scripts/check.py, which
+# holds every lookup in this module's .tf files to this.
 data "keycloak_role" "admin" {
   realm_id = "master"
   name     = "admin"
@@ -270,36 +271,42 @@ resource "keycloak_openid_client" "console" {
 }
 
 # Each operator the environment declares
-# (../../overlays/lucentroot/master-instance-config.yaml). `keycloak_user` is
-# a lookup, not a resource -- the account itself is created by Keycloak's own
-# bootstrap or by an administrator signing in for the first time, and this
-# module only grants roles to whoever already holds the username.
+# (../../overlays/lucentroot/master-instance-config.yaml), by stable Keycloak
+# user id. This is a lookup, not a user resource. D01-6 option C: on a fresh
+# Keycloak the operator account is the built-in master-realm administrator
+# Keycloak creates at first start from KC_BOOTSTRAP_ADMIN_USERNAME and
+# KC_BOOTSTRAP_ADMIN_PASSWORD (../../../keycloak-credentials writes the
+# username `admin` and a generated password). This module creates no account.
+# Keycloak assigns that user an id at creation and grants the realm role
+# `admin` itself. The id is read once, outside this module, and passed in as
+# `var.operators`. The grant below binds to that id.
 #
-# By username, not email: the keycloak/keycloak provider's `keycloak_user`
-# data source resolves a realm user through Keycloak's own user-search API
-# filtered on `username`, and has no separate email-lookup argument. An
-# operator whose username happens to be their email address still resolves
-# here -- Keycloak commonly sets `registrationEmailAsUsername` -- but the
-# value in `var.operators` is always matched against `username`, never
-# `email`, so it must be the exact string each operator authenticates with.
+# The id is the binding because a username is not stable. Provider 5.9.0's
+# `keycloak_user` data source calls `GetUserByUsername`. After the account is
+# deleted, a new account with the same username is a new id; refresh of the
+# old grant gets a 404 and the provider drops it from state
+# (`resourceKeycloakUserRolesRead` → `handleNotFoundError` → `SetId("")`),
+# and a plan that followed the username would create `fabric-operator` and
+# master-realm `admin` for whoever now holds the name. `prevent_destroy`
+# would not see a destroy. That is P2-SEC7 / R6. This module therefore has
+# no `keycloak_user` data source. `check_master_instance_lookups_precede_apply`
+# refuses one.
 #
-# **A name here that does not already exist as a Keycloak user fails the
-# whole convergence, at plan time.** `keycloak_user` is a data source, and
-# this one's read is part of `tofu plan`, before anything is applied -- but
-# only because nothing in it references a managed resource (`realm_id` is the
-# literal "master"; see data.keycloak_role.admin above for why a reference
-# would move the read into apply). So a typo, or an operator declared before
-# their account exists, fails this Job before it changes anything else, not
-# partway through, and `apply.sh` says so in its own failure message. On a fresh
-# environment the only account that exists is the bootstrap administrator
-# this module authenticates as; creating the *account* for a new operator
-# (as opposed to granting one that already exists the two roles below) is
-# the one thing this module does not do -- see this Application's README,
-# "What this does not decide".
-data "keycloak_user" "operator" {
+# **An id that is not a current user fails the whole convergence, at plan
+# time.** `keycloak_user_realm_roles` reads
+# `GET /admin/realms/master/users/{id}/role-mappings`. The provider returns
+# that GET's error, including a 404 for an unknown id, and nothing in this
+# block references a managed resource (`realm_id` is the literal "master";
+# see data.keycloak_role.admin above for why a reference would move the read
+# into apply). A typo, a username passed where an id belongs, or the original
+# account deleted and a new one created under the same name, fails this Job
+# before it changes anything else. The new account's id is not in
+# `var.operators`, so it is not granted. `apply.sh` says so in its own
+# failure message.
+data "keycloak_user_realm_roles" "operator" {
   for_each = var.operators
   realm_id = "master"
-  username = each.value
+  user_id  = each.value
 }
 
 # `exhaustive = false` is the load-bearing argument on this resource. The
@@ -310,23 +317,26 @@ data "keycloak_user" "operator" {
 # it does not know about.
 #
 # **`exhaustive = false` does not make removal harmless -- `prevent_destroy`
-# does.** Removing a name from the roster removes that key from `for_each`,
+# does.** Removing an id from the roster removes that key from `for_each`,
 # which plans a *destroy* of this instance, and the provider's delete
 # (keycloak/keycloak 5.9.0, `resourceKeycloakUserRolesDelete`) removes every
 # role in `role_ids` from the user whatever `exhaustive` says: `fabric-operator`
-# and master-realm `admin` both. On a roster naming the bootstrap
-# administrator this Job authenticates as, that would revoke the Job's own
-# authority, and every human's, in one apply. `prevent_destroy` turns any such
-# plan into a plan-time failure that writes nothing -- and that blocks the
-# whole module until the name is restored or retired by a state step (this
-# Application's README, "Who the operators are"). How a declared operator
-# is retired is the product owner's decision (D01-6b in the application
-# repository's docs/roadmap/m0-contract-decisions.md), not something this
-# module decides by omission.
+# and master-realm `admin` both. On a roster naming the built-in administrator
+# this Job authenticates as, that would revoke the Job's own authority, and
+# every human's, in one apply. `prevent_destroy` turns any such plan into a
+# plan-time failure that writes nothing -- and that blocks the whole module
+# until the id is restored or retired by a state step (this Application's
+# README, "Who the operators are"). How a declared operator is retired is the
+# product owner's decision (D01-6b in the application repository's
+# docs/roadmap/m0-contract-decisions.md), not something this module decides
+# by omission.
+#
+# `user_id` is the roster id, echoed by the lookup above. It is not a
+# username search result.
 resource "keycloak_user_roles" "operator" {
   for_each = var.operators
   realm_id = keycloak_realm.master.id
-  user_id  = data.keycloak_user.operator[each.key].id
+  user_id  = data.keycloak_user_realm_roles.operator[each.key].user_id
 
   role_ids = [
     keycloak_role.fabric_operator.id,
