@@ -3791,7 +3791,7 @@ def _data_api_edge_problems(where: str, documents: list[dict], deployment: dict,
                 f"{where}: replicas {replicas} but HTTPRoute/{name} forwards to the runtime"
                 " with no Lua policy stripping identity headers",
             )
-        if not _lua_targets(extensions, route, 'key_counts(payload, "exp")'):
+        if not _lua_targets(extensions, route, 'root_key(payload, "exp")'):
             fail(
                 problems,
                 f"{where}: replicas {replicas} but HTTPRoute/{name} forwards to the runtime"
@@ -3801,10 +3801,12 @@ def _data_api_edge_problems(where: str, documents: list[dict], deployment: dict,
 
 
 def _lua_text(policy: dict) -> str:
+    """Lua source with `--` comments removed, so a comment cannot satisfy the gate."""
     parts = []
     for entry in (policy.get("spec") or {}).get("lua") or []:
         if isinstance(entry, dict) and isinstance(entry.get("inline"), str):
-            parts.append(entry["inline"])
+            code = "\n".join(line.split("--", 1)[0] for line in entry["inline"].splitlines())
+            parts.append(code)
     return "\n".join(parts)
 
 

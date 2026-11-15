@@ -110,6 +110,16 @@ def mint(header: dict, payload: dict, key: Path | None = None, secret: bytes | N
     return signing + "." + b64u(signature)
 
 
+def _raw_token(key: Path, claims_body: str) -> str:
+    """Sign a payload whose claim text is written literally, not by json.dumps."""
+    header = json.dumps({"alg": "RS256", "kid": "alpha", "typ": "JWT"}, separators=(",", ":"))
+    payload = (
+        '{"iss":"' + ISSUER_ALPHA + '","aud":"' + AUDIENCE + '",'
+        + claims_body + ',"sub":"user"}'
+    )
+    return sign_json(header, payload, key)
+
+
 def sign_json(header_json: str, payload_json: str, key: Path, digest: str = "sha256") -> str:
     """Sign already-encoded JSON so a test can repeat a key or nest one."""
     signing = ".".join(b64u(part.encode()) for part in (header_json, payload_json))
@@ -807,6 +817,42 @@ def main() -> int:
                 }, separators=(",", ":")),
                 alpha,
             ), 401),
+            # Integers only. A float inside the lifetime window is still 401.
+            "exp-float": (lambda: _raw_token(alpha, f'"exp":{int(time.time()) + 100}.5'), 401),
+            "exp-exponent": (lambda: _raw_token(alpha, '"exp":1e18'), 401),
+            "exp-negative": (lambda: _raw_token(alpha, '"exp":-1'), 401),
+            "exp-1e18": (lambda: _raw_token(alpha, '"exp":1000000000000000000'), 401),
+            "exp-year-3000": (lambda: _raw_token(alpha, '"exp":32503680000'), 401),
+            "exp-lifetime-3600": (lambda: mint(
+                {"alg": "RS256", "kid": "alpha", "typ": "JWT"},
+                claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) + 3600),
+                alpha,
+            ), 200),
+            "exp-lifetime-3630": (lambda: mint(
+                {"alg": "RS256", "kid": "alpha", "typ": "JWT"},
+                claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) + 3630),
+                alpha,
+            ), 200),
+            "exp-lifetime-3631": (lambda: mint(
+                {"alg": "RS256", "kid": "alpha", "typ": "JWT"},
+                claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) + 3631),
+                alpha,
+            ), 401),
+            "nbf-float": (lambda: _raw_token(alpha, f'"exp":{int(time.time()) + 600},"nbf":1.5'), 401),
+            "iat-now": (lambda: mint(
+                {"alg": "RS256", "kid": "alpha", "typ": "JWT"},
+                claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) + 600, iat=int(time.time())),
+                alpha,
+            ), 200),
+            "iat-future-31s": (lambda: mint(
+                {"alg": "RS256", "kid": "alpha", "typ": "JWT"},
+                claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) + 600, iat=int(time.time()) + 31),
+                alpha,
+            ), 401),
+            "iat-string": (lambda: _raw_token(alpha, f'"exp":{int(time.time()) + 600},"iat":"not-a-time"'), 401),
+            "escaped-exp-key": (lambda: _raw_token(
+                alpha, f'"\\u0065xp":9999999999,"exp":{int(time.time()) + 600}'
+            ), 401),
             "nbf-within-15s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 15), alpha), 200),
             "nbf-31s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 31), alpha), 401),
             "nbf-beyond-120s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 120), alpha), 401),
@@ -818,8 +864,13 @@ def main() -> int:
             "wrong-audience", "missing-exp", "expired-31s", "expired-45s", "nbf-31s",
             "disallowed-alg", "cross-issuer-key", "cross-issuer-kid",
             "nested-exp", "nested-exp-spoof", "duplicate-alg", "nbf-string", "exp-string",
+            "exp-float", "exp-exponent", "exp-negative", "exp-1e18", "exp-year-3000",
+            "exp-lifetime-3631", "nbf-float", "iat-future-31s", "iat-string", "escaped-exp-key",
         }
-        must_forward = {"valid-alpha", "valid-beta", "expired-20s", "nbf-within-15s"}
+        must_forward = {
+            "valid-alpha", "valid-beta", "expired-20s", "nbf-within-15s",
+            "exp-lifetime-3600", "exp-lifetime-3630", "iat-now",
+        }
         for name, (token, required) in cases.items():
             watch = name in zero_forward or name in must_forward
             before = stand_in_count() if watch else None
@@ -876,6 +927,19 @@ def main() -> int:
         tested("duplicate alg", results["duplicate-alg"][0], "401 required; alg occurs twice")
         tested("nbf is a string", results["nbf-string"][0], "401 required; non-numeric nbf fails closed")
         tested("exp is a string", results["exp-string"][0], "401 required; non-numeric exp fails closed")
+        tested("exp float within the window", results["exp-float"][0], "401; JSON integers only, floats are rejected")
+        tested("exp exponent 1e18", results["exp-exponent"][0], "401 required")
+        tested("exp negative", results["exp-negative"][0], "401 required")
+        tested("exp 1e18 integer digits", results["exp-1e18"][0], "401 required; over MAX_TOKEN_LIFETIME")
+        tested("exp year 3000", results["exp-year-3000"][0], "401 required; over MAX_TOKEN_LIFETIME")
+        tested("exp now+3600", results["exp-lifetime-3600"][0], "200; within 3630s")
+        tested("exp now+3630", results["exp-lifetime-3630"][0], "200; ceiling includes 30s skew")
+        tested("exp now+3631", results["exp-lifetime-3631"][0], "401 required; over 3630s")
+        tested("nbf float", results["nbf-float"][0], "401 required; nbf must be an integer")
+        tested("iat now", results["iat-now"][0], "200 required")
+        tested("iat now+31s", results["iat-future-31s"][0], "401 required; iat <= now + 30")
+        tested("iat string", results["iat-string"][0], "401 required; non-numeric iat fails closed")
+        tested("escaped exp key", results["escaped-exp-key"][0], "401 required; backslash in a key")
         boom_before = stand_in_count()
         boom_status, boom_headers, boom_body = request("/v1/data/boom", valid)
         boom_forwarded = stand_in_count() - boom_before - 1

@@ -101,7 +101,7 @@ def extension(names: list[str]) -> dict:
             ],
             "lua": [
                 {"type": "Inline", "inline": "x-tenant-id"},
-                {"type": "Inline", "inline": 'key_counts(payload, "exp")'},
+                {"type": "Inline", "inline": 'root_key(payload, "exp")'},
             ],
         },
     }
@@ -243,6 +243,41 @@ class DataApiEdgeGate(unittest.TestCase):
         found = problems_of(documents)
         self.assertTrue(any("saas-fabric-probes" in item and "identity headers" in item for item in found), found)
         self.assertTrue(any("saas-fabric-probes" in item and "exp" in item for item in found), found)
+
+    def test_selector_form_lua_covers_labelled_routes(self) -> None:
+        data = route("saas-fabric", "/v1/data", label="tenant")
+        probes = route("saas-fabric-probes", "/health", "Exact", extra=["/ready"])
+        data["metadata"]["labels"]["fieldstate.nz/strip-identity"] = "edge"
+        probes["metadata"]["labels"] = {"fieldstate.nz/strip-identity": "edge"}
+        selected = extension(["saas-fabric", "saas-fabric-probes"])
+        selected["spec"].pop("targetRefs")
+        selected["spec"]["targetSelectors"] = [
+            {
+                "group": "gateway.networking.k8s.io",
+                "kind": "HTTPRoute",
+                "matchLabels": {"fieldstate.nz/strip-identity": "edge"},
+            }
+        ]
+        documents = [deployment(1), data, probes, policy(), network_policy(), selected]
+        self.assertEqual(problems_of(documents), [])
+
+    def test_comment_only_lua_marker_fails(self) -> None:
+        noted = extension(["saas-fabric", "saas-fabric-probes"])
+        noted["spec"]["lua"] = [
+            {"type": "Inline", "inline": "-- x-tenant-id"},
+            {"type": "Inline", "inline": '-- root_key(payload, "exp")'},
+        ]
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data", label="tenant"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(),
+            network_policy(),
+            noted,
+        ]
+        found = problems_of(documents)
+        self.assertTrue(any("identity headers" in item for item in found), found)
+        self.assertTrue(any("exp" in item for item in found), found)
 
 
 if __name__ == "__main__":
