@@ -71,12 +71,22 @@ and ADR 0019's D01-5 amendment in the application repository.
 
 | Environment | Listeners |
 |---|---|
-| LucentRoot | `http` on 80 |
-| Production | `http` on 80, `https` on 443 with TLS termination |
+| LucentRoot | `http` on 80 (no hostname); `fabric` on 80 for `fabric.lucentroot.internal` |
+| Production | `http` on 80; `https` on 443 (no hostname); `fabric` on 443 for `fabric.fieldstate.nz`, TLS terminated there |
+
+`http` and `https` are the product edge for every hostname except the fabric
+host. `fabric` is that host only. Its `allowedRoutes` selector is
+`kubernetes.io/metadata.name: platform-system`, the namespace SaaS Fabric's
+routes live in. A namespace that holds `gateway-access` can still attach to
+`http` or `https`, and cannot attach a route for the fabric hostname: the
+more specific listener owns the host, and it does not admit the other
+namespace. That is what keeps a longer `/v1/data/...` path from receiving
+tenants' bearer tokens.
 
 LucentRoot has no HTTPS listener because there is no certificate authority for
-`*.lucentroot.internal`. Routes select their listener by `sectionName`, which is
-the one place an environment's routing differs.
+`*.lucentroot.internal`. Routes select their listener by `sectionName`. The
+fabric routes name `fabric` in both environments; production's overlay is what
+makes that listener HTTPS.
 
 ## The operator listener asserts its own scheme
 

@@ -5,13 +5,30 @@ resources:
   - ../../base
 
 patches:
-  # Production adds TLS termination at the Gateway. One certificate on the
-  # listener replaces the per-service certificates an Ingress model would
-  # need, and it is the only place TLS is configured.
+  # Production terminates TLS at the Gateway. The shared `https` listener is
+  # every product hostname except the fabric host. The fabric listener
+  # (listeners[2]: http, operator, fabric) becomes HTTPS for that host and
+  # uses the same certificate reference. The secret is injected externally.
   - target:
       kind: Gateway
       name: platform
     patch: |-
+      - op: replace
+        path: /spec/listeners/2/protocol
+        value: HTTPS
+      - op: replace
+        path: /spec/listeners/2/port
+        value: 443
+      - op: replace
+        path: /spec/listeners/2/hostname
+        value: fabric.fieldstate.nz
+      - op: add
+        path: /spec/listeners/2/tls
+        value:
+          mode: Terminate
+          certificateRefs:
+            - kind: Secret
+              name: platform-tls
       - op: add
         path: /spec/listeners/-
         value:

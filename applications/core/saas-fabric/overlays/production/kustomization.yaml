@@ -11,8 +11,9 @@ images:
     newTag: 0.1.0
 
 patches:
-  # TLS terminates at the Gateway's https listener, so both runtime routes
-  # (the Data API and the probes) select that listener.
+  # TLS terminates on the Gateway's `fabric` listener, which production serves
+  # as HTTPS for fabric.fieldstate.nz. Both runtime routes select that
+  # listener. The shared `https` listener is other products, not this host.
   - target:
       kind: HTTPRoute
     patch: |-
@@ -21,4 +22,4 @@ patches:
         value: fabric.fieldstate.nz
       - op: replace
         path: /spec/parentRefs/0/sectionName
-        value: https
+        value: fabric

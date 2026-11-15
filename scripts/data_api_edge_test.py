@@ -42,7 +42,9 @@ ROOT = Path(__file__).resolve().parent.parent
 BASE = ROOT / "applications" / "core" / "saas-fabric" / "base"
 CLUSTER = "data-api-edge"
 NAMESPACE = "platform-system"
+FOREIGN = "other-product"
 HOST = "fabric.invalid"
+GATEWAY = ROOT / "applications" / "core" / "platform-gateway" / "base" / "gateway.yaml"
 AUDIENCE = "saas-fabric-data-api"
 ISSUER_ALPHA = "https://identity.example.invalid/realms/alpha"
 ISSUER_BETA = "https://identity.example.invalid/realms/beta"
@@ -257,6 +259,20 @@ def gateway_deployment() -> str:
     return names[0]
 
 
+def repo_gateway() -> dict:
+    """The base Gateway, including the fabric listener and its namespace selector."""
+    document = yaml.safe_load(GATEWAY.read_text())
+    document.setdefault("metadata", {})["namespace"] = NAMESPACE
+    listeners = document["spec"]["listeners"]
+    fabric = next(listener for listener in listeners if listener["name"] == "fabric")
+    if fabric.get("hostname") != HOST:
+        raise SystemExit(f"base fabric listener hostname is {fabric.get('hostname')}, test pins {HOST}")
+    selector = fabric["allowedRoutes"]["namespaces"]
+    if selector.get("from") != "Selector":
+        raise SystemExit(f"fabric listener allowedRoutes is {selector.get('from')}")
+    return document
+
+
 def repo_routes() -> list[dict]:
     documents = [item for item in yaml.safe_load_all(BASE.joinpath("httproute.yaml").read_text()) if item]
     for document in documents:
@@ -352,7 +368,15 @@ def stand_in_manifests(jwks_alpha: list[dict], jwks_beta: list[dict]) -> list[di
         {
             "apiVersion": "v1",
             "kind": "Namespace",
-            "metadata": {"name": NAMESPACE},
+            "metadata": {
+                "name": NAMESPACE,
+                "labels": {
+                    "fieldstate.nz/gateway-access": "true",
+                    # The API server also sets this to the namespace name. Stating
+                    # it keeps the fabric listener's selector true on apply.
+                    "kubernetes.io/metadata.name": NAMESPACE,
+                },
+            },
         },
         {
             "apiVersion": "gateway.networking.k8s.io/v1",
@@ -360,22 +384,7 @@ def stand_in_manifests(jwks_alpha: list[dict], jwks_beta: list[dict]) -> list[di
             "metadata": {"name": "saas-fabric"},
             "spec": {"controllerName": "gateway.envoyproxy.io/gatewayclass-controller"},
         },
-        {
-            "apiVersion": "gateway.networking.k8s.io/v1",
-            "kind": "Gateway",
-            "metadata": {"name": "platform", "namespace": NAMESPACE},
-            "spec": {
-                "gatewayClassName": "saas-fabric",
-                "listeners": [
-                    {
-                        "name": "http",
-                        "protocol": "HTTP",
-                        "port": 80,
-                        "allowedRoutes": {"namespaces": {"from": "All"}},
-                    }
-                ],
-            },
-        },
+        repo_gateway(),
         configmap("data-api-stand-in", {"server.py": server}),
         configmap("data-api-jwks", {"alpha.json": json.dumps({"keys": jwks_alpha}), "beta.json": json.dumps({"keys": jwks_beta}), "server.py": jwks}),
         workload(
@@ -530,6 +539,162 @@ def recycle_proxy() -> None:
             return
         time.sleep(2)
     raise SystemExit("envoy proxy did not return after the pool was dropped")
+
+
+def foreign_route() -> list[dict]:
+    """A gateway-access namespace, not platform-system, claiming a longer Data API path.
+
+    This is the attachment the product listener used to allow: same hostname as
+    the fabric routes, a longer `/v1/data/x` prefix, and a backend that would
+    see the bearer. It names both the open `http` listener and the `fabric`
+    listener. Neither may accept it.
+    """
+    server = textwrap.dedent(
+        """
+        import json
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        HITS = {"n": 0}
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                path = self.path.split("?", 1)[0]
+                if path == "/__count":
+                    body = str(HITS["n"]).encode()
+                    self.send_response(200)
+                    self.send_header("content-type", "text/plain")
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                HITS["n"] += 1
+                body = json.dumps({"sink": "foreign", "path": self.path}).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                return
+        ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+        """
+    )
+    labels = {"app": "token-sink"}
+    return [
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "name": FOREIGN,
+                "labels": {"fieldstate.nz/gateway-access": "true"},
+            },
+        },
+        configmap("token-sink", {"server.py": server}) | {"metadata": {"name": "token-sink", "namespace": FOREIGN}},
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": "token-sink", "namespace": FOREIGN},
+            "spec": {
+                "replicas": 1,
+                "selector": {"matchLabels": labels},
+                "template": {
+                    "metadata": {"labels": labels},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "token-sink",
+                                "image": "python:3.12-slim",
+                                "command": ["python", "/app/server.py"],
+                                "ports": [{"containerPort": 8080}],
+                                "volumeMounts": [{"name": "app", "mountPath": "/app"}],
+                            }
+                        ],
+                        "volumes": [{"name": "app", "configMap": {"name": "token-sink"}}],
+                    },
+                },
+            },
+        },
+        service("token-sink") | {"metadata": {"name": "token-sink", "namespace": FOREIGN}},
+        {
+            "apiVersion": "gateway.networking.k8s.io/v1",
+            "kind": "HTTPRoute",
+            "metadata": {"name": "fabric-overlap", "namespace": FOREIGN},
+            "spec": {
+                "parentRefs": [
+                    {"name": "platform", "namespace": NAMESPACE, "sectionName": "http"},
+                    {"name": "platform", "namespace": NAMESPACE, "sectionName": "fabric"},
+                ],
+                "hostnames": [HOST],
+                "rules": [
+                    {
+                        "matches": [{"path": {"type": "PathPrefix", "value": "/v1/data/x"}}],
+                        "backendRefs": [{"name": "token-sink", "port": 80}],
+                    }
+                ],
+            },
+        },
+    ]
+
+
+def sink_count() -> int:
+    raw = kube(
+        "exec", "-n", FOREIGN, "deploy/token-sink", "--",
+        "python", "-c",
+        "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/__count').read().decode())",
+    )
+    return int(raw.strip())
+
+
+def route_acceptance(namespace: str, name: str) -> list[tuple[str, str, str]]:
+    route = json.loads(kube("get", "httproute", name, "-n", namespace, "-o", "json"))
+    rows = []
+    for parent in route.get("status", {}).get("parents") or []:
+        section = (parent.get("parentRef") or {}).get("sectionName") or ""
+        for condition in parent.get("conditions") or []:
+            if condition.get("type") == "Accepted":
+                rows.append((section, str(condition.get("status") or ""), str(condition.get("reason") or "")))
+    return rows
+
+
+def reject_foreign_route(token: str) -> None:
+    """Another namespace must not attach a longer /v1/data path on the fabric host."""
+    kube_apply(foreign_route())
+    kube("rollout", "status", "deployment/token-sink", "-n", FOREIGN, "--timeout=180s")
+    baseline = sink_count()
+    kube(
+        "exec", "-n", FOREIGN, "deploy/token-sink", "--",
+        "python", "-c",
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/probe')",
+    )
+    counted = sink_count()
+    if counted != baseline + 1:
+        raise SystemExit(f"foreign sink did not count a direct request: {baseline} -> {counted}")
+    deadline = time.time() + 90
+    accepted: list[tuple[str, str, str]] = []
+    while time.time() < deadline:
+        accepted = route_acceptance(FOREIGN, "fabric-overlap")
+        if len(accepted) >= 2 and all(parent_status == "False" for _, parent_status, _ in accepted):
+            break
+        time.sleep(2)
+    status, _, body = request("/v1/data/x", token)
+    time.sleep(2)
+    accepted = route_acceptance(FOREIGN, "fabric-overlap")
+    after = sink_count()
+    print(
+        f"foreign HTTPRoute fabric-overlap parents={accepted or 'not attached'}; "
+        f"gateway /v1/data/x status={status}; foreign sink requests={after - counted}"
+    )
+    if any(parent_status == "True" for _, parent_status, _ in accepted):
+        raise SystemExit(f"foreign HTTPRoute was Accepted on the fabric hostname: {accepted}")
+    if not accepted:
+        # No parent status is "not attached", which is the same refusal. A later
+        # Accepted=True would still have shown up in the read above.
+        print("foreign HTTPRoute reported no Accepted condition; treating that as not attached")
+    if after != counted or '"sink"' in body:
+        raise SystemExit(
+            f"foreign sink received the /v1/data/x request (count {counted} -> {after}, body starts {body[:120]!r})"
+        )
+    tested(
+        "foreign namespace HTTPRoute /v1/data/x on the fabric hostname",
+        "Accepted=False, 0 requests",
+        "gateway-access namespace other-product; token not delivered",
+    )
 
 
 def wait_ready() -> None:
@@ -917,6 +1082,7 @@ def main() -> int:
         tested("expired 45s", results["expired-45s"][0], "401 required; Lua cap now > exp + 30")
         tested("nbf +15s (control, within 30s)", results["nbf-within-15s"][0], "200 required")
         tested("nbf +31s", results["nbf-31s"][0], "401 required; Lua cap nbf - 30 <= now")
+        reject_foreign_route(valid)
         tested(
             "nbf not-yet-valid (nbf=now+120s, beyond clock skew)",
             results["nbf-beyond-120s"][0],

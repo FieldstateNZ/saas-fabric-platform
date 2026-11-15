@@ -180,6 +180,7 @@ application's ADR 0024 slice 5; until that is decided, no client-instance
 ## TLS
 
 TLS terminates at the platform `Gateway`, not here. The production overlay's
-route selects the Gateway's `https` listener by `sectionName`; the certificate
-is a single `platform-tls` secret on that listener. See
+routes select the Gateway's `fabric` listener by `sectionName`. That listener
+terminates TLS with the shared `platform-tls` secret and admits only
+`fabric.fieldstate.nz` from `platform-system`. See
 [`../platform-gateway`](../platform-gateway/).
