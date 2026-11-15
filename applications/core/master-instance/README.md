@@ -140,6 +140,19 @@ lookup. `check_master_instance_lookups_precede_apply` rejects a
 `data.keycloak_user` block, and `variable "operators"` rejects a value that
 is not a UUID, so the username `admin` cannot be fed in as a roster entry.
 
+### Accepted risk (D01-6 option C)
+
+Under option C the human operator and this Job share one account. Both use
+the bootstrap administrator Keycloak created at first start, and both
+present the same password from the `keycloak-admin` Secret. That account
+has no MFA, and nothing separates a person signing in from the automation
+that converges the realm. Keycloak treats this bootstrap administrator as
+temporary: the server creates it so it can start, and expects it to be
+replaced. The planned exit is D01-6 option A, an external identity provider
+with the master realm brokering to it. Until that is carried out, the shared
+credential is the accepted risk of option C, and the grant stays bound to
+this one account's id.
+
 ### How the stable id is obtained and fed in
 
 The id is an input. It is not derived inside the module, and it is not
@@ -183,6 +196,24 @@ nothing, to nobody, and blocks no sync. It does not by itself make the
 built-in administrator an operator of this module: Keycloak's own startup
 grant of realm `admin` is Keycloak's, and `fabric-operator` is granted only
 once the id is here.
+
+### Rebuilding Keycloak
+
+A fresh Keycloak assigns the built-in administrator a new id. The roster
+still names the previous one, and the plan fails on that lookup before
+anything is written. The failure is the binding working: the new account
+does not inherit `fabric-operator` or master-realm `admin` from the old id.
+Recovery is three steps:
+
+1. Read the new id with the same authorised `kcadm.sh` query above, and take
+   the object whose username is exactly `admin`.
+2. Commit that id as the `operators` entry, in place of the old one.
+3. Sync this Application. The next run grants the two roles to the new id.
+
+The old id is gone with the old realm, so the refresh drops the previous
+grant from state and the sync after the commit creates the grant for the
+new id. Putting the old id back is not a recovery: that id does not exist
+on the new realm, and the plan keeps failing.
 
 **Removing an id fails the convergence, at plan time, and revokes
 nothing.** `exhaustive = false` alone would not give that: removing an id
@@ -248,9 +279,11 @@ names a managed resource.
 leaves account creation with Keycloak's bootstrap. Granting the two roles
 requires the built-in administrator's id to already exist and to have been
 fed in. See ADR 0025's own "What this does not decide": client-realm
-provisioning stays with the control plane for now. Brokering to an upstream
-identity provider (D01-6 option A) and creating local accounts in this module
-(option B) are not what this Application does.
+provisioning stays with the control plane for now. Creating local accounts
+in this module (D01-6 option B) is not what this Application does. Brokering
+to an external identity provider (D01-6 option A) is the planned exit from
+the shared bootstrap credential, under "Accepted risk" above, and it is not
+implemented here.
 
 ## Adopting LucentRoot's hand-made history
 
