@@ -1,0 +1,101 @@
+# Same RollingSync shape as scripts/fixtures/rolling-sync/applicationset.yaml,
+# pointed at the stand-in workloads. The verification script copies this into
+# the throwaway git repo. No environment lists it.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: operator-sign-in
+  namespace: argocd
+  labels:
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - list:
+        elements:
+          - name: master-instance-credential
+            step: "1"
+            path: workloads/master-instance-credential
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+              retry:
+                limit: 2
+                backoff:
+                  duration: 5s
+                  factor: 2
+                  maxDuration: 30s
+          - name: master-instance
+            step: "2"
+            path: workloads/master-instance
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+              retry:
+                limit: 2
+                backoff:
+                  duration: 5s
+                  factor: 2
+                  maxDuration: 30s
+          - name: saas-fabric-control-plane
+            step: "3"
+            path: workloads/saas-fabric-control-plane
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+              retry:
+                limit: 2
+                backoff:
+                  duration: 5s
+                  factor: 2
+                  maxDuration: 30s
+  strategy:
+    type: RollingSync
+    rollingSync:
+      steps:
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "1"
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "2"
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "3"
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+    applicationsSync: create-update
+  template:
+    metadata:
+      name: "{{.name}}"
+      namespace: argocd
+      labels:
+        fieldstate.nz/source: kustomize
+        fieldstate.nz/class: core
+        fieldstate.nz/rollout-step: "{{.step}}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      revisionHistoryLimit: 20
+      source:
+        repoURL: REPO_URL_PLACEHOLDER
+        targetRevision: main
+        path: "{{.path}}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: operator-system
+  templatePatch: |
+    spec:
+      syncPolicy: {{ toJson .syncPolicy }}

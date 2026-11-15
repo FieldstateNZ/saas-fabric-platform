@@ -1,0 +1,39 @@
+# Stand-in for the master-instance convergence Job. Replace+Force, as the real
+# Job does, so every sync of this Application recreates it. backoffLimit 0
+# makes a forced failure Degraded without retries. Succeed sleeps so the
+# Application stays Progressing long enough to observe the gate.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: convergence
+  namespace: operator-system
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true,Force=true
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: standin
+          image: registry.k8s.io/e2e-test-images/busybox:1.36.1-1
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              mode="$(cat /mode/mode)"
+              echo "mode=${mode} marker=$(cat /mode/marker)"
+              case "$mode" in
+                succeed) sleep 8; exit 0 ;;
+                fail) exit 1 ;;
+                sleep) sleep 3600; exit 0 ;;
+                *) echo "unknown mode ${mode}"; exit 1 ;;
+              esac
+          volumeMounts:
+            - name: mode
+              mountPath: /mode
+              readOnly: true
+      volumes:
+        - name: mode
+          configMap:
+            name: convergence-mode
