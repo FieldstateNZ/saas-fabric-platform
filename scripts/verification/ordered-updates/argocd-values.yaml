@@ -4,6 +4,9 @@
 # repo sets replicas to 0) and progressive syncs are turned on, because the
 # candidate does nothing without them.
 nameOverride: argocd
+global:
+  image:
+    imagePullPolicy: IfNotPresent
 dex:
   enabled: false
 notifications:
@@ -11,6 +14,8 @@ notifications:
 applicationSet:
   replicas: 1
 redis:
+  image:
+    imagePullPolicy: IfNotPresent
   exporter:
     enabled: false
 configs:

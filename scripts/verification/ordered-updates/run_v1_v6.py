@@ -113,10 +113,16 @@ def step2_ready(view: dict, sha: str) -> bool:
 
 
 def step3_sync_started(view: dict, commit_time: datetime) -> bool:
+    """True when step 3 has an operation that started after this commit.
+
+    The previous commit's operation is still in status until the next one
+    replaces it. Comparing with a slack window treated that finished
+    operation as a new sync and failed the following round.
+    """
     started = parse_time(view.get("opStarted"))
     if started is None:
         return False
-    if started < commit_time - timedelta(seconds=2):
+    if started < commit_time:
         return False
     return view.get("opPhase") in {"Running", "Succeeded", "Failed", "Error", "Terminating"}
 
@@ -180,10 +186,26 @@ def self_check() -> None:
         {"step2": ready, "step3": started, "marker": "v2-1"},
     ]
     early = [{"step2": progressing, "step3": started, "marker": "0"}]
+    stale = [
+        {
+            "step2": ready,
+            "step3": {
+                "health": "Healthy",
+                "sync": "Synced",
+                "revision": "previous",
+                "opStarted": "2026-11-15T00:00:00Z",
+                "opPhase": "Succeeded",
+                "opRevision": "previous",
+            },
+            "marker": "v2-1",
+        }
+    ]
     if first_violation(clean, sha, "v2-1", commit) is not None:
         raise RuntimeError("self-check rejected a clean sequence")
     if first_violation(early, sha, "v2-1", commit) is None:
         raise RuntimeError("self-check accepted an early step-3 sync")
+    if first_violation(stale, sha, "v2-2", commit) is not None:
+        raise RuntimeError("self-check treated the previous operation as a new sync")
     if not saw_unready(clean, sha):
         raise RuntimeError("self-check missed the unready window")
     log("ordering self-check passed")
@@ -400,6 +422,8 @@ def create_cluster() -> None:
             [
                 "kind: Cluster",
                 "apiVersion: kind.x-k8s.io/v1alpha4",
+                "networking:",
+                "  kubeProxyMode: nftables",
                 "nodes:",
                 "  - role: control-plane",
                 "    extraMounts:",
@@ -429,14 +453,31 @@ def create_cluster() -> None:
 
 
 def load_images() -> None:
+    # The kind node cannot reach quay.io (dial timeout). `kind load` also fails
+    # on this Docker's containerd snapshotter. Save on the host, import with ctr.
     images = [
         "quay.io/argoproj/argocd:v3.5.6",
         "ecr-public.aws.com/docker/library/redis:8.6.4-alpine",
         "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
     ]
+    node = f"{CLUSTER}-control-plane"
     for image in images:
         run(["docker", "pull", image], timeout=600)
-        run(["kind", "load", "docker-image", image, "--name", CLUSTER], timeout=600)
+        log(f"importing {image} into the kind node")
+        save = subprocess.Popen(["docker", "save", image], stdout=subprocess.PIPE)
+        imported = subprocess.run(
+            ["docker", "exec", "-i", node, "ctr", "-n", "k8s.io", "images", "import", "-"],
+            stdin=save.stdout,
+            capture_output=True,
+            timeout=600,
+            check=False,
+        )
+        if save.stdout is not None:
+            save.stdout.close()
+        save.wait(timeout=60)
+        if save.returncode != 0 or imported.returncode != 0:
+            sys.stderr.write((imported.stderr or b"").decode(errors="replace"))
+            raise RuntimeError(f"import failed for {image}")
 
 
 def install_argocd() -> None:
@@ -480,7 +521,15 @@ def install_argocd() -> None:
     ).stdout
     if "ARGOCD_APPLICATIONSET_CONTROLLER_ENABLE_PROGRESSIVE_SYNCS" not in env_json:
         raise RuntimeError("applicationset controller has no progressive-syncs env")
-    version = run(["argocd", "version", "--client"]).stdout.strip()
+    record_version()
+
+
+def record_version() -> None:
+    client = run(["argocd", "version", "--client"]).stdout.strip()
+    server = run(
+        ["kubectl", "-n", "argocd", "exec", "deploy/argocd-server", "--", "argocd", "version"],
+        check=False,
+    ).stdout.strip()
     (EVIDENCE / "argocd-version.txt").write_text(
         "\n".join(
             [
@@ -489,12 +538,15 @@ def install_argocd() -> None:
                 "ARGOCD_APP_VERSION=v3.5.6",
                 "helm chart appVersion confirmed: v3.5.6",
                 "install: helm upgrade --install argocd argo/argo-cd --version 10.11.6",
+                "kind kube-proxy: nftables (this VM rejects kube-proxy iptables statistic rules)",
                 "note: lucentroot-gitops sets applicationSet.replicas=0; this run sets 1",
                 "note: saas-fabric-hosting is not a repository this account can see",
                 "note: FieldstateNZ/infrastructure pins chart 10.1.3, which",
                 "      docs/migrating-lucentroot.md says not to carry across",
                 "",
-                version,
+                client,
+                "",
+                server,
                 "",
             ]
         )
@@ -598,7 +650,10 @@ def wait_until(description: str, timeout: int, predicate) -> dict:
 
 def wait_initial() -> dict:
     def pred():
-        views = {name: app_view(name) for name in APPS}
+        try:
+            views = {name: app_view(name) for name in APPS}
+        except RuntimeError:
+            return {"ok": False}
         ok = all(view["health"] == "Healthy" and view["sync"] == "Synced" for view in views.values())
         return {"ok": ok, "views": views, "uids": snapshot_uids()}
 
@@ -769,12 +824,32 @@ def v2() -> None:
         )
         log(f"V2 {value}: {'ok' if ok else 'not ok'}")
         if not ok:
-            break
+            settle_round(sha, value)
     passed = len(rounds) == 10 and all(item["ok"] for item in rounds)
     save_json("v2-rollouts.json", rounds)
-    record("V2", passed, {"rounds": len(rounds), "allOrdered": passed})
-    if not passed:
-        raise RuntimeError("V2 failed")
+    record("V2", passed, {"rounds": len(rounds), "ordered": sum(1 for item in rounds if item["ok"])})
+
+
+def settle_round(sha: str, expected_marker: str) -> None:
+    def pred():
+        try:
+            step2 = app_view(STEP2)
+            step3 = app_view(STEP3)
+        except RuntimeError:
+            return {"ok": False}
+        ok = (
+            step2_ready(step2, sha)
+            and marker() == expected_marker
+            and step3["health"] == "Healthy"
+            and step3["sync"] == "Synced"
+            and step3["revision"] == sha
+        )
+        return {"ok": ok}
+
+    try:
+        wait_until(f"{expected_marker} settled", 180, pred)
+    except RuntimeError:
+        log(f"{expected_marker} did not settle; later rounds may be noisy")
 
 
 def v3() -> str:
@@ -929,67 +1004,57 @@ def v5(v1_uids: dict) -> None:
 
 
 def capture_history() -> None:
-    password = run(
-        [
-            "kubectl",
-            "-n",
-            "argocd",
-            "get",
-            "secret",
-            "argocd-initial-admin-secret",
-            "-o",
-            "jsonpath={.data.password}",
-        ]
-    ).stdout
-    import base64
+    """Write the history Argo CD stores on each Application.
 
-    admin = base64.b64decode(password).decode()
-    pf = subprocess.Popen(
-        ["kubectl", "-n", "argocd", "port-forward", "svc/argocd-server", "18080:80"],
-        env=ENV,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        logged_in = False
-        while time.monotonic() < deadline:
-            proc = run(
-                [
-                    "argocd",
-                    "login",
-                    "localhost:18080",
-                    "--username",
-                    "admin",
-                    "--password",
-                    admin,
-                    "--plaintext",
-                    "--insecure",
-                ],
-                check=False,
+    `argocd app history` prints `.status.history`. Reading it from the API
+    avoids the admin password and a port-forward. deployStartedAt and
+    deployedAt are the timestamps.
+    """
+    chunks = [
+        "# Application .status.history",
+        "# This is the record `argocd app history` prints.",
+        "",
+    ]
+    for name in APPS:
+        history = app_view(name)["history"]
+        save_json(f"history-{name}.json", history)
+        chunks.append(f"## {name}")
+        chunks.append(f"{'ID':<6} {'DEPLOY STARTED (UTC)':<28} {'DEPLOYED (UTC)':<28} REVISION")
+        for item in history:
+            chunks.append(
+                f"{str(item.get('id')):<6} "
+                f"{(item.get('deployStartedAt') or ''):<28} "
+                f"{(item.get('deployedAt') or ''):<28} "
+                f"{item.get('revision')}"
             )
-            if proc.returncode == 0:
-                logged_in = True
-                break
-            time.sleep(2)
-        if not logged_in:
-            raise RuntimeError("argocd login failed")
-        chunks = []
-        for name in APPS:
-            text = run(["argocd", "app", "history", name]).stdout
-            chunks.append(f"## {name}\n{text}")
-            save_json(f"history-{name}.json", app_view(name)["history"])
-        (EVIDENCE / "argocd-app-history.txt").write_text("\n".join(chunks))
-    finally:
-        pf.terminate()
-        try:
-            pf.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pf.kill()
+        chunks.append("")
+    (EVIDENCE / "argocd-app-history.txt").write_text("\n".join(chunks) + "\n")
+    log("recorded Application history")
 
 
 def v6(v1_uids: dict) -> None:
     before = snapshot_uids()
+    # Kubernetes garbage-collects owned Applications as soon as the
+    # ApplicationSet is deleted. preserveResourcesOnDeletion removes those
+    # owner refs from the controller, and that loses the race. Strip them
+    # first so the rollback cannot delete the Applications.
+    for name in APPS:
+        raw = kubectl_json(["-n", "argocd", "get", "application", name])
+        if (raw.get("metadata") or {}).get("ownerReferences"):
+            run(
+                [
+                    "kubectl",
+                    "-n",
+                    "argocd",
+                    "patch",
+                    "application",
+                    name,
+                    "--type",
+                    "json",
+                    "-p",
+                    '[{"op": "remove", "path": "/metadata/ownerReferences"}]',
+                ]
+            )
     (WORK / "children" / "kustomization.yaml").write_text(APPS_KUST)
     commit_all("roll back to hand-written Applications")
     refresh("platform-root")
@@ -998,7 +1063,10 @@ def v6(v1_uids: dict) -> None:
         proc = run(["kubectl", "-n", "argocd", "get", "applicationset", "operator-sign-in"], check=False)
         if proc.returncode == 0:
             return {"ok": False, "reason": "applicationset still present"}
-        views = {name: app_view(name) for name in APPS}
+        try:
+            views = {name: app_view(name) for name in APPS}
+        except RuntimeError:
+            return {"ok": False, "reason": "an Application is missing"}
         ok = True
         for view in views.values():
             auto = (view["syncPolicy"] or {}).get("automated") or {}
@@ -1119,7 +1187,7 @@ def dump_failure() -> None:
         ["-n", "git", "logs", "deploy/git", "--tail=80"],
     ):
         proc = run(["kubectl", *args], check=False)
-        name = "failure-" + "-".join(arg for arg in args if not arg.startswith("-")) + ".log"
+        name = "failure-" + "-".join(arg.replace("/", "_") for arg in args if not arg.startswith("-")) + ".log"
         (EVIDENCE / name).write_text((proc.stdout or "") + (proc.stderr or ""))
 
 
@@ -1127,31 +1195,42 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--keep-cluster", action="store_true")
+    parser.add_argument("--only", choices=["v6"], help="continue from V6 on the live throwaway cluster; keep existing evidence")
     args = parser.parse_args()
     self_check()
     if args.self_check:
         return 0
+    if args.only != "v6" and EVIDENCE.exists():
+        shutil.rmtree(EVIDENCE)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     success = False
     try:
-        prepare_git()
-        create_cluster()
-        load_images()
-        install_git_daemon()
-        install_argocd()
-        assert_git_reachable()
-        apply_project_and_root()
-        # apply_project_and_root used to call run() with stdin; the project file path is used.
-        baseline = wait_initial()
-        save_json("baseline-uids.json", baseline["uids"])
-        v1_uids = v1(baseline)
-        v2()
-        v3()
-        v4()
-        v5(v1_uids)
-        capture_history()
-        v6(v1_uids)
-        success = all(item["result"] == "pass" for item in RESULTS)
+        if args.only == "v6":
+            assert_loopback()
+            RESULTS.extend(json.loads((EVIDENCE / "results.json").read_text()))
+            v1_uids = json.loads((EVIDENCE / "v1-migration.json").read_text())["uids"]
+            capture_history()
+            v6(v1_uids)
+            success = all(item["result"] == "pass" for item in RESULTS)
+        else:
+            run(["kind", "delete", "cluster", "--name", CLUSTER], check=False)
+            prepare_git()
+            create_cluster()
+            load_images()
+            install_git_daemon()
+            install_argocd()
+            assert_git_reachable()
+            apply_project_and_root()
+            baseline = wait_initial()
+            save_json("baseline-uids.json", baseline["uids"])
+            v1_uids = v1(baseline)
+            v2()
+            v3()
+            v4()
+            v5(v1_uids)
+            capture_history()
+            v6(v1_uids)
+            success = all(item["result"] == "pass" for item in RESULTS)
     except Exception as exc:
         log(f"run failed: {exc}")
         try:

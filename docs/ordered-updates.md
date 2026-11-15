@@ -291,7 +291,7 @@ assessment, or moving the control plane into wave 30, fails CI
 | Under documented RollingSync semantics, failed or running convergence holds the control plane, and recovery unblocks it | `RollingSyncFixture` | **this PR, offline (model)** |
 | Nothing added here is synced | `FixturesAreInert`; the PR's render-digest evidence | **this PR, offline** |
 | Adopting B or enabling the flag cannot happen silently | `RecordedOrdering` | **this PR, offline** |
-| The controller behaves as modelled on P1's version | V1–V6 below | **gated** |
+| The controller behaves as modelled on P1's version | V1–V6 on chart 10.11.6 / app v3.5.6 | **observed, not adopted.** [Throwaway-cluster evidence](../test-evidence/ordered-updates/README.md). O1 is still open |
 
 ### Isolated sync verification (separately authorised, not LucentRoot)
 
@@ -307,7 +307,55 @@ acceptance asks for.
 | V3 | Failed child convergence: force step 2's Job to fail. Step 3 stays unsynced through repeated commits to it, and the ApplicationSet status names the wait |
 | V4 | Drift while blocked: mutate a step-3 resource while step 2 is Degraded. Record whether and when it is corrected (E4) |
 | V5 | Recovery: commit a fix to step 2. Step 2 syncs and becomes Healthy, then step 3 proceeds |
-| V6 | Rollback: R5's sequence restores hand-written Applications with automated sync, and nothing is deleted |
+| V6 | Rollback: R5's sequence restores hand-written Applications with automated sync, and nothing is deleted. On v3.5.6 the owner references have to be cleared before the ApplicationSet object is deleted; `preserveResourcesOnDeletion` alone lost that race |
+
+### What v3.5.6 did, on a throwaway cluster
+
+Not an adoption. Nothing under `environments/` changed. The run is
+`scripts/verification/ordered-updates/`, evidence in
+`test-evidence/ordered-updates/`.
+
+P1's version was read from `FieldstateNZ/lucentroot-gitops` `versions.env`:
+Helm chart `10.11.6`, app `v3.5.6`. There is no `saas-fabric-hosting` repository
+in the org this account can see. `FieldstateNZ/infrastructure` pins chart
+`10.1.3`, which [migrating-lucentroot.md](migrating-lucentroot.md) says not to
+carry across. `lucentroot-gitops` `bootstrap/argocd-values.yaml` sets
+`applicationSet.replicas: 0` ("the app-of-apps does not use ApplicationSets").
+The throwaway run set replicas to 1. Adopting B needs that replica, the
+progressive-syncs flag, and the controller restart (E1, E2), agreed with
+whoever installs Argo CD (P3).
+
+On that controller, with stand-in workloads:
+
+- V1–V6 passed. Ten joint commits kept the control-plane stand-in unchanged
+  until master-instance was Healthy and Synced at the new revision, including
+  through the Job's Progressing window. A failed step 2 left step 3 `Waiting`
+  and the ApplicationSet condition said `performing rollout of step 2`. A live
+  edit of step 3 was not synced while step 2 was Degraded. A fix commit to
+  step 2 synced, then step 3 followed. Migration and the owner-ref-first
+  rollback changed no resource UID. Deleting the master-instance Application
+  afterwards removed its Job and left `tfstate-default-master-instance` (UID
+  unchanged) because the stand-in carries `Delete=false`. The live namespace
+  still has only `Prune=false` (R2, O5).
+- E5: the sync was started by `applicationset-controller`, with the template's
+  `syncOptions` and `retry` (the stand-in uses limit 2, and that limit was
+  copied). `prune` was unset. The candidate template drops `automated`, and
+  the controller only copies `automated.prune` when automated sync is enabled
+  on the generated spec, so this candidate does not prune.
+- An earlier attempt on the same version, before the recorded ten commits,
+  applied one step-3 revision while step 2 was still OutOfSync (step 3's
+  operation started one second before step 2's). It did not reproduce in the
+  recorded ten. Treat the gate as observed, not as proven impossible to race.
+- Deleting the ApplicationSet without first removing owner references
+  garbage-collected two of the three Applications. `preserveResourcesOnDeletion`
+  and `applicationsSync: create-update` are supposed to clear those references
+  first, and on this version that lost the race with Kubernetes GC. The
+  recorded V6 removes the references, then deletes the ApplicationSet.
+
+RollingSync remains a candidate. It held the gate on this controller once the
+ApplicationSet controller was running. Turning it on in place still waits on
+the replica count, the instance-wide flag, prune, `Delete=false`, and the
+owner-reference rollback. Keycloak is still outside the set. O1 is Brett's.
 
 ---
 

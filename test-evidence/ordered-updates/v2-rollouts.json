@@ -1,0 +1,3512 @@
+[
+  {
+    "marker": "v2-1",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "1bd35ee1969a67ddbb737dcf30f03499d12742df",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "c43fe1faf123ac87a92f6f7aa7e02ba9eead4cee",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:51:28Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:29Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:30Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:29Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:31Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:32Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:33Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:34Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:35Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:36Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:38Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:39Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:40Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:41Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:42Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:43Z"
+      },
+      {
+        "marker": "0",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "2771e17481ab0704af015951ef50d6e09d50c4c7",
+          "opStarted": "2026-11-15T03:51:07Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:44Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:45Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:51:46Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:51:33Z",
+      "opStarted": "2026-11-15T03:51:31Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-2",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:31Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:51:46Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:47Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:48Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:49Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:50Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:52Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:53Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:54Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:55Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:56Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:57Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:51:59Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:00Z"
+      },
+      {
+        "marker": "v2-1",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "5d69321ca8fffcca255284e6d31bdeea607b6741",
+          "opStarted": "2026-11-15T03:51:46Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:01Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:02Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:52:03Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:51:51Z",
+      "opStarted": "2026-11-15T03:51:49Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-3",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:51:49Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:52:03Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:04Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:05Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:04Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:06Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:07Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:08Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:09Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:10Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:11Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:13Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:14Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:15Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:16Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:17Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:18Z"
+      },
+      {
+        "marker": "v2-2",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "a7adeca580a17882bf40cf37b50bd619a1e2558b",
+          "opStarted": "2026-11-15T03:52:02Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:19Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:52:21Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "cbfacfba229bf64920b17233347fa1511575bba4",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:52:08Z",
+      "opStarted": "2026-11-15T03:52:06Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-4",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:06Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:52:21Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:22Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:23Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:24Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:25Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:27Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:28Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:29Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:30Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:31Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:32Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:34Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:35Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "cbfacfba229bf64920b17233347fa1511575bba4",
+          "opStarted": "2026-11-15T03:52:21Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:36Z"
+      },
+      {
+        "marker": "v2-3",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:37Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:52:38Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:52:26Z",
+      "opStarted": "2026-11-15T03:52:24Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-5",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:24Z",
+          "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:38Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:39Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:40Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:39Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:41Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:41Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:42Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:41Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:43Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:44Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:45Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:46Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:48Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:49Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:50Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:51Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:52Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:53Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:54Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:56Z"
+      },
+      {
+        "marker": "v2-4",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8",
+          "opStarted": "2026-11-15T03:52:37Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:57Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:52:58Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:52:46Z",
+      "opStarted": "2026-11-15T03:52:44Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-6",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:44Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:52:58Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:58Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:52:59Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:52:58Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:00Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:02Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:03Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:04Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:05Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:06Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:07Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:08Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:10Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:11Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:12Z"
+      },
+      {
+        "marker": "v2-5",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b",
+          "opStarted": "2026-11-15T03:52:57Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:13Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:14Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:14Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:53:15Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "988f211851ad24c987fef7aa259af07af8420ca3",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:53:03Z",
+      "opStarted": "2026-11-15T03:53:01Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-7",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:01Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:53:16Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:16Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:17Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:16Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:18Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:19Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:20Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:21Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:23Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:24Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:25Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:26Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:27Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:28Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:29Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:31Z"
+      },
+      {
+        "marker": "v2-6",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "988f211851ad24c987fef7aa259af07af8420ca3",
+          "opStarted": "2026-11-15T03:53:15Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:32Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:53:33Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:53:21Z",
+      "opStarted": "2026-11-15T03:53:18Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-8",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:18Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:53:33Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:33Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:34Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:33Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:35Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:37Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:38Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:39Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:40Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:41Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:42Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:43Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:45Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:46Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:47Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "e8f5f04b82a238fcec42f0cba3a028277d739f36",
+          "opStarted": "2026-11-15T03:53:32Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:48Z"
+      },
+      {
+        "marker": "v2-7",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:49Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:53:50Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:53:38Z",
+      "opStarted": "2026-11-15T03:53:36Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-9",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:36Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:53:51Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:51Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:52Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:51Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:53Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:54Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:55Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:56Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:58Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:53:59Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:00Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:01Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:02Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:03Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:04Z"
+      },
+      {
+        "marker": "v2-8",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b",
+          "opStarted": "2026-11-15T03:53:49Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:06Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:54:07Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:53:56Z",
+      "opStarted": "2026-11-15T03:53:53Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  },
+  {
+    "marker": "v2-10",
+    "ok": true,
+    "samples": [
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:53:53Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:54:07Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:08Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:09Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:10Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Running",
+          "opRevision": null,
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:11Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:13Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:14Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:15Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:16Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:17Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:18Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:20Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:21Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:22Z"
+      },
+      {
+        "marker": "v2-9",
+        "step2": {
+          "health": "Progressing",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf",
+          "opStarted": "2026-11-15T03:54:07Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "OutOfSync"
+        },
+        "t": "2026-11-15T03:54:23Z"
+      },
+      {
+        "marker": "v2-10",
+        "step2": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:10Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "step3": {
+          "health": "Healthy",
+          "opPhase": "Succeeded",
+          "opRevision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "opStarted": "2026-11-15T03:54:24Z",
+          "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+          "sync": "Synced"
+        },
+        "t": "2026-11-15T03:54:24Z"
+      }
+    ],
+    "sawUnready": true,
+    "sha": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+    "step2Operation": {
+      "initiatedBy": {
+        "automated": true,
+        "username": "applicationset-controller"
+      },
+      "opFinished": "2026-11-15T03:54:12Z",
+      "opStarted": "2026-11-15T03:54:10Z",
+      "prune": null,
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "violation": null
+  }
+]

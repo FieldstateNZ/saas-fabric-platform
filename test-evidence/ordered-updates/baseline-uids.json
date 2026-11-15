@@ -1,0 +1,11 @@
+{
+  "application/master-instance": "7eec49d4-9871-46e9-a54b-7f813c41ae5a",
+  "application/master-instance-credential": "4efd8027-02da-4375-93bb-23d92164c0bc",
+  "application/saas-fabric-control-plane": "9901276a-2c74-469c-ac94-f62217d7d7e4",
+  "configmap/control-plane-standin": "ec10283e-8c6b-454b-9936-9f523bbf37fe",
+  "configmap/convergence-mode": "b86e09bc-9040-47dd-a26d-1e5e20859c5f",
+  "configmap/credential-standin": "baa13347-4be6-48ee-aa84-cffcfe783320",
+  "job/convergence": "8d138d7b-14da-43bf-aa0c-9ab4aa78d69b",
+  "namespace/master-instance-state": "3e9be30a-5ee0-4c00-98bd-b20c1f8d0a6a",
+  "secret/tfstate-default-master-instance": "ef0db8e6-f001-4d8f-bc0f-05ec134c50d5"
+}
