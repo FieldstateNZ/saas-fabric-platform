@@ -5,11 +5,16 @@ Applies this repo's HTTPRoutes and SecurityPolicy, with the sentinel issuer
 replaced by two pinned test issuers, in front of a stand-in backend. The
 runtime Deployment is not applied and its replica count is not changed.
 
-Stock Envoy Gateway 1.9 jwt_authn returns 401 for an unknown kid and for an
-unreachable JWKS. ADR 0019 G8/G13 requires 503 for an unreachable JWKS, and
-503 for an unknown kid unless a fresh JWKS snapshot proves the key absent.
-This test records the actual status. It does not add a workaround, and it
-does not treat 401 as meeting that requirement.
+The Lua filter, which Envoy Gateway 1.9 orders after jwt_authn, rejects a
+verified token when exp is missing, when now > exp + 30, when nbf is more
+than 30s in the future, or when the header alg is outside the JWKS allow-list.
+The test dumps the live HTTP filter chain and stops if Lua is not after
+jwt_authn. It exits non-zero when any REQUIREMENT NOT MET line was recorded.
+
+A BackendTrafficPolicy responseOverride tries to map a local 500 to 503 and
+to replace local 401/403 bodies with text that does not name the check. The
+test records the status that actually comes back. An unreachable JWKS and a
+wrong audience must not be forwarded: the stand-in request counter stays put.
 
     python3 scripts/data_api_edge_test.py
 
@@ -38,7 +43,7 @@ BASE = ROOT / "applications" / "core" / "saas-fabric" / "base"
 CLUSTER = "data-api-edge"
 NAMESPACE = "platform-system"
 HOST = "fabric.invalid"
-AUDIENCE = "saas-fabric"
+AUDIENCE = "saas-fabric-data-api"
 ISSUER_ALPHA = "https://identity.example.invalid/realms/alpha"
 ISSUER_BETA = "https://identity.example.invalid/realms/beta"
 ISSUER_GAMMA = "https://identity.example.invalid/realms/gamma"
@@ -72,20 +77,22 @@ def i2b(value: int) -> bytes:
     return value.to_bytes(length, "big")
 
 
-def jwk(pem: Path, kid: str) -> dict:
+def jwk(pem: Path, kid: str, alg: str | None = "RS256") -> dict:
     text = capture(["openssl", "rsa", "-in", str(pem), "-noout", "-modulus"])
     modulus = int(text.strip().split("=", 1)[1], 16)
-    return {
+    document = {
         "kty": "RSA",
-        "alg": "RS256",
         "use": "sig",
         "kid": kid,
         "n": b64u(i2b(modulus)),
         "e": b64u(i2b(65537)),
     }
+    if alg is not None:
+        document["alg"] = alg
+    return document
 
 
-def mint(header: dict, payload: dict, key: Path | None = None, secret: bytes | None = None) -> str:
+def mint(header: dict, payload: dict, key: Path | None = None, secret: bytes | None = None, digest: str = "sha256") -> str:
     header = {key: value for key, value in header.items() if value is not None}
     payload = {key: value for key, value in payload.items() if value is not None}
     signing = ".".join(
@@ -96,7 +103,7 @@ def mint(header: dict, payload: dict, key: Path | None = None, secret: bytes | N
         signature = hmac.new(secret, signing.encode(), hashlib.sha256).digest()
     elif key is not None:
         signature = subprocess.check_output(
-            ["openssl", "dgst", "-sha256", "-sign", str(key)], input=signing.encode()
+            ["openssl", "dgst", f"-{digest}", "-sign", str(key)], input=signing.encode()
         )
     else:
         signature = b""
@@ -277,15 +284,18 @@ def provider(name: str, issuer: str, uri: str, extract: dict, service: str = "da
     }
 
 
-def stand_in_manifests(jwks_alpha: dict, jwks_beta: dict) -> list[dict]:
+def stand_in_manifests(jwks_alpha: list[dict], jwks_beta: list[dict]) -> list[dict]:
     server = textwrap.dedent(
         """
         import json
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         class Handler(BaseHTTPRequestHandler):
+            count = 0
             def do_GET(self):
+                Handler.count += 1
                 body = json.dumps({
                     "path": self.path,
+                    "count": Handler.count,
                     "headers": {key: value for key, value in self.headers.items()},
                 }).encode()
                 self.send_response(200)
@@ -347,7 +357,7 @@ def stand_in_manifests(jwks_alpha: dict, jwks_beta: dict) -> list[dict]:
             },
         },
         configmap("data-api-stand-in", {"server.py": server}),
-        configmap("data-api-jwks", {"alpha.json": json.dumps({"keys": [jwks_alpha]}), "beta.json": json.dumps({"keys": [jwks_beta]}), "server.py": jwks}),
+        configmap("data-api-jwks", {"alpha.json": json.dumps({"keys": jwks_alpha}), "beta.json": json.dumps({"keys": jwks_beta}), "server.py": jwks}),
         workload(
             "data-api-stand-in",
             "python:3.12-slim",
@@ -406,6 +416,17 @@ def workload(name: str, image: str, command: list[str], labels: dict, keys: bool
     }
 
 
+def response_policy_for(name: str, route: str) -> dict:
+    """Same overrides as the repo policy, attached to one route by name."""
+    document = repo_document("responsepolicy.yaml")
+    document["metadata"]["name"] = name
+    document["spec"].pop("targetSelectors", None)
+    document["spec"]["targetRefs"] = [
+        {"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": route}
+    ]
+    return document
+
+
 def unreachable_route(extract: dict) -> list[dict]:
     return [
         {
@@ -442,7 +463,30 @@ def unreachable_route(extract: dict) -> list[dict]:
                 },
             },
         },
+        response_policy_for("jwks-unreachable-responses", "jwks-unreachable"),
     ]
+
+
+def wait_one_pod(name: str) -> None:
+    """A terminating pod still in Endpoints would split the stand-in counter."""
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        pods = json.loads(kube("get", "pods", "-n", NAMESPACE, "-l", f"app={name}", "-o", "json"))["items"]
+        live = [pod for pod in pods if not pod["metadata"].get("deletionTimestamp")]
+        ready = [
+            pod for pod in live
+            if all(container.get("ready") for container in pod.get("status", {}).get("containerStatuses") or [])
+        ]
+        endpoints = json.loads(kube("get", "endpoints", "-n", NAMESPACE, name, "-o", "json"))
+        addresses = [
+            address
+            for subset in endpoints.get("subsets") or []
+            for address in subset.get("addresses") or []
+        ]
+        if len(live) == 1 and len(ready) == 1 and len(addresses) == 1:
+            return
+        time.sleep(1)
+    raise SystemExit(f"{name} did not settle to one ready endpoint")
 
 
 def wait_ready() -> None:
@@ -546,21 +590,103 @@ def challenge_ok(header: str) -> bool:
     return 'error="invalid_token"' in header and header.startswith("Bearer ")
 
 
+def stand_in_count() -> int:
+    status, _, body = request("/health")
+    if status // 100 != 2:
+        raise SystemExit(f"stand-in count probe failed: {status} {body[:240]}")
+    return int(json.loads(body)["count"])
+
+
+def live_http_filter_chains() -> list[list[str]]:
+    node = kind_node()
+    script = (
+        "pid=$(ps -eo pid,cmd | awk '/envoy --service-cluster/ && !/awk/ {print $1; exit}'); "
+        "test -n \"$pid\" || exit 1; "
+        "nsenter -t \"$pid\" -n curl -sS http://127.0.0.1:19000/config_dump"
+    )
+    raw = subprocess.check_output([*docker_base(), "exec", node, "sh", "-c", script])
+    found: list[list[str]] = []
+
+    def walk(node_value) -> None:
+        if isinstance(node_value, dict):
+            filters = node_value.get("http_filters")
+            if (
+                isinstance(filters, list)
+                and filters
+                and isinstance(filters[0], dict)
+                and isinstance(filters[0].get("name"), str)
+            ):
+                found.append([item.get("name", "") for item in filters])
+            for value in node_value.values():
+                walk(value)
+        elif isinstance(node_value, list):
+            for value in node_value:
+                walk(value)
+
+    walk(json.loads(raw))
+    return found
+
+
+def assert_lua_after_jwt() -> None:
+    """STOP if Lua is not after jwt_authn. Do not reach for ext_authz."""
+    deadline = time.time() + 40
+    chains: list[list[str]] = []
+    while time.time() < deadline:
+        try:
+            chains = live_http_filter_chains()
+        except subprocess.CalledProcessError:
+            chains = []
+        jwt_chains = [chain for chain in chains if any("jwt_authn" in name for name in chain)]
+        if jwt_chains:
+            break
+        time.sleep(2)
+    else:
+        raise SystemExit(
+            "STOP: config dump has no jwt_authn filter, so Lua-after-jwt_authn "
+            "is not confirmed. Not using ext_authz."
+        )
+    chain = max(jwt_chains, key=lambda item: sum("jwt_authn" in name or name.endswith("lua") for name in item))
+    jwt_at = next(index for index, name in enumerate(chain) if "jwt_authn" in name)
+    lua_at = [index for index, name in enumerate(chain) if ".lua" in name]
+    tested("http filter order", " > ".join(chain), "Lua must follow jwt_authn")
+    if not lua_at or min(lua_at) <= jwt_at:
+        raise SystemExit(
+            "STOP: Lua does not run after jwt_authn in Envoy Gateway v1.9. "
+            f"chain={chain}. Not using ext_authz."
+        )
+
+
 def main() -> int:
     keys = Path(tempfile.mkdtemp())
     alpha, beta, unknown = keys / "alpha.pem", keys / "beta.pem", keys / "unknown.pem"
     for path in (alpha, beta, unknown):
         run(["openssl", "genrsa", "-out", str(path), "2048"])
     alpha_jwk, beta_jwk = jwk(alpha, "alpha"), jwk(beta, "beta")
+    # Same RSA key, no alg pin, so jwt_authn will verify RS384. The Lua
+    # allow-list is only the algs the other keys declare (RS256).
+    alpha_open = jwk(alpha, "alpha-open", alg=None)
+    declared = sorted({key["alg"] for key in (alpha_jwk, beta_jwk, alpha_open) if "alg" in key})
+    lua = (BASE / "headerpolicy.yaml").read_text()
+    if "local allowed_algs = { RS256 = true }" not in lua:
+        raise SystemExit(f"Lua allow-list is not the JWKS alg set {declared}")
+    if declared != ["RS256"]:
+        raise SystemExit(f"JWKS declares {declared}; the Lua allow-list is RS256 only")
     ensure_cluster()
     ensure_gateway()
     extract = yaml.safe_load(BASE.joinpath("securitypolicy.yaml").read_text())["spec"]["jwt"]["providers"][0]["extractFrom"]
     alpha_uri = "http://data-api-jwks.platform-system.svc.cluster.local/jwks/alpha"
     beta_uri = "http://data-api-jwks.platform-system.svc.cluster.local/jwks/beta"
-    kube_apply(stand_in_manifests(alpha_jwk, beta_jwk))
+    kube_apply(stand_in_manifests([alpha_jwk, alpha_open], [beta_jwk]))
     kube_apply(repo_routes())
-    kube_apply([repo_policy(alpha_uri, beta_uri), repo_document("headerpolicy.yaml")])
+    kube_apply([
+        repo_policy(alpha_uri, beta_uri),
+        repo_document("headerpolicy.yaml"),
+        repo_document("responsepolicy.yaml"),
+    ])
+    kube("rollout", "restart", "deployment/data-api-stand-in", "deployment/data-api-jwks", "-n", NAMESPACE)
     wait_ready()
+    wait_one_pod("data-api-stand-in")
+    wait_one_pod("data-api-jwks")
     forward = port_forward()
     try:
         now = int(time.time())
@@ -577,6 +703,7 @@ def main() -> int:
         echoed = {key.lower(): value for key, value in json.loads(last[2])["headers"].items()}
         if echoed.get("authorization") != f"Bearer {valid}":
             raise SystemExit(f"Authorization was not forwarded verbatim: {echoed.get('authorization')!r}")
+        assert_lua_after_jwt()
 
         beta_token = mint({"alg": "RS256", "kid": "beta", "typ": "JWT"}, claims(now, ISSUER_BETA), beta)
         cases = {
@@ -585,22 +712,33 @@ def main() -> int:
             "unsigned": (mint({"alg": "RS256", "kid": "alpha"}, claims(now, ISSUER_ALPHA)), 401),
             "alg-none": (mint({"alg": "none", "kid": "alpha"}, claims(now, ISSUER_ALPHA)), 401),
             "hs256": (mint({"alg": "HS256", "kid": "alpha"}, claims(now, ISSUER_ALPHA), secret=b"not-a-tenant-key"), 401),
+            "disallowed-alg": (mint({"alg": "RS384", "kid": "alpha-open", "typ": "JWT"}, claims(now, ISSUER_ALPHA), alpha, digest="sha384"), 401),
+            "cross-issuer-key": (mint({"alg": "RS256", "kid": "alpha", "typ": "JWT"}, claims(now, ISSUER_BETA), alpha), 401),
+            "cross-issuer-kid": (mint({"alg": "RS256", "kid": "beta", "typ": "JWT"}, claims(now, ISSUER_ALPHA), beta), 401),
             "wrong-issuer": (mint({"alg": "RS256", "kid": "alpha"}, claims(now, "https://identity.example.invalid/realms/other"), alpha), 401),
             "wrong-audience": (mint({"alg": "RS256", "kid": "alpha"}, claims(now, ISSUER_ALPHA, aud="not-the-api"), alpha), None),
             "expired": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) - 120), alpha), 401),
-            "expired-15s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) - 15), alpha), None),
-            "expired-31s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) - 31), alpha), None),
-            "expired-45s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) - 45), alpha), None),
+            "expired-20s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) - 20), alpha), 200),
+            "expired-31s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) - 31), alpha), 401),
+            "expired-45s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=int(time.time()) - 45), alpha), 401),
             "missing-bearer": (None, 401),
             "missing-iss": (mint({"alg": "RS256", "kid": "alpha"}, claims(now, ISSUER_ALPHA, iss=None), alpha), 401),
-            "missing-exp": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=None), alpha), None),
-            "nbf-within-15s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 15), alpha), None),
+            "missing-exp": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=None), alpha), 401),
+            "nbf-within-15s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 15), alpha), 200),
+            "nbf-31s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 31), alpha), 401),
             "nbf-beyond-120s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 120), alpha), 401),
             "unknown-kid": (mint({"alg": "RS256", "kid": "missing"}, claims(now, ISSUER_ALPHA), unknown), None),
         }
         # Drop claims that were set to None.
         results = {}
+        zero_forward = {
+            "wrong-audience", "missing-exp", "expired-31s", "expired-45s", "nbf-31s",
+            "disallowed-alg", "cross-issuer-key", "cross-issuer-kid",
+        }
+        must_forward = {"valid-alpha", "valid-beta", "expired-20s", "nbf-within-15s"}
         for name, (token, required) in cases.items():
+            watch = name in zero_forward or name in must_forward
+            before = stand_in_count() if watch else None
             if name == "missing-bearer":
                 status, headers, body = request("/v1/data")
             else:
@@ -609,10 +747,21 @@ def main() -> int:
                 status, headers, body = request("/v1/data", token)
             www = headers.get("www-authenticate", "")
             results[name] = (status, www, body, headers.get("retry-after", ""))
-            if required is not None and status != required:
+            if name == "wrong-audience":
+                if status not in (401, 403):
+                    raise SystemExit(f"wrong-audience: expected 401 or 403, got {status} body={body!r}")
+                if not challenge_ok(www):
+                    raise SystemExit(f"wrong-audience challenge: {www!r}")
+            elif required is not None and status != required:
                 raise SystemExit(f"{name}: expected {required}, got {status} header={www!r} body={body!r}")
             if required == 401 and name != "missing-bearer" and not challenge_ok(www):
                 raise SystemExit(f"{name}: WWW-Authenticate missing error=\"invalid_token\": {www!r} body={body!r}")
+            if before is not None:
+                forwarded = stand_in_count() - before - 1
+                tested(f"{name} requests forwarded", forwarded, "stand-in count delta")
+                expect = 0 if name in zero_forward else 1
+                if forwarded != expect:
+                    raise SystemExit(f"{name}: stand-in received {forwarded} requests, expected {expect}")
             record(name, status, www, body, required, "observed" if required is None else "met")
 
         health, health_headers, _ = request("/health")
@@ -628,20 +777,38 @@ def main() -> int:
             raise SystemExit(f"probes were not forwarded to the stand-in: health={health} ready={ready}")
         if other != 404:
             raise SystemExit(f"path outside the Data API was forwarded: {other}")
+        tested("expired 20s (control, within 30s)", results["expired-20s"][0], "200 required")
+        tested("expired 31s", results["expired-31s"][0], "401 required; Lua cap now > exp + 30")
+        tested("expired 45s", results["expired-45s"][0], "401 required; Lua cap now > exp + 30")
+        tested("nbf +15s (control, within 30s)", results["nbf-within-15s"][0], "200 required")
+        tested("nbf +31s", results["nbf-31s"][0], "401 required; Lua cap nbf - 30 <= now")
         tested(
             "nbf not-yet-valid (nbf=now+120s, beyond clock skew)",
             results["nbf-beyond-120s"][0],
             "401 required",
         )
+        tested("disallowed alg RS384", results["disallowed-alg"][0], "401 required; allow-list is RS256")
+        tested("iss=beta signed with alpha key", results["cross-issuer-key"][0], "401 required")
+        tested("iss=alpha kid=beta", results["cross-issuer-kid"][0], "401 required")
 
         # Applied after the live-JWKS cases so a dead JWKS cluster cannot
         # disturb the providers that have to accept a valid token.
         kube_apply(unreachable_route(extract))
         time.sleep(5)
         gamma = mint({"alg": "RS256", "kid": "missing"}, claims(now, ISSUER_GAMMA), unknown)
-        unreachable = request("/v1/data", gamma, host="jwks-down.invalid")
+        before_unreachable = stand_in_count()
+        request("/v1/data", gamma, host="jwks-down.invalid")
         time.sleep(3)
         unreachable = request("/v1/data", gamma, host="jwks-down.invalid")
+        unreachable_forwarded = stand_in_count() - before_unreachable - 1
+        tested("jwks-unreachable requests forwarded", unreachable_forwarded, "stand-in must see zero")
+        tested(
+            "jwks-unreachable",
+            unreachable[0],
+            f"Retry-After={unreachable[1].get('retry-after', '')!r} body={unreachable[2]!r}",
+        )
+        if unreachable_forwarded != 0:
+            raise SystemExit(f"jwks-unreachable: stand-in received {unreachable_forwarded} requests")
         www = unreachable[1].get("www-authenticate", "")
         retry_after = unreachable[1].get("retry-after", "")
         record(
@@ -651,43 +818,34 @@ def main() -> int:
             unreachable[2],
             ADR_JWKS_FAILURE,
             "G8/G13 requires 503, Retry-After, and a body that does not describe the credential. "
-            f"Retry-After={retry_after!r}. Stock SecurityPolicy cannot set this status. No workaround added.",
+            f"Retry-After={retry_after!r}. BackendTrafficPolicy responseOverride source Local "
+            "was applied to map a local 500 to 503.",
         )
         kid_status, kid_header, kid_body, _ = results["unknown-kid"]
         record("unknown-kid-fresh-jwks", kid_status, kid_header, kid_body, 401, "fresh snapshot")
         if kid_status == 401:
             GAPS.append(
-                "G8 unknown kid: HTTP 401 with the JWKS reachable and the kid absent. "
+                "KNOWN RISK — G8 unknown kid: HTTP 401 with the JWKS reachable and the kid absent. "
                 "That is the fresh-snapshot outcome G8 allows. Stock jwt_authn cannot return 503 "
-                "when the snapshot is not a fresh proof the key is absent. No workaround added."
+                "when the snapshot is not a fresh proof the key is absent."
             )
-        if results["wrong-audience"][0] != 401:
+        tested(
+            "wrong audience",
+            results["wrong-audience"][0],
+            "403 accepted; zero requests forwarded",
+        )
+        named = [
+            f"{name} body={body!r}"
+            for name, (status, _header, body, _retry) in results.items()
+            if status in (401, 403) and any(phrase in body for phrase in ("Jwt ", "Audiences", "Jwks "))
+        ]
+        if named:
             GAPS.append(
-                "REQUIREMENT NOT MET — wrong-audience: "
-                f"got HTTP {results['wrong-audience'][0]}, ADR 0019 G8 requires 401. "
-                f"header={results['wrong-audience'][1]!r} body={results['wrong-audience'][2]!r}. "
-                "Envoy maps JwtAudienceNotAllowed to 403. No SecurityPolicy field changes it."
-            )
-        elif not challenge_ok(results["wrong-audience"][1]):
-            raise SystemExit(f"wrong-audience challenge: {results['wrong-audience'][1]!r}")
-        if results["missing-exp"][0] != 401:
-            GAPS.append(
-                "REQUIREMENT NOT MET — missing-exp: "
-                f"got HTTP {results['missing-exp'][0]}, ADR 0019 G6 requires 401. "
-                "SecurityPolicy cannot set require_expiration."
-            )
-        skew_15 = results["expired-15s"][0]
-        skew_31 = results["expired-31s"][0]
-        if skew_31 == 200:
-            GAPS.append(
-                "REQUIREMENT NOT MET — clock-skew: a token expired 31s ago returned HTTP 200. "
-                "ADR 0019 G7 caps leeway at 30s. SecurityPolicy has no clockSkew field."
+                "KNOWN RISK — responseOverride did not replace jwt_authn local replies. "
+                "Bodies still name the failed check: " + "; ".join(named)
             )
         else:
-            print(
-                f"G7: token expired 15s ago returned {skew_15}; expired 31s ago returned {skew_31}. "
-                "Leeway is within the 30s cap. SecurityPolicy cannot set clockSkew; this is the build's default."
-            )
+            tested("generic rejection body", "replaced", "local 401/403 bodies do not name the check")
         if results["missing-bearer"][1] and not challenge_ok(results["missing-bearer"][1]):
             GAPS.append(
                 "NOTE — missing bearer WWW-Authenticate is "
@@ -695,12 +853,11 @@ def main() -> int:
                 "(JwtMissed) and includes it on an invalid token."
             )
         header_checks(valid)
-        network_checks()
+        network_checks(valid)
         versions()
         print("\n===== ADR 0019 G8/G13 =====")
+        unmet = [gap for gap in GAPS if gap.startswith("REQUIREMENT NOT MET")]
         if GAPS:
-            print("Stock Envoy Gateway did not meet every JWT failure requirement.")
-            print("No workaround was added.")
             for gap in GAPS:
                 print(gap)
         else:
@@ -708,6 +865,9 @@ def main() -> int:
         print("===== observations =====")
         for line in OBSERVATIONS:
             print(line)
+        if unmet:
+            print(f"{len(unmet)} REQUIREMENT NOT MET")
+            return 1
         return 0
     finally:
         forward.terminate()
@@ -730,6 +890,9 @@ def header_checks(valid: str) -> None:
         "X-Jwt-Claim-Tenant-Id": "globex",
         "X-Jwt-Claim-Extra": "spoofed",
         "X-Forwarded-User": "operator",
+        "X-Forwarded-Email": "operator@example.invalid",
+        "X-Forwarded-Groups": "operators",
+        "X-Forwarded-Preferred-Username": "operator",
         "X-Auth-Request-User": "operator",
         "X-Auth-Request-Email": "operator@example.invalid",
         "X-Operator-Id": "operator",
@@ -745,6 +908,9 @@ def header_checks(valid: str) -> None:
         "x-jwt-claim-tenant-id",
         "x-jwt-claim-extra",
         "x-forwarded-user",
+        "x-forwarded-email",
+        "x-forwarded-groups",
+        "x-forwarded-preferred-username",
         "x-auth-request-user",
         "x-auth-request-email",
         "x-operator-id",
@@ -759,7 +925,15 @@ def header_checks(valid: str) -> None:
         raise SystemExit(f"G9a: gateway projected claim headers: {projected}")
     if headers.get("authorization") != f"Bearer {valid}":
         raise SystemExit("G10: Authorization was rewritten")
-    print("G9/G9a/G10: identity headers stripped, no claim projection, Authorization unchanged")
+    probe_status, probe_response, probe_body = request("/health", extra=extra)
+    if probe_status != 200:
+        raise SystemExit(f"G9 probe strip status {probe_status}: {probe_body[:240]}")
+    if probe_response.get("www-authenticate"):
+        raise SystemExit("G9: /health carried a JWT challenge")
+    probe_leaked = [name for name in stripped if name in echoed_headers(probe_body)]
+    if probe_leaked:
+        raise SystemExit(f"G9: identity headers reached the stand-in on /health: {probe_leaked}")
+    print("G9/G9a/G10: identity headers stripped on /v1/data and /health, Authorization unchanged")
 
 
 def runtime_selector() -> dict[str, str]:
@@ -810,7 +984,7 @@ def pod_log(namespace: str, name: str) -> str:
     raise SystemExit(f"{namespace}/{name} did not finish")
 
 
-def network_checks() -> None:
+def network_checks(valid: str) -> None:
     """G11. Deny is only a pass after the same pod answers from the gateway namespace."""
     policy = repo_document("networkpolicy.yaml")
     selector = policy["spec"]["podSelector"]["matchLabels"]
@@ -869,6 +1043,17 @@ def network_checks() -> None:
         "so the iptables dataplane cannot."
     )
     tested("G11 pod IP and Service from another namespace", "blocked", f"control HTTP 200; CNI {image}")
+    kube("delete", "pod", "-n", NAMESPACE, "namespace-peer", "--ignore-not-found")
+    kube_apply([http_client("namespace-peer", NAMESPACE, {"app": "not-the-proxy"}, pod_ip, service_ip)])
+    peer = pod_log(NAMESPACE, "namespace-peer")
+    print(f"G11 non-proxy pod in {NAMESPACE}:\n{peer}")
+    if "HTTP " in peer or peer.count("BLOCKED") < 2:
+        raise SystemExit(f"G11: a non-proxy pod in the gateway namespace was not blocked:\n{peer}")
+    tested("G11 non-proxy pod in platform-system", "blocked", "same namespace, not the gateway proxy")
+    through, _, through_body = request("/v1/data", valid)
+    if through != 200:
+        raise SystemExit(f"G11: gateway path after the policy was {through}: {through_body[:240]}")
+    tested("G11 request through the gateway proxy", through, "positive path after the NetworkPolicy is applied")
 
 
 def versions() -> None:
@@ -890,6 +1075,11 @@ def versions() -> None:
     print(f"SecurityPolicy resourceVersion: {policy['metadata']['resourceVersion']}")
     print(f"SecurityPolicy generation: {policy['metadata']['generation']}")
     print(f"chart: {EG_CHART} {EG_VERSION}")
+    overlay = yaml.safe_load(
+        (ROOT / "applications/core/saas-fabric/overlays/lucentroot/kustomization.yaml").read_text()
+    )
+    digest = overlay["images"][0]["digest"]
+    tested("runtime image digest", digest, "lucentroot pin ghcr.io/fieldstatenz/saas-fabric; replicas stay 0")
 
 
 if __name__ == "__main__":

@@ -24,13 +24,16 @@ import check  # noqa: E402
 
 
 def deployment(replicas: int) -> dict:
+    labels = {"app.kubernetes.io/name": "saas-fabric"}
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
         "metadata": {"name": "saas-fabric", "namespace": "platform-system"},
         "spec": {
             "replicas": replicas,
+            "selector": {"matchLabels": labels},
             "template": {
+                "metadata": {"labels": labels},
                 "spec": {
                     "containers": [
                         {
@@ -62,25 +65,26 @@ def route(name: str, path: str, path_type: str = "PathPrefix", label: str | None
     }
 
 
-def network_policy() -> dict:
+def network_policy(selector: dict | None = None, peer: dict | None = None, namespace: str | None = "platform-system") -> dict:
+    source: dict = {
+        "podSelector": {
+            "matchLabels": peer or {
+                "app.kubernetes.io/component": "proxy",
+                "app.kubernetes.io/managed-by": "envoy-gateway",
+                "gateway.envoyproxy.io/owning-gateway-name": "platform",
+            }
+        }
+    }
+    if namespace is not None:
+        source["namespaceSelector"] = {"matchLabels": {"kubernetes.io/metadata.name": namespace}}
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "NetworkPolicy",
         "metadata": {"name": "saas-fabric-from-gateway", "namespace": "platform-system"},
         "spec": {
-            "podSelector": {"matchLabels": {"app.kubernetes.io/name": "saas-fabric"}},
+            "podSelector": {"matchLabels": selector or {"app.kubernetes.io/name": "saas-fabric"}},
             "policyTypes": ["Ingress"],
-            "ingress": [
-                {
-                    "from": [
-                        {
-                            "podSelector": {
-                                "matchLabels": {"app.kubernetes.io/component": "proxy"}
-                            }
-                        }
-                    ]
-                }
-            ],
+            "ingress": [{"from": [source]}],
         },
     }
 
@@ -172,6 +176,30 @@ class DataApiEdgeGate(unittest.TestCase):
         ]
         found = problems_of(documents)
         self.assertTrue(any("leaves alone" in item for item in found), found)
+
+    def test_network_policy_on_a_test_label_fails(self) -> None:
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data", label="tenant"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(),
+            network_policy(selector={"app": "data-api-stand-in"}),
+        ]
+        found = problems_of(documents)
+        self.assertTrue(any("NetworkPolicy" in item for item in found), found)
+
+    def test_network_policy_that_also_admits_the_namespace_fails(self) -> None:
+        loose = network_policy()
+        loose["spec"]["ingress"].append({"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "platform-system"}}}]})
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data", label="tenant"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(),
+            loose,
+        ]
+        found = problems_of(documents)
+        self.assertTrue(any("NetworkPolicy" in item for item in found), found)
 
     def test_target_ref_covers_a_named_route(self) -> None:
         documents = [

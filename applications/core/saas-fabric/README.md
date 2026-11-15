@@ -154,12 +154,14 @@ before forwarding, and does not rewrite `Authorization` (G10). G9a is the
 absence of `claimToHeaders`. G11 is a NetworkPolicy: only the platform
 Gateway's Envoy proxy may open ingress to the runtime pod.
 
-G3 (a per-issuer algorithm list), G6 (`exp` required), G7 (clock skew ≤ 30s;
-Envoy's default is 60s and the SecurityPolicy cannot set it) and G8/G13 (503
-when JWKS is unreachable, or when an unknown `kid` is not proved absent by a
-fresh snapshot) are not expressible on Envoy Gateway 1.9. Stock `jwt_authn`
-returns 401 for those. No workaround is attached. The rest of the checklist
-remains open.
+G6 (`exp` required), G7 (leeway ≤ 30s, including `nbf`) and G3 (the `alg`
+allow-list taken from the issuer JWKS, which is RS256) are a Lua script that
+Envoy Gateway 1.9 runs after `jwt_authn`. SecurityPolicy itself cannot express
+them. G8/G13 (503 when JWKS is unreachable, or when an unknown `kid` is not
+proved absent by a fresh snapshot) is attempted with a BackendTrafficPolicy
+`responseOverride`; the kind test records whether a local reply is actually
+rewritten. The audience string is `saas-fabric-data-api`. The rest of the
+checklist remains open.
 
 **Client-instance routes never reach `/v1/data`.** Client OpenTofu creates a
 route per client host for the instance's shell, its modules and its gateway

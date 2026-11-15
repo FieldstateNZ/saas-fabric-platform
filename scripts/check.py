@@ -57,7 +57,9 @@ Checks, in order of how much damage they prevent:
      docs/ordered-updates.md changing with it (platform #44);
  23. a runtime Deployment above zero replicas has a JWT SecurityPolicy on
      every route that forwards to its Data API, and on neither `/health`
-     nor `/ready` -- at zero replicas the check does not fire.
+     nor `/ready`, and a NetworkPolicy that selects that Deployment's own
+     labels and admits ingress only from the platform Gateway's Envoy proxy
+     -- at zero replicas the check does not fire.
 """
 from __future__ import annotations
 
@@ -3772,16 +3774,30 @@ def _data_api_edge_problems(where: str, documents: list[dict], deployment: dict,
                 f"{where}: replicas {replicas} but {probe} has no route to the runtime that the JWT"
                 " policy leaves alone",
             )
-    if not _gateway_network_policy(documents, namespace, service):
+    if not _gateway_network_policy(documents, namespace, deployment):
         fail(
             problems,
-            f"{where}: replicas {replicas} but no NetworkPolicy limits runtime ingress to the Envoy proxy",
+            f"{where}: replicas {replicas} but no NetworkPolicy selects the runtime Deployment's"
+            " labels and limits ingress to the platform Gateway's Envoy proxy",
         )
     return problems
 
 
-def _gateway_network_policy(documents: list[dict], namespace: str, service: str) -> bool:
-    """A policy that selects the runtime and admits the Envoy proxy, not the world."""
+def _gateway_network_policy(documents: list[dict], namespace: str, deployment: dict) -> bool:
+    """The runtime's own labels, and ingress only from the platform Gateway proxy.
+
+    A policy that merely exists, selects a test label, or also admits any
+    other pod does not pass. Every ingress source has to name the proxy in
+    platform-system. An empty `from` admits the world.
+    """
+    selector = ((deployment.get("spec") or {}).get("selector") or {}).get("matchLabels") or {}
+    if not isinstance(selector, dict) or not selector:
+        return False
+    required_proxy = {
+        "app.kubernetes.io/component": "proxy",
+        "app.kubernetes.io/managed-by": "envoy-gateway",
+        "gateway.envoyproxy.io/owning-gateway-name": "platform",
+    }
     for document in documents:
         if document.get("kind") != "NetworkPolicy":
             continue
@@ -3789,16 +3805,42 @@ def _gateway_network_policy(documents: list[dict], namespace: str, service: str)
         if meta.get("namespace") not in (namespace, None, ""):
             continue
         spec = document.get("spec") or {}
-        selected = ((spec.get("podSelector") or {}).get("matchLabels") or {}).get("app.kubernetes.io/name")
-        if selected != service:
+        pod_selector = spec.get("podSelector") or {}
+        if pod_selector.get("matchExpressions"):
+            continue
+        if (pod_selector.get("matchLabels") or {}) != selector:
             continue
         if "Ingress" not in (spec.get("policyTypes") or []):
             continue
-        for rule in spec.get("ingress") or []:
-            for source in rule.get("from") or []:
-                labels = ((source.get("podSelector") or {}).get("matchLabels") or {})
-                if labels.get("app.kubernetes.io/component") == "proxy":
-                    return True
+        rules = spec.get("ingress") or []
+        if not rules:
+            continue
+        limited = True
+        for rule in rules:
+            sources = rule.get("from") or []
+            if not sources:
+                limited = False
+                break
+            for source in sources:
+                if "ipBlock" in source:
+                    limited = False
+                    break
+                namespace_labels = ((source.get("namespaceSelector") or {}).get("matchLabels") or {})
+                if namespace_labels.get("kubernetes.io/metadata.name") != "platform-system":
+                    limited = False
+                    break
+                peer = source.get("podSelector") or {}
+                if peer.get("matchExpressions"):
+                    limited = False
+                    break
+                peer_labels = peer.get("matchLabels") or {}
+                if any(peer_labels.get(key) != value for key, value in required_proxy.items()):
+                    limited = False
+                    break
+            if not limited:
+                break
+        if limited:
+            return True
     return False
 
 

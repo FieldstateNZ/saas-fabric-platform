@@ -1,16 +1,38 @@
-# ADR 0019 G9, G9a and G10, on the same routes as the JWT policy.
+# ADR 0019 G9, G9a and G10, on the Data API route and on the probe route.
 #
 # G9 strips caller identity headers before the request is forwarded. The
 # claim-projection and auth-request names are prefixes, not a fixed list.
-# X-Tenant-Id is the tenant-selection header the runtime refuses. x-forwarded-user
-# is named on its own: the rest of x-forwarded-* is hop metadata and stays.
-# x-operator- is the operator-plane family. ADR 0009's trusted-header posture
-# takes its header name from configuration and does not publish one spelling;
-# a header in that family must not be presentable on the product edge.
+# X-Tenant-Id is the tenant-selection header the runtime refuses.
+# x-forwarded-user, x-forwarded-email, x-forwarded-groups and
+# x-forwarded-preferred-username are named on their own: the rest of
+# x-forwarded-* is hop metadata and stays. x-operator- is the operator-plane
+# family. ADR 0009's trusted-header posture takes its header name from
+# configuration and does not publish one spelling; a header in that family
+# must not be presentable on the product edge.
+#
+# The probe route is included so a caller who reaches /health or /ready
+# through the gateway cannot plant those headers either. The JWT policy does
+# not select that route.
 #
 # G9a is the absence of claimToHeaders on the SecurityPolicy. This filter does
 # not add a header. G10 is what it does not touch: Authorization is forwarded
 # as received.
+#
+# The second script runs after jwt_authn. Envoy Gateway 1.9 orders Lua after
+# jwt_authn (translator order 13, jwt_authn order 10), so it sees a token the
+# filter has already verified. It answers 401 with the Bearer
+# error="invalid_token" challenge, and a body that does not name the check,
+# when any of these fail:
+#   exp is present;
+#   now <= exp + 30;
+#   nbf - 30 <= now, when nbf is present;
+#   the header alg is in the allow-list below.
+# The allow-list is the algorithms the registered issuers' JWKS keys declare.
+# The only alg on those keys, and the only entry in the application's example
+# IssuerRegistration.algorithms, is RS256. No EC algorithm is configured.
+# fabric-identity's private RS256/384/512 list is not this list.
+# Enabling Lua is an Envoy Gateway chart change
+# (config.envoyGateway.extensionApis.enableLua); it is off by default.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyExtensionPolicy
 metadata:
@@ -20,7 +42,7 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       matchLabels:
-        fieldstate.nz/data-api: tenant
+        fieldstate.nz/strip-identity: edge
   lua:
     - type: Inline
       inline: |
@@ -31,14 +53,96 @@ spec:
             local name = string.lower(key)
             local tenant = name == "x-tenant-id"
             local forwarded_user = name == "x-forwarded-user"
+            local forwarded_email = name == "x-forwarded-email"
+            local forwarded_groups = name == "x-forwarded-groups"
+            local forwarded_username = name == "x-forwarded-preferred-username"
             local claim = string.sub(name, 1, 12) == "x-jwt-claim-"
             local auth_request = string.sub(name, 1, 15) == "x-auth-request-"
             local operator = string.sub(name, 1, 11) == "x-operator-"
-            if tenant or forwarded_user or claim or auth_request or operator then
+            if tenant or forwarded_user or forwarded_email or forwarded_groups or forwarded_username or claim or auth_request or operator then
               table.insert(drop, key)
             end
           end
           for _, key in ipairs(drop) do
             headers:remove(key)
+          end
+        end
+    - type: Inline
+      inline: |
+        local allowed_algs = { RS256 = true }
+        local skew_seconds = 30
+
+        function b64url_decode(data)
+          local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+          local map = {}
+          for i = 1, #alphabet do
+            map[string.sub(alphabet, i, i)] = i - 1
+          end
+          local buffer = 0
+          local bits = 0
+          local out = {}
+          for i = 1, #data do
+            local value = map[string.sub(data, i, i)]
+            if value == nil then
+              return nil
+            end
+            buffer = buffer * 64 + value
+            bits = bits + 6
+            if bits >= 8 then
+              bits = bits - 8
+              local byte = math.floor(buffer / (2 ^ bits))
+              buffer = buffer % (2 ^ bits)
+              table.insert(out, string.char(byte))
+            end
+          end
+          return table.concat(out)
+        end
+
+        function reject(handle)
+          handle:respond(
+            {[":status"] = "401", ["www-authenticate"] = 'Bearer error="invalid_token"'},
+            ""
+          )
+        end
+
+        function envoy_on_request(handle)
+          local headers = handle:headers()
+          local auth = headers:get("authorization")
+          if auth == nil then
+            return
+          end
+          local token = string.match(auth, "^[Bb]earer%s+(.+)$")
+          if token == nil then
+            return
+          end
+          local header_b64, payload_b64 = string.match(token, "^([^%.]+)%.([^%.]+)%.")
+          if header_b64 == nil or payload_b64 == nil then
+            return
+          end
+          local header_json = b64url_decode(header_b64)
+          local payload = b64url_decode(payload_b64)
+          if header_json == nil or payload == nil then
+            reject(handle)
+            return
+          end
+          local alg = string.match(header_json, '"alg"%s*:%s*"([^"]+)"')
+          if alg == nil or allowed_algs[alg] ~= true then
+            reject(handle)
+            return
+          end
+          local exp = string.match(payload, '"exp"%s*:%s*(%-?%d+)')
+          if exp == nil then
+            reject(handle)
+            return
+          end
+          local now = os.time(os.date("!*t"))
+          exp = tonumber(exp)
+          if now > exp + skew_seconds then
+            reject(handle)
+            return
+          end
+          local nbf = string.match(payload, '"nbf"%s*:%s*(%-?%d+)')
+          if nbf ~= nil and now < tonumber(nbf) - skew_seconds then
+            reject(handle)
           end
         end

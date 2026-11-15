@@ -11,6 +11,7 @@ resources:
   - httproute.yaml
   - securitypolicy.yaml
   - headerpolicy.yaml
+  - responsepolicy.yaml
   - networkpolicy.yaml
 
 labels:
