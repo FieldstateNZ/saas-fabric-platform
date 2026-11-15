@@ -9,6 +9,9 @@ resources:
   - deployment.yaml
   - service.yaml
   - httproute.yaml
+  - securitypolicy.yaml
+  - headerpolicy.yaml
+  - networkpolicy.yaml
 
 labels:
   - includeSelectors: false

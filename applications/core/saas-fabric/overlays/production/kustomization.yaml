@@ -11,11 +11,10 @@ images:
     newTag: 0.1.0
 
 patches:
-  # TLS terminates at the Gateway's https listener, so the route selects that
-  # listener rather than carrying a certificate of its own.
+  # TLS terminates at the Gateway's https listener, so both runtime routes
+  # (the Data API and the probes) select that listener.
   - target:
       kind: HTTPRoute
-      name: saas-fabric
     patch: |-
       - op: replace
         path: /spec/hostnames/0

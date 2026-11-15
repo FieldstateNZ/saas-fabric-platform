@@ -1,0 +1,35 @@
+# ADR 0019 G11. The runtime pod accepts ingress only from the Envoy proxy
+# that owns the platform Gateway. A pod in any other namespace, and any
+# other pod in this namespace, is not a gateway and is not allowed.
+#
+# The proxy is labelled by Envoy Gateway. The controller is installed into
+# platform-system (the Application's destination), and that is where the
+# proxy pods are scheduled.
+#
+# Probes are the kubelet on the node. This policy does not add a node
+# exception: Calico, which is what the kind test uses, does not apply a
+# workload NetworkPolicy to host-originated probes. A CNI that does would
+# fail the probes, and that failure is the signal to add an exception.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: saas-fabric-from-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: saas-fabric
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: proxy
+              app.kubernetes.io/managed-by: envoy-gateway
+              gateway.envoyproxy.io/owning-gateway-name: platform
+      ports:
+        - protocol: TCP
+          port: 8080

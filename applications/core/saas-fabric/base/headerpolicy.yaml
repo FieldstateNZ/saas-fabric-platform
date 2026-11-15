@@ -1,0 +1,44 @@
+# ADR 0019 G9, G9a and G10, on the same routes as the JWT policy.
+#
+# G9 strips caller identity headers before the request is forwarded. The
+# claim-projection and auth-request names are prefixes, not a fixed list.
+# X-Tenant-Id is the tenant-selection header the runtime refuses. x-forwarded-user
+# is named on its own: the rest of x-forwarded-* is hop metadata and stays.
+# x-operator- is the operator-plane family. ADR 0009's trusted-header posture
+# takes its header name from configuration and does not publish one spelling;
+# a header in that family must not be presentable on the product edge.
+#
+# G9a is the absence of claimToHeaders on the SecurityPolicy. This filter does
+# not add a header. G10 is what it does not touch: Authorization is forwarded
+# as received.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: saas-fabric-data-headers
+spec:
+  targetSelectors:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      matchLabels:
+        fieldstate.nz/data-api: tenant
+  lua:
+    - type: Inline
+      inline: |
+        function envoy_on_request(handle)
+          local headers = handle:headers()
+          local drop = {}
+          for key, _ in pairs(headers) do
+            local name = string.lower(key)
+            local tenant = name == "x-tenant-id"
+            local forwarded_user = name == "x-forwarded-user"
+            local claim = string.sub(name, 1, 12) == "x-jwt-claim-"
+            local auth_request = string.sub(name, 1, 15) == "x-auth-request-"
+            local operator = string.sub(name, 1, 11) == "x-operator-"
+            if tenant or forwarded_user or claim or auth_request or operator then
+              table.insert(drop, key)
+            end
+          end
+          for _, key in ipairs(drop) do
+            headers:remove(key)
+          end
+        end

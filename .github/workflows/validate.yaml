@@ -75,3 +75,29 @@ jobs:
           curl -sSfL "${base}/v${GITLEAKS_VERSION}/${archive}" \
             | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks git . --no-banner --redact --verbose
+
+  # The Data API JWT cases need a real Envoy Gateway. They run here, on the
+  # runner's Docker, in a kind cluster this job creates and deletes. No cloud
+  # resources. The manifest job above does not start a cluster.
+  data-api-edge:
+    name: Data API JWT edge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tooling
+        run: |
+          python -m pip install --quiet pyyaml
+          curl -fsSL -o kubectl "https://dl.k8s.io/release/v1.32.2/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/kubectl
+          curl -fsSL "https://get.helm.sh/helm-v3.16.3-linux-amd64.tar.gz" | tar -xz
+          sudo install linux-amd64/helm /usr/local/bin/helm
+          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64"
+          sudo install kind /usr/local/bin/kind
+
+      - name: Prove JWT acceptance and rejection at the gateway
+        run: python3 scripts/data_api_edge_test.py

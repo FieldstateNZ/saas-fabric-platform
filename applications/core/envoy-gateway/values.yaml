@@ -22,6 +22,11 @@ deployment:
 
 config:
   envoyGateway:
+    # ADR 0019 G9 strips identity headers with a prefix match. Gateway API's
+    # RequestHeaderModifier can only name headers one by one, so the strip is
+    # a Lua EnvoyExtensionPolicy. That feature is off unless it is enabled here.
+    extensionApis:
+      enableLua: true
     logging:
       level:
         default: info

@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""The scaled-runtime gate for the Data API JWT policy.
+
+Zero replicas is the held state and must pass even with no policy. Above zero,
+a route that forwards to the runtime and is not only a probe must be targeted
+by a JWT SecurityPolicy, and a route that also matches /health or /ready must
+not be. A policy left on a PathPrefix `/` catch-all fails that second rule.
+"""
+from __future__ import annotations
+
+import sys
+import tempfile
+import textwrap
+import unittest
+from pathlib import Path
+
+import yaml
+
+SCRIPTS = Path(__file__).resolve().parent
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import check  # noqa: E402
+
+
+def deployment(replicas: int) -> dict:
+    return {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {"name": "saas-fabric", "namespace": "platform-system"},
+        "spec": {
+            "replicas": replicas,
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "saas-fabric",
+                            "livenessProbe": {"httpGet": {"path": "/health", "port": "http"}},
+                            "readinessProbe": {"httpGet": {"path": "/ready", "port": "http"}},
+                        }
+                    ]
+                }
+            },
+        },
+    }
+
+
+def route(name: str, path: str, path_type: str = "PathPrefix", label: str | None = None, extra: list | None = None) -> dict:
+    labels = {"fieldstate.nz/data-api": label} if label else {}
+    matches = [{"path": {"type": path_type, "value": path}}]
+    for item in extra or []:
+        matches.append({"path": {"type": "Exact", "value": item}})
+    return {
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRoute",
+        "metadata": {"name": name, "namespace": "platform-system", "labels": labels},
+        "spec": {
+            "rules": [
+                {"matches": matches, "backendRefs": [{"name": "saas-fabric", "port": 80}]}
+            ]
+        },
+    }
+
+
+def network_policy() -> dict:
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {"name": "saas-fabric-from-gateway", "namespace": "platform-system"},
+        "spec": {
+            "podSelector": {"matchLabels": {"app.kubernetes.io/name": "saas-fabric"}},
+            "policyTypes": ["Ingress"],
+            "ingress": [
+                {
+                    "from": [
+                        {
+                            "podSelector": {
+                                "matchLabels": {"app.kubernetes.io/component": "proxy"}
+                            }
+                        }
+                    ]
+                }
+            ],
+        },
+    }
+
+
+def policy(labels: dict | None = None, names: list[str] | None = None) -> dict:
+    spec: dict = {"jwt": {"providers": [{"name": "alpha"}]}}
+    if names is not None:
+        spec["targetRefs"] = [
+            {"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": name} for name in names
+        ]
+    else:
+        spec["targetSelectors"] = [
+            {
+                "group": "gateway.networking.k8s.io",
+                "kind": "HTTPRoute",
+                "matchLabels": labels or {"fieldstate.nz/data-api": "tenant"},
+            }
+        ]
+    return {
+        "apiVersion": "gateway.envoyproxy.io/v1alpha1",
+        "kind": "SecurityPolicy",
+        "metadata": {"name": "saas-fabric-data", "namespace": "platform-system"},
+        "spec": spec,
+    }
+
+
+def render(documents: list[dict]) -> Path:
+    root = Path(tempfile.mkdtemp())
+    for environment in ("lucentroot", "production"):
+        directory = root / environment / "applications"
+        directory.mkdir(parents=True)
+        payload = yaml.safe_dump_all(documents)
+        (directory / "saas-fabric.yaml").write_text(payload)
+    return root
+
+
+def problems_of(documents: list[dict]) -> list[str]:
+    found: list[str] = []
+    check.check_data_api_edge_when_scaled(render(documents), found)
+    return found
+
+
+class DataApiEdgeGate(unittest.TestCase):
+    def test_zero_replicas_passes_with_no_policy(self) -> None:
+        self.assertEqual(problems_of([deployment(0), route("saas-fabric", "/")]), [])
+
+    def test_scaled_without_a_policy_fails(self) -> None:
+        found = problems_of([deployment(1), route("saas-fabric", "/v1/data", label="tenant")])
+        self.assertTrue(any("no JWT SecurityPolicy" in item for item in found), found)
+
+    def test_scaled_split_passes(self) -> None:
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data", label="tenant"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(),
+            network_policy(),
+        ]
+        self.assertEqual(problems_of(documents), [])
+
+    def test_policy_on_the_catch_all_fails(self) -> None:
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/", label="tenant"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(),
+        ]
+        found = problems_of(documents)
+        self.assertTrue(any("matches /health" in item for item in found), found)
+        self.assertTrue(any("matches /ready" in item for item in found), found)
+
+    def test_unlabelled_data_route_fails_when_scaled(self) -> None:
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data", label="tenant"),
+            route("saas-fabric-extra", "/v1/other"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(),
+        ]
+        found = problems_of(documents)
+        self.assertTrue(any("HTTPRoute/saas-fabric-extra" in item for item in found), found)
+
+    def test_policy_on_the_probe_route_fails(self) -> None:
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data", label="tenant"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"], label="tenant"),
+            policy(),
+        ]
+        found = problems_of(documents)
+        self.assertTrue(any("leaves alone" in item for item in found), found)
+
+    def test_target_ref_covers_a_named_route(self) -> None:
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(names=["saas-fabric"]),
+            network_policy(),
+        ]
+        self.assertEqual(problems_of(documents), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

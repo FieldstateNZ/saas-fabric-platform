@@ -136,12 +136,30 @@ belongs in this directory.
 
 ## The runtime route and client routes
 
-[`base/httproute.yaml`](base/httproute.yaml) is the runtime route that
-[ADR 0019](https://github.com/FieldstateNZ/saas-fabric/blob/main/docs/decisions/0019-the-edge-proves-the-token-and-the-issuer-names-the-tenant.md) §G1 names in the application repository: one route per
-tenant runtime service, serving many tenants, and the only way into the
-runtime's Data API, `/v1/data/*`. The edge in front of it — G1 to G17 in that
-ADR's platform checklist — is this repository's to implement. None of it is
-implemented yet: no JWT policy is attached to the route.
+[`base/httproute.yaml`](base/httproute.yaml) is the runtime edge
+[ADR 0019](https://github.com/FieldstateNZ/saas-fabric/blob/main/docs/decisions/0019-the-edge-proves-the-token-and-the-issuer-names-the-tenant.md) §G1 names in the application repository. It is split.
+`saas-fabric` is path prefix `/v1/data`, one route for every tenant, and the
+only way into the Data API. `saas-fabric-probes` is Exact `/health` and Exact
+`/ready`, so those stay unauthenticated. A `SecurityPolicy` selects every
+HTTPRoute labelled `fieldstate.nz/data-api: tenant` — the Data API route, and
+any later route that forwards to this Service on a non-probe path — and
+requires a JWT. Providers are one registered issuer each, with that issuer's
+JWKS. No tenant issuer is published in Git yet; the committed provider is an
+unregistered sentinel so the CRD's non-empty provider list does not admit a
+tenant. Replicas stay 0.
+
+G1–G4 are the JWT policy. G9 strips `X-Tenant-Id`, the `x-jwt-claim-` and
+`x-auth-request-` prefixes, `x-forwarded-user` and the `x-operator-` family
+before forwarding, and does not rewrite `Authorization` (G10). G9a is the
+absence of `claimToHeaders`. G11 is a NetworkPolicy: only the platform
+Gateway's Envoy proxy may open ingress to the runtime pod.
+
+G3 (a per-issuer algorithm list), G6 (`exp` required), G7 (clock skew ≤ 30s;
+Envoy's default is 60s and the SecurityPolicy cannot set it) and G8/G13 (503
+when JWKS is unreachable, or when an unknown `kid` is not proved absent by a
+fresh snapshot) are not expressible on Envoy Gateway 1.9. Stock `jwt_authn`
+returns 401 for those. No workaround is attached. The rest of the checklist
+remains open.
 
 **Client-instance routes never reach `/v1/data`.** Client OpenTofu creates a
 route per client host for the instance's shell, its modules and its gateway
