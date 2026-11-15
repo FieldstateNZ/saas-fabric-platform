@@ -37,6 +37,11 @@
 # fabric-identity's private RS256/384/512 list is not this list.
 # Enabling Lua is an Envoy Gateway chart change
 # (config.envoyGateway.extensionApis.enableLua); it is off by default.
+#
+# Envoy forwards the request when a Lua handler errors. Each handler runs its
+# body in pcall and, on any error, answers locally with the same generic 401
+# the claim checks use. Nothing is forwarded. `lua_fault` stays false in this
+# file; only a test copy sets it, so a verified token can force that path.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyExtensionPolicy
 metadata:
@@ -51,32 +56,45 @@ spec:
     - type: Inline
       inline: |
         function envoy_on_request(handle)
-          local headers = handle:headers()
-          local drop = {}
-          for key, _ in pairs(headers) do
-            local name = string.lower(key)
-            local tenant = name == "x-tenant-id"
-            local forwarded_user = name == "x-forwarded-user"
-            local forwarded_email = name == "x-forwarded-email"
-            local forwarded_groups = name == "x-forwarded-groups"
-            local forwarded_username = name == "x-forwarded-preferred-username"
-            local claim = string.sub(name, 1, 12) == "x-jwt-claim-"
-            local auth_request = string.sub(name, 1, 15) == "x-auth-request-"
-            local operator = string.sub(name, 1, 11) == "x-operator-"
-            local strip = tenant or forwarded_user or forwarded_email or forwarded_groups
-            strip = strip or forwarded_username or claim or auth_request or operator
-            if strip then
-              table.insert(drop, key)
+          local ok = pcall(function()
+            local headers = handle:headers()
+            local drop = {}
+            for key, _ in pairs(headers) do
+              local name = string.lower(key)
+              local tenant = name == "x-tenant-id"
+              local forwarded_user = name == "x-forwarded-user"
+              local forwarded_email = name == "x-forwarded-email"
+              local forwarded_groups = name == "x-forwarded-groups"
+              local forwarded_username = name == "x-forwarded-preferred-username"
+              local claim = string.sub(name, 1, 12) == "x-jwt-claim-"
+              local auth_request = string.sub(name, 1, 15) == "x-auth-request-"
+              local operator = string.sub(name, 1, 11) == "x-operator-"
+              local strip = tenant or forwarded_user or forwarded_email or forwarded_groups
+              strip = strip or forwarded_username or claim or auth_request or operator
+              if strip then
+                table.insert(drop, key)
+              end
             end
-          end
-          for _, key in ipairs(drop) do
-            headers:remove(key)
+            for _, key in ipairs(drop) do
+              headers:remove(key)
+            end
+          end)
+          if not ok then
+            pcall(function()
+              handle:respond(
+                {[":status"] = "401", ["www-authenticate"] = 'Bearer error="invalid_token"'},
+                ""
+              )
+            end)
           end
         end
     - type: Inline
       inline: |
         local allowed_algs = { RS256 = true }
         local skew_seconds = 30
+        -- Off in this file. A test copy sets it so a token jwt_authn has
+        -- already accepted still dies in this handler.
+        local lua_fault = false
         -- One hour of access-token lifetime plus the 30s skew. The
         -- architect sets the final value; Silas may change it.
         local MAX_TOKEN_LIFETIME = 3630
@@ -269,6 +287,7 @@ spec:
         end
 
         function envoy_on_request(handle)
+          local ok = pcall(function()
           local headers = handle:headers()
           local auth = headers:get("authorization")
           if auth == nil then
@@ -277,6 +296,9 @@ spec:
           local token = string.match(auth, "^[Bb]earer%s+(.+)$")
           if token == nil then
             return
+          end
+          if lua_fault then
+            error("lua fault")
           end
           local header_b64, payload_b64 = string.match(token, "^([^%.]+)%.([^%.]+)%.")
           if header_b64 == nil or payload_b64 == nil then
@@ -341,5 +363,9 @@ spec:
             if iat == nil or iat > now + skew_seconds then
               reject(handle)
             end
+          end
+          end)
+          if not ok then
+            pcall(reject, handle)
           end
         end

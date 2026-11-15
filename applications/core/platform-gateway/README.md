@@ -179,7 +179,9 @@ certificateRefs:
     name: fabric-tls     # namespace: platform-system; fabric.fieldstate.nz only
 ```
 
-`platform-tls` is the catch-all product listener. `fabric-tls` is only the
+`platform-tls` is the catch-all product listener. It must not cover
+`fabric.fieldstate.nz`: no SAN for that name, and no `*.fieldstate.nz`
+wildcard. `fabric-tls` is only the
 fabric hostname. They are separate because Envoy Gateway 1.9 does not return
 421 when a connection opened for one host on a shared certificate is reused
 for the other, so the names must not share a certificate. `fabric-tls` is

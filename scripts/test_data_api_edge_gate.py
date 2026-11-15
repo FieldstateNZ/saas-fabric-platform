@@ -381,6 +381,63 @@ def redirect_problems(documents: list[dict]) -> list[str]:
     return found
 
 
+def lua_policy(inline: str) -> dict:
+    return {
+        "apiVersion": "gateway.envoyproxy.io/v1alpha1",
+        "kind": "EnvoyExtensionPolicy",
+        "metadata": {"name": "saas-fabric-data-headers", "namespace": "platform-system"},
+        "spec": {"lua": [{"type": "Inline", "inline": inline}]},
+    }
+
+
+def lua_problems(inline: str) -> list[str]:
+    found: list[str] = []
+    check.check_lua_handlers_fail_closed(render([lua_policy(inline)]), found)
+    return found
+
+
+def certificate(secret: str, names: list[str]) -> dict:
+    return {
+        "apiVersion": "cert-manager.io/v1",
+        "kind": "Certificate",
+        "metadata": {"name": secret, "namespace": "platform-system"},
+        "spec": {"secretName": secret, "dnsNames": names, "issuerRef": {"name": "platform-ca"}},
+    }
+
+
+class PlatformTlsDoesNotCoverFabric(unittest.TestCase):
+    def test_fabric_names_on_platform_tls_fail(self) -> None:
+        for name in ("fabric.fieldstate.nz", "*.fieldstate.nz"):
+            found: list[str] = []
+            check.check_platform_tls_does_not_cover_fabric(render([certificate("platform-tls", [name])]), found)
+            self.assertTrue(any(name in item for item in found), found)
+
+    def test_another_name_on_platform_tls_passes(self) -> None:
+        found: list[str] = []
+        check.check_platform_tls_does_not_cover_fabric(
+            render([certificate("platform-tls", ["auth.fieldstate.nz"])]), found
+        )
+        self.assertEqual(found, [])
+
+
+class LuaHandlersFailClosed(unittest.TestCase):
+    def test_a_handler_without_pcall_fails(self) -> None:
+        found = lua_problems("function envoy_on_request(handle)\n  return\nend\n")
+        self.assertTrue(any("not inside pcall" in item for item in found), found)
+
+    def test_a_wrapped_handler_passes(self) -> None:
+        inline = (
+            "local lua_fault = false\n"
+            "function envoy_on_request(handle)\n"
+            "  local ok = pcall(function()\n"
+            "    if lua_fault then error('lua fault') end\n"
+            "  end)\n"
+            '  if not ok then handle:respond({[":status"] = "401"}, "") end\n'
+            "end\n"
+        )
+        self.assertEqual(lua_problems(inline), [])
+
+
 class FabricHostIsOnlyTheRuntimeRoutes(unittest.TestCase):
     def test_the_two_fabric_routes_pass(self) -> None:
         documents = [

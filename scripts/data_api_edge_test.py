@@ -725,6 +725,75 @@ def require_sink_unchanged(before: int, path: str, token: str) -> None:
         raise SystemExit(f"{path}: stand-in forwarded {forwarded} requests, expected 1; body={body[:180]!r}")
 
 
+def apply_header_policy(text: str) -> None:
+    documents = [item for item in yaml.safe_load_all(text) if item]
+    for document in documents:
+        document.setdefault("metadata", {})["namespace"] = NAMESPACE
+    kube_apply(documents)
+
+
+def host_spellings(token: str) -> None:
+    """Upper case and an explicit port still select the fabric route.
+
+    A trailing dot is a different name to this Envoy build: it is not
+    forwarded, and it is not rewritten onto the fabric route here.
+    """
+    expect = {
+        "FABRIC.INVALID": (200, 1),
+        "fabric.invalid:80": (200, 1),
+        "fabric.invalid.": (404, 0),
+    }
+    for host, (want_status, want_forwarded) in expect.items():
+        before = stand_in_count()
+        status, _, body = request("/v1/data", token, host=host)
+        forwarded = stand_in_count() - before - 1
+        if status != want_status or forwarded != want_forwarded or "sink" in body:
+            raise SystemExit(f"Host {host!r}: status={status} forwarded={forwarded} body={body[:160]!r}")
+        note = "stand-in received /v1/data" if want_status == 200 else "not forwarded; trailing dot is not the route host"
+        tested(f"Host {host}", status, note)
+
+
+def lua_fault_is_rejected(token: str) -> None:
+    """A Lua error after jwt_authn is a local 401 and is not forwarded.
+
+    Production leaves `lua_fault` false. This applies a copy with it set, so
+    a token the JWT filter has already accepted still dies in the handler.
+    """
+    original = (BASE / "headerpolicy.yaml").read_text()
+    needle = "local lua_fault = false"
+    if original.count(needle) != 1:
+        raise SystemExit("header policy does not keep exactly one lua_fault = false hook")
+    try:
+        apply_header_policy(original.replace(needle, "local lua_fault = true", 1))
+        deadline = time.time() + 60
+        status, headers, body = 0, {}, ""
+        while time.time() < deadline:
+            status, headers, body = request("/v1/data", token)
+            if status == 401:
+                break
+            time.sleep(1)
+        else:
+            raise SystemExit(f"lua fault was not a 401: status={status} body={body[:160]!r}")
+        before = stand_in_count()
+        status, headers, body = request("/v1/data", token)
+        forwarded = stand_in_count() - before - 1
+        www = headers.get("www-authenticate", "")
+        if status != 401 or forwarded != 0 or not challenge_ok(www):
+            raise SystemExit(
+                f"lua fault: status={status} forwarded={forwarded} www={www!r} body={body[:160]!r}"
+            )
+        tested("lua fault after jwt_authn", 401, "0 requests forwarded; generic invalid_token")
+    finally:
+        apply_header_policy(original)
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        status, _, _ = request("/v1/data", token)
+        if status == 200:
+            return
+        time.sleep(1)
+    raise SystemExit("valid token did not recover after the lua fault hook was turned off")
+
+
 def reject_foreign_route(token: str) -> None:
     """A gateway-access namespace must not receive the fabric host's bearer.
 
@@ -816,10 +885,20 @@ def reject_foreign_route(token: str) -> None:
         lambda rows: any(section == "http" for section, _, _ in rows),
     )
     print(f"foreign hostname-less route parents={catch_status}")
+    if not any(section == "http" and status == "True" for section, status, _ in catch_status):
+        raise SystemExit(f"hostname-less catch-all was not Accepted on http: {catch_status}")
+    before_other = sink_count()
+    other_status, _, other_body = request("/", host="catchall.invalid")
+    time.sleep(1)
+    if other_status != 200 or '"sink"' not in other_body or sink_count() != before_other + 1:
+        raise SystemExit(
+            f"catch-all did not serve another host: status={other_status} "
+            f"count={sink_count() - before_other} body={other_body[:180]!r}"
+        )
     require_sink_unchanged(sink_count(), "/v1/data/x", token)
     tested(
         "foreign hostname-less route on the product listener",
-        "stand-in 200, sink 0",
+        "Accepted, serves catchall.invalid, fabric host stays on the stand-in",
         f"parents={catch_status}",
     )
 
@@ -1204,11 +1283,13 @@ def main() -> int:
             raise SystemExit(f"probes were not forwarded to the stand-in: health={health} ready={ready}")
         if other != 404:
             raise SystemExit(f"path outside the Data API was forwarded: {other}")
+        host_spellings(valid)
         tested("expired 20s (control, within 30s)", results["expired-20s"][0], "200 required")
         tested("expired 31s", results["expired-31s"][0], "401 required; Lua cap now > exp + 30")
         tested("expired 45s", results["expired-45s"][0], "401 required; Lua cap now > exp + 30")
         tested("nbf +15s (control, within 30s)", results["nbf-within-15s"][0], "200 required")
         tested("nbf +31s", results["nbf-31s"][0], "401 required; Lua cap nbf - 30 <= now")
+        lua_fault_is_rejected(valid)
         reject_foreign_route(valid)
         tested(
             "nbf not-yet-valid (nbf=now+120s, beyond clock skew)",
@@ -1547,7 +1628,8 @@ def record_http2_coalescing() -> None:
     metadata = gateway.get("metadata") or {}
     for field in ("resourceVersion", "uid", "generation", "managedFields", "creationTimestamp"):
         metadata.pop(field, None)
-    present = {listener["name"] for listener in gateway["spec"]["listeners"]}
+    original_listeners = list(gateway["spec"]["listeners"])
+    present = {listener["name"] for listener in original_listeners}
     for listener in (
         {
             "name": "other",
@@ -1654,6 +1736,15 @@ def record_http2_coalescing() -> None:
             )
     finally:
         forward.terminate()
+        restored = json.loads(kube("get", "gateway", "platform", "-n", NAMESPACE, "-o", "json"))
+        restored.pop("status", None)
+        restored_meta = restored.get("metadata") or {}
+        for field in ("resourceVersion", "uid", "generation", "managedFields", "creationTimestamp"):
+            restored_meta.pop(field, None)
+        restored["spec"]["listeners"] = original_listeners
+        kube("apply", "-f", "-", input_text=yaml.safe_dump(restored))
+        kube("delete", "httproute", "-n", NAMESPACE, "h2-other", "h2-fabric", "--ignore-not-found")
+        kube("delete", "secret", "-n", NAMESPACE, "shared-tls", "--ignore-not-found")
 
 
 def _tls_status(port: int, sni: str, host: str, alpn: list[str]) -> tuple[str | None, int]:

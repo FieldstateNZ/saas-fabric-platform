@@ -68,7 +68,10 @@ Checks, in order of how much damage they prevent:
      two routes name sectionName `fabric`, and production's port 80 listener
      for that hostname only redirects to HTTPS. The listener admits every
      HTTPRoute in `platform-system`, so any other route there would see the
-     bearer.
+     bearer;
+ 25. every Envoy Lua `envoy_on_request` runs its body in `pcall` and answers
+     401 when that call fails, so a script error is not forwarded. `lua_fault`
+     stays false in Git.
 """
 from __future__ import annotations
 
@@ -4100,6 +4103,91 @@ def _lua_targets(policies: list[dict], route: dict, marker: str) -> bool:
     return any(marker in _lua_text(policy) and _policy_targets(policy, route) for policy in policies)
 
 
+def check_lua_handlers_fail_closed(render: Path, problems: list[str]) -> None:
+    """A Lua error must not be forwarded.
+
+    Envoy continues the request when a handler errors. Each `envoy_on_request`
+    has to run its body in pcall and answer 401 from that failure. `lua_fault`
+    is the kind test's hook and stays false in Git.
+    """
+    for environment in ENVIRONMENTS:
+        directory = render / environment
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "EnvoyExtensionPolicy":
+                    continue
+                name = (document.get("metadata") or {}).get("name")
+                for index, entry in enumerate((document.get("spec") or {}).get("lua") or []):
+                    if not isinstance(entry, dict) or not isinstance(entry.get("inline"), str):
+                        continue
+                    code = "\n".join(line.split("--", 1)[0] for line in entry["inline"].splitlines())
+                    if "function envoy_on_request" not in code:
+                        continue
+                    where = f"{environment}/{path.name}: EnvoyExtensionPolicy/{name} lua[{index}]"
+                    if "pcall(function()" not in code:
+                        fail(
+                            problems,
+                            f"{where} envoy_on_request is not inside pcall;"
+                            " a Lua error would be forwarded",
+                        )
+                    if '":status"] = "401"' not in code:
+                        fail(problems, f"{where} does not answer 401 when Lua errors")
+                    if "lua_fault" in code and "local lua_fault = false" not in code:
+                        fail(problems, f"{where} enables lua_fault; that hook stays off in Git")
+
+
+# Names that would put fabric.fieldstate.nz on the shared product certificate.
+# A single-label wildcard is what a certificate SAN uses, so *.fieldstate.nz
+# covers the fabric host and an exact SAN does too.
+PLATFORM_TLS_SECRET = "platform-tls"
+FABRIC_CERT_NAMES = frozenset({"fabric.fieldstate.nz", "*.fieldstate.nz"})
+
+
+def _certificate_names(spec: dict) -> list[str]:
+    names = []
+    common = spec.get("commonName")
+    if isinstance(common, str):
+        names.append(common)
+    for item in spec.get("dnsNames") or []:
+        if isinstance(item, str):
+            names.append(item)
+    return names
+
+
+def check_platform_tls_does_not_cover_fabric(render: Path, problems: list[str]) -> None:
+    """platform-tls must not be issued for the fabric hostname.
+
+    The fabric listener has its own certificate. A SAN of fabric.fieldstate.nz
+    or *.fieldstate.nz on the shared secret would let a client coalesce those
+    names again.
+    """
+    for environment in ENVIRONMENTS:
+        directory = render / environment
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "Certificate":
+                    continue
+                spec = document.get("spec") or {}
+                if spec.get("secretName") != PLATFORM_TLS_SECRET:
+                    continue
+                covered = [
+                    name for name in _certificate_names(spec)
+                    if name.lower().rstrip(".") in FABRIC_CERT_NAMES
+                ]
+                if covered:
+                    metadata = document.get("metadata") or {}
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: Certificate/{metadata.get('name')}"
+                        f" writes {PLATFORM_TLS_SECRET} with {covered[0]}, which covers"
+                        " fabric.fieldstate.nz",
+                    )
+
+
 def _gateway_network_policy(documents: list[dict], namespace: str, deployment: dict) -> bool:
     """The runtime's own labels, and ingress only from the platform Gateway proxy.
 
@@ -4275,6 +4363,8 @@ def main() -> int:
     check_runtime_config_document_paths(render, problems)
     check_runtime_document_contract(render, problems)
     check_data_api_edge_when_scaled(render, problems)
+    check_lua_handlers_fail_closed(render, problems)
+    check_platform_tls_does_not_cover_fabric(render, problems)
     check_applications_match_their_project(render, problems)
     check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)
