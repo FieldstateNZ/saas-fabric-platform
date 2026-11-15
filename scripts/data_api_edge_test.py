@@ -687,7 +687,13 @@ def wait_parents(name: str, predicate) -> list[tuple[str, str, str]]:
 
 
 def both_rejected(accepted: list[tuple[str, str, str]]) -> bool:
-    return len(accepted) >= 2 and all(status == "False" for _, status, _ in accepted)
+    """http is refused because the fabric listener owns the host; fabric refuses the namespace."""
+    by = {section: (status, reason) for section, status, reason in accepted}
+    return (
+        by.get("http") == ("False", "NoMatchingListenerHostname")
+        and by.get("fabric") == ("False", "NotAllowedByListeners")
+        and all(status == "False" for _, status, _ in accepted)
+    )
 
 
 def stand_in_response(status: int, body: str, path: str) -> None:
@@ -702,12 +708,21 @@ def stand_in_response(status: int, body: str, path: str) -> None:
 
 
 def require_sink_unchanged(before: int, path: str, token: str) -> None:
+    """The legitimate stand-in handles the request, and the foreign sink does not.
+
+    stand_in_count() itself is one request, so the delta minus that probe is 1
+    only when `path` was forwarded.
+    """
+    before_stand = stand_in_count()
     status, _, body = request(path, token)
     time.sleep(1)
     after = sink_count()
+    forwarded = stand_in_count() - before_stand - 1
     stand_in_response(status, body, path)
     if after != before:
         raise SystemExit(f"{path}: foreign sink received {after - before} request(s); body={body[:180]!r}")
+    if forwarded != 1:
+        raise SystemExit(f"{path}: stand-in forwarded {forwarded} requests, expected 1; body={body[:180]!r}")
 
 
 def reject_foreign_route(token: str) -> None:
@@ -792,7 +807,7 @@ def reject_foreign_route(token: str) -> None:
     catch_all = foreign_http_route(
         "fabric-catchall",
         hostname=None,
-        path="/v1/data/catchall",
+        path="/",
         sections=["http"],
     )
     kube_apply([catch_all])
@@ -801,7 +816,7 @@ def reject_foreign_route(token: str) -> None:
         lambda rows: any(section == "http" for section, _, _ in rows),
     )
     print(f"foreign hostname-less route parents={catch_status}")
-    require_sink_unchanged(sink_count(), "/v1/data/catchall", token)
+    require_sink_unchanged(sink_count(), "/v1/data/x", token)
     tested(
         "foreign hostname-less route on the product listener",
         "stand-in 200, sink 0",
@@ -1646,6 +1661,7 @@ def _tls_status(port: int, sni: str, host: str, alpn: list[str]) -> tuple[str | 
     import ssl
 
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
     context.set_alpn_protocols(alpn)

@@ -1033,6 +1033,34 @@ def check_fabric_listeners_admit_only_platform_system(render: Path, problems: li
                     problems,
                     f"{environment}: listener '{listener.get('name')}' {reason}",
                 )
+        # A hostname-less product listener owns every host on its port that a
+        # more specific listener does not. Each such port needs the fabric host.
+        for listener in listeners:
+            if listener.get("hostname"):
+                continue
+            if listener.get("protocol") not in ("HTTP", "HTTPS"):
+                continue
+            labels = (
+                ((listener.get("allowedRoutes") or {}).get("namespaces") or {})
+                .get("selector", {})
+                .get("matchLabels")
+                or {}
+            )
+            if labels.get("fieldstate.nz/gateway-access") != "true":
+                continue
+            protocol, port = listener.get("protocol"), listener.get("port")
+            covered = [
+                other for other in listeners
+                if other.get("protocol") == protocol
+                and other.get("port") == port
+                and other.get("hostname") in hosts
+            ]
+            if not covered:
+                fail(
+                    problems,
+                    f"{environment}: {protocol} listener '{listener.get('name')}' on port {port}"
+                    " has no hostname, and no listener on that port carries the fabric hostname",
+                )
         for path, route in routes:
             metadata = route.get("metadata") or {}
             if (metadata.get("namespace"), metadata.get("name")) not in FABRIC_ROUTES:

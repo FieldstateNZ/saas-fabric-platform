@@ -457,6 +457,32 @@ class FabricListenerAdmission(unittest.TestCase):
         found = listener_problems([gateway])
         self.assertTrue(any("kinds" in item for item in found), found)
 
+    def test_hostname_less_product_port_without_the_fabric_host_fails(self) -> None:
+        gateway = production_gateway()
+        gateway["spec"]["listeners"] = [
+            {
+                "name": "http",
+                "protocol": "HTTP",
+                "port": 80,
+                "allowedRoutes": {
+                    "namespaces": {
+                        "from": "Selector",
+                        "selector": {"matchLabels": {"fieldstate.nz/gateway-access": "true"}},
+                    }
+                },
+            },
+            admitted_listener("fabric", protocol="HTTPS", port=443, hostname="fabric.fieldstate.nz"),
+        ]
+        documents = [
+            gateway,
+            named_route("saas-fabric", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"),
+            named_route(
+                "saas-fabric-probes", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"
+            ),
+        ]
+        found = listener_problems(documents)
+        self.assertTrue(any("no hostname" in item and "port 80" in item for item in found), found)
+
     def test_a_fabric_route_on_another_listener_fails(self) -> None:
         documents = [
             production_gateway(),
