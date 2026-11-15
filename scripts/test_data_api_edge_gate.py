@@ -280,5 +280,73 @@ class DataApiEdgeGate(unittest.TestCase):
         self.assertTrue(any("exp" in item for item in found), found)
 
 
+def gateway_with_fabric_host(hostname: str) -> dict:
+    return {
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "Gateway",
+        "metadata": {"name": "platform", "namespace": "platform-system"},
+        "spec": {
+            "gatewayClassName": "saas-fabric",
+            "listeners": [{"name": "fabric", "hostname": hostname, "protocol": "HTTP", "port": 80}],
+        },
+    }
+
+
+def named_route(name: str, *, section: str, host: str, namespace: str = "identity") -> dict:
+    return {
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRoute",
+        "metadata": {"name": name, "namespace": namespace},
+        "spec": {
+            "parentRefs": [{"name": "platform", "namespace": "platform-system", "sectionName": section}],
+            "hostnames": [host],
+            "rules": [{"matches": [{"path": {"type": "PathPrefix", "value": "/"}}]}],
+        },
+    }
+
+
+def fabric_problems(documents: list[dict]) -> list[str]:
+    found: list[str] = []
+    check.check_fabric_host_is_only_the_runtime_routes(render(documents), found)
+    return found
+
+
+class FabricHostIsOnlyTheRuntimeRoutes(unittest.TestCase):
+    def test_the_two_fabric_routes_pass(self) -> None:
+        documents = [
+            gateway_with_fabric_host("fabric.from-overlay.test"),
+            named_route("saas-fabric", section="fabric", host="fabric.from-overlay.test", namespace="platform-system"),
+            named_route(
+                "saas-fabric-probes", section="fabric", host="fabric.from-overlay.test", namespace="platform-system"
+            ),
+            named_route("keycloak", section="https", host="auth.fieldstate.nz"),
+        ]
+        self.assertEqual(fabric_problems(documents), [])
+
+    def test_another_route_on_the_fabric_listener_fails(self) -> None:
+        documents = [
+            named_route("saas-fabric", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"),
+            named_route("saas-fabric-probes", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"),
+            named_route("keycloak", section="fabric", host="auth.fieldstate.nz"),
+        ]
+        found = fabric_problems(documents)
+        self.assertTrue(any("attaches to listener 'fabric'" in item and "keycloak" in item for item in found), found)
+
+    def test_another_route_naming_a_fabric_hostname_fails(self) -> None:
+        documents = [
+            named_route("client-shell", section="http", host="fabric.lucentroot.internal", namespace="acme"),
+        ]
+        found = fabric_problems(documents)
+        self.assertTrue(any("fabric.lucentroot.internal" in item and "client-shell" in item for item in found), found)
+
+    def test_a_hostname_the_overlay_sets_on_the_listener_fails_on_another_route(self) -> None:
+        documents = [
+            gateway_with_fabric_host("fabric.from-overlay.test"),
+            named_route("client-shell", section="http", host="fabric.from-overlay.test", namespace="acme"),
+        ]
+        found = fabric_problems(documents)
+        self.assertTrue(any("fabric.from-overlay.test" in item and "client-shell" in item for item in found), found)
+
+
 if __name__ == "__main__":
     unittest.main()

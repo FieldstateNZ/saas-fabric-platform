@@ -61,7 +61,10 @@ Checks, in order of how much damage they prevent:
      `exp` on every route that forwards to the runtime, and a NetworkPolicy
      that selects that Deployment's own labels and admits ingress only from
      the platform Gateway's Envoy proxy -- at zero replicas the check does
-     not fire.
+     not fire;
+ 24. only the Data API route and the probe route may attach to the fabric
+     listener or name its hostname. The listener admits every HTTPRoute in
+     `platform-system`, so any other route there would see the bearer.
 """
 from __future__ import annotations
 
@@ -849,6 +852,82 @@ def check_routes_attach(render: Path, problems: list[str]) -> None:
                         f"{where} is in namespace {namespace}, which no Application"
                         f" labels {' or '.join(needed)}; the route cannot attach",
                     )
+
+
+# The Data API route and the probe route. The fabric listener admits every
+# HTTPRoute in platform-system, so the name is what keeps a second route off
+# the bearer. Hosts the overlays set today are the floor; a fabric listener
+# or either of these two routes may declare another, and that hostname is
+# refused on every other HTTPRoute as well.
+FABRIC_LISTENER = "fabric"
+FABRIC_ROUTES = frozenset({
+    ("platform-system", "saas-fabric"),
+    ("platform-system", "saas-fabric-probes"),
+})
+FABRIC_HOSTS = frozenset({"fabric.lucentroot.internal", "fabric.fieldstate.nz"})
+
+
+def check_fabric_host_is_only_the_runtime_routes(render: Path, problems: list[str]) -> None:
+    """Only the Data API route and the probe route may use the fabric host.
+
+    `allowedRoutes` on the fabric listener selects the whole platform-system
+    namespace. A second HTTPRoute there, or one that names the fabric
+    hostname from another listener, is attached to the edge that forwards
+    the bearer. The hostnames are the ones the overlays set on the fabric
+    listener and on these two routes, plus the hosts those overlays use today.
+    """
+    for environment in ENVIRONMENTS:
+        routes: list[tuple[Path, dict]] = []
+        hosts = set(FABRIC_HOSTS)
+        for path in sorted((render / environment).rglob("*.yaml")):
+            for document in load_all(path, problems):
+                kind = document.get("kind")
+                if kind == "Gateway":
+                    for listener in (document.get("spec") or {}).get("listeners") or []:
+                        if listener.get("name") != FABRIC_LISTENER:
+                            continue
+                        hostname = listener.get("hostname")
+                        if hostname:
+                            hosts.add(hostname)
+                elif kind == "HTTPRoute":
+                    routes.append((path, document))
+
+        def allowed(route: dict) -> bool:
+            metadata = route.get("metadata") or {}
+            return (metadata.get("namespace"), metadata.get("name")) in FABRIC_ROUTES
+
+        for _, route in routes:
+            if not allowed(route):
+                continue
+            for hostname in (route.get("spec") or {}).get("hostnames") or []:
+                if hostname:
+                    hosts.add(hostname)
+
+        for path, route in routes:
+            if allowed(route):
+                continue
+            metadata = route.get("metadata") or {}
+            name = metadata.get("name")
+            spec = route.get("spec") or {}
+            sections = {
+                parent.get("sectionName")
+                for parent in spec.get("parentRefs") or []
+                if parent.get("sectionName")
+            }
+            where = f"{environment}/{path.name}: HTTPRoute/{name}"
+            if FABRIC_LISTENER in sections:
+                fail(
+                    problems,
+                    f"{where} attaches to listener '{FABRIC_LISTENER}'; only"
+                    " saas-fabric and saas-fabric-probes may",
+                )
+            overlap = sorted(set(spec.get("hostnames") or []) & hosts)
+            if overlap:
+                fail(
+                    problems,
+                    f"{where} names fabric hostname {overlap[0]}; only"
+                    " saas-fabric and saas-fabric-probes may",
+                )
 
 
 def check_control_plane_is_operator_only(render: Path, problems: list[str]) -> None:
@@ -3996,6 +4075,7 @@ def main() -> int:
     check_exposure_planes(render, problems)
     check_admin_off_the_product_plane(render, problems)
     check_routes_attach(render, problems)
+    check_fabric_host_is_only_the_runtime_routes(render, problems)
     check_control_plane_is_operator_only(render, problems)
     check_forwarded_proto_is_asserted_once(render, problems)
     check_argocd_runtime_configuration(render, problems)

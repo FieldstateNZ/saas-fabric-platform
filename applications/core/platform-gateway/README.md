@@ -81,7 +81,9 @@ routes live in. A namespace that holds `gateway-access` can still attach to
 `http` or `https`, and cannot attach a route for the fabric hostname: the
 more specific listener owns the host, and it does not admit the other
 namespace. That is what keeps a longer `/v1/data/...` path from receiving
-tenants' bearer tokens.
+tenants' bearer tokens. Anyone who can create HTTPRoutes in `platform-system`
+can still attach to this listener. The exit is a dedicated fabric namespace
+plus a ReferenceGrant, which is a later change.
 
 LucentRoot has no HTTPS listener because there is no certificate authority for
 `*.lucentroot.internal`. Routes select their listener by `sectionName`. The
