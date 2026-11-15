@@ -1,0 +1,105 @@
+{
+  "labels": {
+    "master-instance": {
+      "fieldstate.nz/class": "core",
+      "fieldstate.nz/rollout-step": "2",
+      "fieldstate.nz/source": "kustomize"
+    },
+    "master-instance-credential": {
+      "fieldstate.nz/class": "core",
+      "fieldstate.nz/rollout-step": "1",
+      "fieldstate.nz/source": "kustomize"
+    },
+    "saas-fabric-control-plane": {
+      "fieldstate.nz/class": "core",
+      "fieldstate.nz/rollout-step": "3",
+      "fieldstate.nz/source": "kustomize"
+    }
+  },
+  "operationStartedAtChanges": {},
+  "owners": {
+    "master-instance": [
+      {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "ApplicationSet",
+        "name": "operator-sign-in",
+        "uid": "uid:ed843d929e4e"
+      }
+    ],
+    "master-instance-credential": [
+      {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "ApplicationSet",
+        "name": "operator-sign-in",
+        "uid": "uid:ed843d929e4e"
+      }
+    ],
+    "saas-fabric-control-plane": [
+      {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "ApplicationSet",
+        "name": "operator-sign-in",
+        "uid": "uid:ed843d929e4e"
+      }
+    ]
+  },
+  "syncPolicy": {
+    "master-instance": {
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "master-instance-credential": {
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "saas-fabric-control-plane": {
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    }
+  },
+  "uidChanges": {},
+  "uids": {
+    "application/master-instance": "uid:3f4e5368e875",
+    "application/step-1": "uid:00b70efe6fa7",
+    "application/saas-fabric-control-plane": "uid:de68942721b4",
+    "configmap/control-plane-standin": "uid:6b0ff5164e12",
+    "configmap/convergence-mode": "uid:f45e9a924afc",
+    "configmap/step-1-standin": "uid:e4d6700b3d05",
+    "job/convergence": "uid:31c028114085",
+    "namespace/master-instance-state": "uid:f3930699e51b",
+    "secret/tfstate-default-master-instance": "uid:a51b0a35c485"
+  }
+}

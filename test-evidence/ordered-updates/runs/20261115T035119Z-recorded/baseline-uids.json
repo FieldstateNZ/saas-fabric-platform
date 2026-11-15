@@ -1,0 +1,11 @@
+{
+  "application/master-instance": "uid:ea885b94f28d",
+  "application/step-1": "uid:39d546c1a4c0",
+  "application/saas-fabric-control-plane": "uid:b11289b8402e",
+  "configmap/control-plane-standin": "uid:a09ff4b4e211",
+  "configmap/convergence-mode": "uid:b1749419b48f",
+  "configmap/step-1-standin": "uid:7dace32b17d9",
+  "job/convergence": "uid:653bf6475019",
+  "namespace/master-instance-state": "uid:2d832bb2814e",
+  "secret/tfstate-default-master-instance": "uid:d2dd51ff6e99"
+}

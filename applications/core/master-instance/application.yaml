@@ -73,3 +73,12 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 5m
+  # The state Secret's body is written by OpenTofu, not by Git. Ignore it so
+  # a sync of the annotation-only manifest does not treat that body as drift.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: tfstate-default-master-instance
+      namespace: master-instance-state
+      jsonPointers:
+        - /data

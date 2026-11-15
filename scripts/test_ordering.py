@@ -559,7 +559,14 @@ class RollingSyncFixture(unittest.TestCase):
                     current["spec"]["source"]["path"].replace("PLACEHOLDER", "lucentroot"),
                 )
                 self.assertTrue((REPOSITORY / generated["spec"]["source"]["path"]).is_dir())
-                self.assertEqual(generated["metadata"]["finalizers"], current["metadata"]["finalizers"])
+                # The hand-written Applications carry resources-finalizer.
+                # The candidate must not: preserveResourcesOnDeletion does not
+                # keep workloads if the generated Application has that finalizer.
+                self.assertEqual(
+                    current["metadata"]["finalizers"],
+                    ["resources-finalizer.argocd.argoproj.io"],
+                )
+                self.assertFalse(generated["metadata"].get("finalizers"))
                 current_policy = dict(current["spec"]["syncPolicy"])
                 current_policy.pop("automated")
                 self.assertEqual(generated["spec"]["syncPolicy"], current_policy)
@@ -666,7 +673,7 @@ class RecordedOrdering(unittest.TestCase):
 # Nothing here reaches what Argo CD syncs
 # ---------------------------------------------------------------------------
 
-INERT = (REPOSITORY / "scripts", REPOSITORY / "docs")
+INERT = (REPOSITORY / "scripts", REPOSITORY / "docs", REPOSITORY / "test-evidence")
 
 
 def _within(path: Path, directory: Path) -> bool:
@@ -703,6 +710,22 @@ class FixturesAreInert(unittest.TestCase):
             ]
             self.assertEqual([d["metadata"]["name"] for d in roots], [ordering.ROOT_APPLICATION])
             self.assertTrue(roots[0]["spec"]["source"]["path"].startswith("environments/"))
+
+    def test_environment_revision_patches_select_applications_only(self):
+        # P6: environments/* patches select kind Application. An ApplicationSet
+        # in the same render would not receive targetRevision, and
+        # saas-fabric-control-plane/application.yaml is in the shared core
+        # kustomization that production also lists.
+        for environment in ENVIRONMENTS:
+            kustom = yaml.safe_load(
+                (REPOSITORY / "environments" / environment / "kustomization.yaml").read_text()
+            )
+            for patch in kustom.get("patches") or []:
+                target = patch.get("target") or {}
+                if "targetRevision" in (patch.get("patch") or ""):
+                    self.assertEqual(target.get("kind"), "Application", environment)
+        core = (REPOSITORY / "applications" / "core" / "kustomization.yaml").read_text()
+        self.assertIn("saas-fabric-control-plane/application.yaml", core)
 
 
 if __name__ == "__main__":

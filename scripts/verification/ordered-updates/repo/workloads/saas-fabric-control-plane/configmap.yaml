@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: control-plane-standin
+  namespace: operator-system
+data:
+  marker: "0"

@@ -1,0 +1,9 @@
+# Stand-in for the convergence input. mode is succeed, fail, or sleep.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: convergence-mode
+  namespace: operator-system
+data:
+  mode: succeed
+  marker: "0"

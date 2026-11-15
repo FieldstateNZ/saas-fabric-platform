@@ -1,0 +1,22 @@
+# Stand-in for master-instance-state. The live namespace and the tfstate
+# Secret carry Prune=false,Delete=false (O5). This stand-in does too.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: master-instance-state
+  labels:
+    fieldstate.nz/system: saas-fabric
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tfstate-default-master-instance
+  namespace: master-instance-state
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+type: Opaque
+stringData:
+  tfstate: '{"version":4,"serial":1,"lineage":"synthetic","outputs":{},"resources":[]}'

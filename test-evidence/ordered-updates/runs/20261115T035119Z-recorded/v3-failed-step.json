@@ -1,0 +1,531 @@
+{
+  "applicationSet": {
+    "applicationStatus": [
+      {
+        "application": "master-instance",
+        "lastTransitionTime": "2026-11-15T03:54:46Z",
+        "message": "Application resource has synced, updating status to Progressing",
+        "status": "Progressing",
+        "step": "2",
+        "targetRevisions": [
+          "648f0732da9b71c049d3836c256a08de729fa384"
+        ]
+      },
+      {
+        "application": "master-instance-credential",
+        "lastTransitionTime": "2026-11-15T03:54:46Z",
+        "message": "Application resource has synced, updating status to Healthy",
+        "status": "Healthy",
+        "step": "1",
+        "targetRevisions": [
+          "648f0732da9b71c049d3836c256a08de729fa384"
+        ]
+      },
+      {
+        "application": "saas-fabric-control-plane",
+        "lastTransitionTime": "2026-11-15T03:54:33Z",
+        "message": "Application has pending changes, setting status to Waiting",
+        "status": "Waiting",
+        "step": "3",
+        "targetRevisions": [
+          "648f0732da9b71c049d3836c256a08de729fa384"
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-11-15T03:51:26Z",
+        "message": "All applications have been generated successfully",
+        "reason": "ApplicationSetUpToDate",
+        "status": "False",
+        "type": "ErrorOccurred"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T03:51:26Z",
+        "message": "Successfully generated parameters for all Applications",
+        "reason": "ParametersGenerated",
+        "status": "True",
+        "type": "ParametersGenerated"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T03:51:26Z",
+        "message": "All applications have been generated successfully",
+        "reason": "ApplicationSetUpToDate",
+        "status": "True",
+        "type": "ResourcesUpToDate"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T03:54:25Z",
+        "message": "ApplicationSet is performing rollout of step 2",
+        "reason": "ApplicationSetModified",
+        "status": "True",
+        "type": "RolloutProgressing"
+      }
+    ]
+  },
+  "blocked": [
+    {
+      "afterOperationStarted": "2026-11-15T03:54:24Z",
+      "beforeOperationStarted": "2026-11-15T03:54:24Z",
+      "held": true,
+      "liveMarker": "v2-10",
+      "marker": "v3-a",
+      "samples": [
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4",
+            "sync": "Synced"
+          },
+          "t": "2026-11-15T03:54:33Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:35Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:37Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:39Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:42Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:44Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:46Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:48Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:50Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:52Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:55Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:57Z"
+        }
+      ],
+      "sha": "648f0732da9b71c049d3836c256a08de729fa384"
+    },
+    {
+      "afterOperationStarted": "2026-11-15T03:54:24Z",
+      "beforeOperationStarted": "2026-11-15T03:54:24Z",
+      "held": true,
+      "liveMarker": "v2-10",
+      "marker": "v3-b",
+      "samples": [
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "648f0732da9b71c049d3836c256a08de729fa384",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:54:59Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:01Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:04Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:06Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:08Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:10Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:12Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:15Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:17Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:19Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:21Z"
+        },
+        {
+          "marker": "v2-10",
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T03:54:24Z",
+            "revision": "5724790ddeef10d55433e25a779bde59b7e6557d",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T03:55:23Z"
+        }
+      ],
+      "sha": "5724790ddeef10d55433e25a779bde59b7e6557d"
+    }
+  ],
+  "conditionNamesStep2": true,
+  "step2": {
+    "health": "Degraded",
+    "history": [
+      {
+        "deployStartedAt": "2026-11-15T03:51:49Z",
+        "deployedAt": "2026-11-15T03:51:51Z",
+        "id": 4,
+        "revision": "a7adeca580a17882bf40cf37b50bd619a1e2558b"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:04Z",
+        "deployedAt": "2026-11-15T03:52:06Z",
+        "id": 5,
+        "revision": "cbfacfba229bf64920b17233347fa1511575bba4"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:06Z",
+        "deployedAt": "2026-11-15T03:52:08Z",
+        "id": 6,
+        "revision": "cbfacfba229bf64920b17233347fa1511575bba4"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:21Z",
+        "deployedAt": "2026-11-15T03:52:24Z",
+        "id": 7,
+        "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:24Z",
+        "deployedAt": "2026-11-15T03:52:26Z",
+        "id": 8,
+        "revision": "69367f2a890f0cbe8be423be0f34a0ae95cb18a8"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:39Z",
+        "deployedAt": "2026-11-15T03:52:41Z",
+        "id": 9,
+        "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:41Z",
+        "deployedAt": "2026-11-15T03:52:44Z",
+        "id": 10,
+        "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:44Z",
+        "deployedAt": "2026-11-15T03:52:46Z",
+        "id": 11,
+        "revision": "7432a905a1576e38cd2c2bb6267e4f1b94c6a73b"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:52:58Z",
+        "deployedAt": "2026-11-15T03:53:01Z",
+        "id": 12,
+        "revision": "988f211851ad24c987fef7aa259af07af8420ca3"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:53:01Z",
+        "deployedAt": "2026-11-15T03:53:03Z",
+        "id": 13,
+        "revision": "988f211851ad24c987fef7aa259af07af8420ca3"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:53:16Z",
+        "deployedAt": "2026-11-15T03:53:18Z",
+        "id": 14,
+        "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:53:18Z",
+        "deployedAt": "2026-11-15T03:53:21Z",
+        "id": 15,
+        "revision": "e8f5f04b82a238fcec42f0cba3a028277d739f36"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:53:33Z",
+        "deployedAt": "2026-11-15T03:53:36Z",
+        "id": 16,
+        "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:53:36Z",
+        "deployedAt": "2026-11-15T03:53:38Z",
+        "id": 17,
+        "revision": "66f37a621ff9ace089cd13a0ab0cbe63b0a40b4b"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:53:51Z",
+        "deployedAt": "2026-11-15T03:53:53Z",
+        "id": 18,
+        "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:53:53Z",
+        "deployedAt": "2026-11-15T03:53:56Z",
+        "id": 19,
+        "revision": "c0fa7f3ad956d3b2bc9b1baa0038786ef0d374cf"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:54:07Z",
+        "deployedAt": "2026-11-15T03:54:10Z",
+        "id": 20,
+        "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:54:10Z",
+        "deployedAt": "2026-11-15T03:54:12Z",
+        "id": 21,
+        "revision": "dce79c04de96ca4b5ffdc945a56661d9013feed4"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:54:25Z",
+        "deployedAt": "2026-11-15T03:54:27Z",
+        "id": 22,
+        "revision": "60608d70117473f4445456cf53ff1e7cbc81abd4"
+      },
+      {
+        "deployStartedAt": "2026-11-15T03:54:27Z",
+        "deployedAt": "2026-11-15T03:54:29Z",
+        "id": 23,
+        "revision": "60608d70117473f4445456cf53ff1e7cbc81abd4"
+      }
+    ],
+    "initiatedBy": {
+      "automated": true,
+      "username": "applicationset-controller"
+    },
+    "labels": {
+      "fieldstate.nz/class": "core",
+      "fieldstate.nz/rollout-step": "2",
+      "fieldstate.nz/source": "kustomize"
+    },
+    "name": "master-instance",
+    "opFinished": "2026-11-15T03:54:29Z",
+    "opPhase": "Succeeded",
+    "opRevision": "60608d70117473f4445456cf53ff1e7cbc81abd4",
+    "opStarted": "2026-11-15T03:54:27Z",
+    "owners": [
+      {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "ApplicationSet",
+        "name": "operator-sign-in",
+        "uid": "uid:16506217022b"
+      }
+    ],
+    "prune": null,
+    "retry": {
+      "backoff": {
+        "duration": "5s",
+        "factor": 2,
+        "maxDuration": "30s"
+      },
+      "limit": 2
+    },
+    "revision": "60608d70117473f4445456cf53ff1e7cbc81abd4",
+    "sync": "Synced",
+    "syncOptions": [
+      "CreateNamespace=true"
+    ],
+    "syncPolicy": {
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "uid": "uid:ea885b94f28d"
+  },
+  "step3Waiting": true
+}

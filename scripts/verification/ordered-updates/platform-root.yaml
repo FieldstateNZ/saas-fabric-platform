@@ -1,0 +1,22 @@
+# Applied by the verification script, not by an environment. Owns whatever
+# children/ currently lists: the three Applications, then the ApplicationSet.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: REPO_URL_PLACEHOLDER
+    targetRevision: main
+    path: children
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

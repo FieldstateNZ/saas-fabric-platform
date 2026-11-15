@@ -1,0 +1,168 @@
+[
+  {
+    "detail": {
+      "labels": {
+        "master-instance": {
+          "fieldstate.nz/class": "core",
+          "fieldstate.nz/rollout-step": "2",
+          "fieldstate.nz/source": "kustomize"
+        },
+        "master-instance-credential": {
+          "fieldstate.nz/class": "core",
+          "fieldstate.nz/rollout-step": "1",
+          "fieldstate.nz/source": "kustomize"
+        },
+        "saas-fabric-control-plane": {
+          "fieldstate.nz/class": "core",
+          "fieldstate.nz/rollout-step": "3",
+          "fieldstate.nz/source": "kustomize"
+        }
+      },
+      "operationStartedAtChanges": {},
+      "owners": {
+        "master-instance": [
+          {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "ApplicationSet",
+            "name": "operator-sign-in",
+            "uid": "uid:5854b190bd3b"
+          }
+        ],
+        "master-instance-credential": [
+          {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "ApplicationSet",
+            "name": "operator-sign-in",
+            "uid": "uid:5854b190bd3b"
+          }
+        ],
+        "saas-fabric-control-plane": [
+          {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "ApplicationSet",
+            "name": "operator-sign-in",
+            "uid": "uid:5854b190bd3b"
+          }
+        ]
+      },
+      "syncPolicy": {
+        "master-instance": {
+          "retry": {
+            "backoff": {
+              "duration": "5s",
+              "factor": 2,
+              "maxDuration": "30s"
+            },
+            "limit": 2
+          },
+          "syncOptions": [
+            "CreateNamespace=true"
+          ]
+        },
+        "master-instance-credential": {
+          "retry": {
+            "backoff": {
+              "duration": "5s",
+              "factor": 2,
+              "maxDuration": "30s"
+            },
+            "limit": 2
+          },
+          "syncOptions": [
+            "CreateNamespace=true"
+          ]
+        },
+        "saas-fabric-control-plane": {
+          "automated": {
+            "enabled": false,
+            "prune": true,
+            "selfHeal": true
+          },
+          "retry": {
+            "backoff": {
+              "duration": "5s",
+              "factor": 2,
+              "maxDuration": "30s"
+            },
+            "limit": 2
+          },
+          "syncOptions": [
+            "CreateNamespace=true"
+          ]
+        }
+      },
+      "uidChanges": {},
+      "uids": {
+        "application/master-instance": "uid:93b7376b5b41",
+        "application/saas-fabric-control-plane": "uid:02d3d571c41a",
+        "application/step-1": "uid:32520486da68",
+        "configmap/control-plane-standin": "uid:07973715cf52",
+        "configmap/convergence-mode": "uid:197d86155fbd",
+        "configmap/step-1-standin": "uid:181467bfc783",
+        "job/convergence": "uid:76d0800234a5",
+        "namespace/master-instance-state": "uid:4740820dd289",
+        "secret/tfstate-default-master-instance": "uid:c89b11d3025d"
+      }
+    },
+    "result": "pass",
+    "test": "V1"
+  },
+  {
+    "detail": {
+      "held": 48,
+      "perSet": 10,
+      "sets": 5,
+      "total": 50,
+      "violations": 2
+    },
+    "result": "fail",
+    "test": "V2"
+  },
+  {
+    "detail": {
+      "held": true,
+      "step3Status": "Waiting"
+    },
+    "result": "pass",
+    "test": "V3"
+  },
+  {
+    "detail": {
+      "markerStayed": "v4-mutated",
+      "syncStarted": false
+    },
+    "result": "pass",
+    "test": "V4"
+  },
+  {
+    "detail": {
+      "recovered": true,
+      "sha": "dd638f7792f1c6c5ef35989068508c032a558b6c"
+    },
+    "result": "pass",
+    "test": "V5"
+  },
+  {
+    "detail": {
+      "after": "v3-b",
+      "before": "v3-b",
+      "markerStayed": true
+    },
+    "result": "pass",
+    "test": "flag-off"
+  },
+  {
+    "detail": {
+      "finalizerAbsent": true,
+      "preserved": true
+    },
+    "result": "pass",
+    "test": "V6-orphan"
+  }
+]

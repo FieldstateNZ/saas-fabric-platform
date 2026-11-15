@@ -1,0 +1,86 @@
+{
+  "beforeOperationStarted": "2026-11-15T04:52:31Z",
+  "note": "Generated Applications have no automated selfHeal, so a live edit is not corrected whether or not step 2 is Degraded. Adopting the candidate drops self-heal and prune for the chain.",
+  "samples": [
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:55:46.439225Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:55:53.510664Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:00.574204Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:07.703669Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:14.858014Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:21.969470Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:29.095087Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:36.281483Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:43.452166Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:50.563783Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:56:57.723730Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:57:04.914079Z"
+    },
+    {
+      "marker": "v4-mutated",
+      "opStarted": "2026-11-15T04:52:31Z",
+      "step2Health": "Degraded",
+      "t": "2026-11-15T04:57:12.022539Z"
+    }
+  ],
+  "selfHeal": false,
+  "step2StayedDegraded": true
+}

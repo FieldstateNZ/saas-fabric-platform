@@ -166,9 +166,12 @@ The scenarios below are pinned in `RollingSyncFixture`:
 ### What it does not order
 
 - **Keycloak.** RollingSync orders only what one ApplicationSet generates.
-  Keycloak, at root wave 20, precedes the whole set at creation and does not on
-  an update. That is the same creation-only property as today, one link earlier
-  in the chain.
+  Keycloak stays outside the set. At root wave 20 it precedes the whole set
+  at creation and does not on an update. What still gates the control plane
+  on Keycloak is master-instance's own health: the convergence Job fails
+  while Keycloak is not ready, master-instance stays Degraded or
+  Progressing, and step 3 waits on that health. There is no separate
+  Keycloak step.
 - **Production.** Production runs no `master-instance`, and its control plane
   stays a hand-written Application.
 - **Any other step capacity.** The fixture leaves `maxUpdate` at its default,
@@ -258,7 +261,7 @@ assessment, or moving the control plane into wave 30, fails CI
 
 | # | Prerequisite | Why |
 |---|---|---|
-| P1 | The exact Argo CD version on LucentRoot, read from the cluster or from `saas-fabric-hosting` | Progressive syncs are feature-gated, not GA, and their semantics have moved between releases: autosync handling, `deletionOrder`, and status fields. This repository records only a floor of 2.13 |
+| P1 | The Argo CD version this verification used is Helm chart `10.11.6`, app `v3.5.6`, read from `FieldstateNZ/lucentroot-gitops` `versions.env`. That pin is an assumption to re-check after the LucentRoot rebuild. `saas-fabric-hosting` is not a repository this account can see, and `FieldstateNZ/infrastructure` pins chart `10.1.3`, which migrating-lucentroot.md says not to carry across | Progressive syncs are feature-gated, not GA, and their semantics have moved between releases |
 | P2 | An inventory of every other ApplicationSet in that Argo CD | E1 is instance-wide |
 | P3 | `saas-fabric-hosting`'s agreement to the E1 key and the E2 restart | Hosting installs Argo CD and owns its lifecycle (`argocd/runtime/README.md`) |
 | P4 | The isolated verification in section 7 passes on P1's version | D01-20: establish controller and sync effects first |
@@ -271,13 +274,14 @@ assessment, or moving the control plane into wave 30, fails CI
 | # | Risk | Mitigation |
 |---|---|---|
 | R1 | **Cascade deletion during migration.** Removing the three Applications from `platform-root` prunes them, and `resources-finalizer` deletes everything they manage: the control plane's Deployments, routes and OIDC policy; the gateway client secret; the convergence Job and its RBAC | A separate, earlier sync that annotates the three Applications with `argocd.argoproj.io/sync-options: Prune=false`, so the root orphans them rather than deleting them. Then introduce the ApplicationSet to adopt them. Verify adoption in V1 before any of it touches LucentRoot |
-| R2 | **`Prune=false` does not protect against Application deletion.** `master-instance-state`, holding the OpenTofu state Secret `tfstate-default-master-instance`, carries `Prune=false` but not `Delete=false` | P5. Add `Delete=false` before any step that could delete the Application |
+| R2 | **`Prune=false` does not protect against Application deletion.** The namespace and `tfstate-default-master-instance` now carry `Delete=false` in Git (O5). That annotation is not on the cluster until this change is synced | The manifests in this draft. Merging them is a LucentRoot sync (O5) |
 | R3 | The gateway client secret (`master-instance-credential`, `refreshInterval: "0"`) would be regenerated if deleted, and would no longer match Keycloak until `master-instance` reconverges | R1's ordering. With RollingSync in place, step 2 then reconverges before step 3, which is the point |
 | R4 | **A Degraded step blocks indefinitely**, including unrelated control-plane fixes | Intended. Recovery is a fix to the failed step, which still syncs (`test_a_fix_to_the_failed_step_still_syncs`). Any break-glass manual sync of a later step is a gated act (E8) |
-| R5 | **Rollback is not "turn the flag off".** Without progressive syncs, the generated Applications have no automated sync, and nothing syncs them (`test_without_progressive_syncs_nothing_syncs_the_generated_applications`) | Rollback means returning the three Applications to the root, protected as in R1, and then removing the flag. It is its own gated change |
+| R5 | **Rollback is not "turn the flag off".** Without progressive syncs, the generated Applications have no automated sync, and nothing syncs them (`test_without_progressive_syncs_nothing_syncs_the_generated_applications`) | Rollback means returning the three Applications to the root, protected as in R1, and then removing the flag. It is its own gated change. After a `--cascade=orphan` restore, set `automated.enabled: true` explicitly and verify it, because orphaned Applications keep whatever the ApplicationSet last wrote |
 | R6 | Instance-wide flag (E1) changes other teams' ApplicationSets | P2, P3 |
 | R7 | Root creation order loses its wait on the chain (E7) | Accept for `operator-access`, which depends on the gateway and not on the chain, or step it within the set. Decide at adoption |
 | R8 | The model is not the controller. Every "upstream docs" row above may differ on P1's version | Section 7 |
+| R9 | **Refresh skew.** The RollingSync gate treats an Application as Healthy from that Application's own last compare. It does not require the compared revision to be the commit the next step is about to sync. A step that has refreshed to a new commit can sync while the previous step still reports Healthy and Synced at the old commit. Held in 10 of 11 joint commits on v3.5.6; the 11th is this case, after the ApplicationSet already owned the apps. Not a migration, and not a health value that was already OutOfSync | Do not read "Healthy" as "Healthy at the new revision" unless `status.sync.revision` was checked in the same observation. Re-check on the post-rebuild Argo CD version |
 
 ---
 
@@ -291,7 +295,7 @@ assessment, or moving the control plane into wave 30, fails CI
 | Under documented RollingSync semantics, failed or running convergence holds the control plane, and recovery unblocks it | `RollingSyncFixture` | **this PR, offline (model)** |
 | Nothing added here is synced | `FixturesAreInert`; the PR's render-digest evidence | **this PR, offline** |
 | Adopting B or enabling the flag cannot happen silently | `RecordedOrdering` | **this PR, offline** |
-| The controller behaves as modelled on P1's version | V1–V6 below | **gated** |
+| The controller behaves as modelled on P1's version | V1–V6 on chart 10.11.6 / app v3.5.6 | **observed, not adopted.** The 1-second series held in 10 of 11. The repeated series, scored on ApplicationSet transition times, held the apply in 50 of 50 and scored 48 of 50. [Evidence](../test-evidence/ordered-updates/README.md). O1 is still open |
 
 ### Isolated sync verification (separately authorised, not LucentRoot)
 
@@ -307,7 +311,102 @@ acceptance asks for.
 | V3 | Failed child convergence: force step 2's Job to fail. Step 3 stays unsynced through repeated commits to it, and the ApplicationSet status names the wait |
 | V4 | Drift while blocked: mutate a step-3 resource while step 2 is Degraded. Record whether and when it is corrected (E4) |
 | V5 | Recovery: commit a fix to step 2. Step 2 syncs and becomes Healthy, then step 3 proceeds |
-| V6 | Rollback: R5's sequence restores hand-written Applications with automated sync, and nothing is deleted |
+| V6 | Rollback: R5's sequence restores hand-written Applications with automated sync, and nothing is deleted. Delete the ApplicationSet with `kubectl delete applicationset --cascade=orphan`. The generated Applications must not carry `resources-finalizer.argocd.argoproj.io`; with that finalizer, `preserveResourcesOnDeletion` does not keep the workloads |
+
+### What v3.5.6 did, on a throwaway cluster
+
+Not an adoption. Nothing under `environments/` changed. The run is
+`scripts/verification/ordered-updates/`, evidence in
+`test-evidence/ordered-updates/`.
+
+P1's version was read from `FieldstateNZ/lucentroot-gitops` `versions.env`:
+Helm chart `10.11.6`, app `v3.5.6`. There is no `saas-fabric-hosting` repository
+in the org this account can see. `FieldstateNZ/infrastructure` pins chart
+`10.1.3`, which [migrating-lucentroot.md](migrating-lucentroot.md) says not to
+carry across. `lucentroot-gitops` `bootstrap/argocd-values.yaml` sets
+`applicationSet.replicas: 0` ("the app-of-apps does not use ApplicationSets").
+The throwaway run set replicas to 1. Adopting B needs that replica, the
+progressive-syncs flag, and the controller restart (E1, E2), agreed with
+whoever installs Argo CD (P3).
+
+On that controller, with stand-in workloads. v3.5.6 here is the
+`lucentroot-gitops` pin, an assumption to re-check after the LucentRoot rebuild.
+
+- The first V2 series **held in 10 of 11** joint commits. That is not a pass.
+  The recorded ten, at a 1-second poll, kept the control-plane stand-in
+  unchanged until master-instance was Healthy and Synced at the new revision.
+  The 11th applied the new control-plane marker while master-instance was
+  still OutOfSync at that revision (step 3's operation started at 03:25:24Z,
+  step 2's at 03:25:25Z, revision `165f8e00`). The ApplicationSet already
+  owned the apps. Step 2 still reported Healthy and Synced at the previous
+  revision because its compare had not moved. The gate uses that compare.
+  It does not require the compared revision to be the commit step 3 is about
+  to sync. See R9 and
+  `test-evidence/ordered-updates/runs/20261115T040913Z-architect/race-refresh-skew.json`.
+- A later series repeated the joint commit 5 times 10, mode `full`, harness
+  on top of `c5e8a7f` (UID fingerprints and the hook wait were uncommitted
+  during the run). Evidence:
+  `test-evidence/ordered-updates/runs/20261115T043012Z-full/`. Each round is
+  scored on the ApplicationSet's `lastTransitionTime`, not the 1-second poll.
+  Step 3 also carries a PreSync Job that exits non-zero unless step 2's
+  convergence Job has `succeeded: 1`. **48 of 50** rounds held on that
+  transition time and the hook. **2 of 50** (`s5-2`, `s5-4`) were scored
+  not-ok because a step-3 operation was `Running` before step 2 was Healthy
+  at the new revision. In both, the control-plane marker was still the
+  previous value and no sync result for the new revision was recorded. They
+  are not a demonstrated apply-before-ready. The hook itself succeeded on
+  49 of 50; the miss is `s5-4`, where the watcher stopped before the Job
+  status caught up.
+- V3 held. Step 2's Application health was `Degraded` for the whole window
+  (`step2LeftDegraded` is false). The ApplicationSet's own step status for
+  step 2 stayed `Progressing`, and step 3 stayed `Waiting`. Two commits that
+  touched only step 3 did not start a new step-3 operation. The condition
+  text named step 2.
+- V4's live edit stayed at `v4-mutated` for 90 seconds, and step 2 stayed
+  `Degraded`. That pass is weak: the generated Applications have no
+  automated self-heal, so a live edit is not corrected whether or not step 2
+  is Degraded. Adopting this candidate drops self-heal, and drops prune, for
+  the whole chain.
+- V5: a fix commit synced step 2 to Healthy, then step 3 followed.
+- V1 changed no resource fingerprint. V6 deleted the ApplicationSet with
+  `kubectl delete applicationset operator-sign-in --cascade=orphan` and did
+  not clear owner references by hand. No generated Application carried
+  `resources-finalizer.argocd.argoproj.io` (it is not in the stand-in or the
+  fixture template). Resource fingerprints were unchanged, including
+  `master-instance-state` and `tfstate-default-master-instance`. Restoring
+  the hand-written Applications put `automated.prune` and `selfHeal` back
+  on all three. The control-plane Application kept `automated.enabled: false`
+  from the Q3 probe, because the restore manifest omitted `enabled`, and a
+  following commit did not apply within 120 seconds.
+- OQ5, rerun as mode `v6` in `runs/20261115T051131Z-v6/`. The restore
+  manifests set `automated.enabled: true`. All three restored Applications
+  reported `enabled`, `prune`, and `selfHeal` true. The post-restore commit
+  applied, and the operation was an automated sync rather than one started
+  by the ApplicationSet controller. OQ5 is resolved.
+- With `applicationsetcontroller.enable.progressive.syncs` removed, a commit
+  did not move the live marker (`flag-off.json`). The flag was changed only
+  on the throwaway cluster.
+- E5: syncs were started by `applicationset-controller`, with the stand-in's
+  `syncOptions` and `retry.limit: 2`. `prune` was unset on those operations.
+  Steps 1 and 2 omit `automated`, so prune stays off for the credential and
+  master-instance. Step 3 was tried as `automated: {enabled: false, prune: true, selfHeal: true}`.
+  On v3.5.6 that did not copy `prune` into the sync the controller started
+  (`step3Operation.prune` is null). `enabled: false` is not a way to keep
+  prune while leaving the controller in charge.
+- `master-instance-state` and `tfstate-default-master-instance` carry
+  `Prune=false,Delete=false` in Git (O5). The Secret manifest has no `data`;
+  the body stays the kubernetes backend's. Merging that annotation is still
+  a LucentRoot sync.
+- Evidence UIDs are `uid:` plus 12 hex characters of sha256. The same object
+  always hashes the same way, so the V1 and V6 compares still work. The
+  writer refuses to record a raw Kubernetes UID.
+
+RollingSync remains a candidate. Turning it on in place is not part of this
+PR. The ApplicationSet controller replica count and
+`applicationsetcontroller.enable.progressive.syncs` stay as they are in the
+install that owns Argo CD. Both are for Brett under O1, with the controller
+restart (E1, E2). Keycloak stays outside the set; master-instance's health
+is what gates the control plane on Keycloak. O1 is Brett's.
 
 ---
 

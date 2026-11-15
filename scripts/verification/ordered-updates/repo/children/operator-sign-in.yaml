@@ -1,0 +1,114 @@
+# Stand-in for the RollingSync candidate. Not applied by any environment.
+#
+# Differences from scripts/fixtures/rolling-sync/applicationset.yaml, on purpose:
+# project is default, because the real saas-fabric-platform AppProject does
+# not allow this throwaway git URL. Retries are 2/5s/30s rather than the
+# fixture's 5/10s/5m and 10/15s/10m, so a failed Job reaches Degraded inside
+# the test window. managedNamespaceMetadata and SkipDryRunOnMissingResource
+# are omitted; the stand-in has no CRD dry-run. Step 3 carries
+# automated.enabled=false with prune=true as the Q3 probe. Steps 1 and 2
+# omit automated so prune stays off.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: operator-sign-in
+  namespace: argocd
+  labels:
+    fieldstate.nz/system: saas-fabric
+    fieldstate.nz/layer: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - list:
+        elements:
+          - name: master-instance-credential
+            step: "1"
+            path: workloads/master-instance-credential
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+              retry:
+                limit: 2
+                backoff:
+                  duration: 5s
+                  factor: 2
+                  maxDuration: 30s
+          - name: master-instance
+            step: "2"
+            path: workloads/master-instance
+            syncPolicy:
+              syncOptions:
+                - CreateNamespace=true
+              retry:
+                limit: 2
+                backoff:
+                  duration: 5s
+                  factor: 2
+                  maxDuration: 30s
+          - name: saas-fabric-control-plane
+            step: "3"
+            path: workloads/saas-fabric-control-plane
+            # Q3 probe: enabled false, so this should NOT copy prune. The
+            # stateful steps above omit automated entirely, which keeps prune
+            # off. selfHeal true here is inert while enabled is false.
+            syncPolicy:
+              automated:
+                enabled: false
+                prune: true
+                selfHeal: true
+              syncOptions:
+                - CreateNamespace=true
+              retry:
+                limit: 2
+                backoff:
+                  duration: 5s
+                  factor: 2
+                  maxDuration: 30s
+  strategy:
+    type: RollingSync
+    rollingSync:
+      steps:
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "1"
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "2"
+        - matchExpressions:
+            - key: fieldstate.nz/rollout-step
+              operator: In
+              values:
+                - "3"
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+    applicationsSync: create-update
+  # No resources-finalizer. See the fixture.
+  template:
+    metadata:
+      name: "{{.name}}"
+      namespace: argocd
+      labels:
+        fieldstate.nz/source: kustomize
+        fieldstate.nz/class: core
+        fieldstate.nz/rollout-step: "{{.step}}"
+    spec:
+      project: default
+      revisionHistoryLimit: 20
+      source:
+        repoURL: REPO_URL_PLACEHOLDER
+        targetRevision: main
+        path: "{{.path}}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: operator-system
+  templatePatch: |
+    spec:
+      syncPolicy: {{ toJson .syncPolicy }}

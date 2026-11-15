@@ -1,0 +1,85 @@
+{
+  "automated": {
+    "master-instance": {
+      "automated": {
+        "prune": true,
+        "selfHeal": true
+      },
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "master-instance-credential": {
+      "automated": {
+        "prune": true,
+        "selfHeal": true
+      },
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "saas-fabric-control-plane": {
+      "automated": {
+        "prune": true,
+        "selfHeal": true
+      },
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    }
+  },
+  "deleteProbe": {
+    "applicationGone": true,
+    "jobGone": true,
+    "namespaceSame": true,
+    "secretSame": true,
+    "uidsAfter": {
+      "application/master-instance": null,
+      "application/step-1": "uid:39d546c1a4c0",
+      "application/saas-fabric-control-plane": "uid:b11289b8402e",
+      "configmap/control-plane-standin": "uid:a09ff4b4e211",
+      "configmap/convergence-mode": null,
+      "configmap/step-1-standin": "uid:7dace32b17d9",
+      "job/convergence": null,
+      "namespace/master-instance-state": "uid:2d832bb2814e",
+      "secret/tfstate-default-master-instance": "uid:d2dd51ff6e99"
+    },
+    "uidsBefore": {
+      "application/master-instance": "uid:ea885b94f28d",
+      "application/step-1": "uid:39d546c1a4c0",
+      "application/saas-fabric-control-plane": "uid:b11289b8402e",
+      "configmap/control-plane-standin": "uid:a09ff4b4e211",
+      "configmap/convergence-mode": "uid:b1749419b48f",
+      "configmap/step-1-standin": "uid:7dace32b17d9",
+      "job/convergence": "uid:9ee6266323a4",
+      "namespace/master-instance-state": "uid:2d832bb2814e",
+      "secret/tfstate-default-master-instance": "uid:d2dd51ff6e99"
+    }
+  },
+  "rollbackUidChanges": {},
+  "stateChangedSinceV1": {}
+}
