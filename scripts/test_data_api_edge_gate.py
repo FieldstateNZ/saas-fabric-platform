@@ -311,6 +311,76 @@ def fabric_problems(documents: list[dict]) -> list[str]:
     return found
 
 
+def redirect_route(*, section: str = "fabric-http", host: str = "fabric.fieldstate.nz", backend: bool = False) -> dict:
+    rule: dict = {
+        "filters": [
+            {
+                "type": "RequestRedirect",
+                "requestRedirect": {"scheme": "https", "statusCode": 301},
+            }
+        ]
+    }
+    if backend:
+        rule["backendRefs"] = [{"name": "elsewhere", "port": 80}]
+    return {
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRoute",
+        "metadata": {"name": "saas-fabric-https-redirect", "namespace": "platform-system"},
+        "spec": {
+            "parentRefs": [{"name": "platform", "namespace": "platform-system", "sectionName": section}],
+            "hostnames": [host],
+            "rules": [rule],
+        },
+    }
+
+
+def admitted_listener(name: str, *, protocol: str, port: int, hostname: str | None) -> dict:
+    listener = {
+        "name": name,
+        "protocol": protocol,
+        "port": port,
+        "allowedRoutes": {
+            "namespaces": {
+                "from": "Selector",
+                "selector": {"matchLabels": {"kubernetes.io/metadata.name": "platform-system"}},
+            },
+            "kinds": [{"kind": "HTTPRoute"}],
+        },
+    }
+    if hostname:
+        listener["hostname"] = hostname
+    return listener
+
+
+def production_gateway() -> dict:
+    return {
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "Gateway",
+        "metadata": {"name": "platform", "namespace": "platform-system"},
+        "spec": {
+            "gatewayClassName": "saas-fabric",
+            "listeners": [
+                admitted_listener("http", protocol="HTTP", port=80, hostname=None),
+                admitted_listener("fabric", protocol="HTTPS", port=443, hostname="fabric.fieldstate.nz"),
+                admitted_listener("fabric-http", protocol="HTTP", port=80, hostname="fabric.fieldstate.nz"),
+            ],
+        },
+    }
+
+
+def listener_problems(documents: list[dict]) -> list[str]:
+    found: list[str] = []
+    rendered = render(documents)
+    check.check_fabric_listeners_admit_only_platform_system(rendered, found)
+    return found
+
+
+def redirect_problems(documents: list[dict]) -> list[str]:
+    found: list[str] = []
+    check.check_production_fabric_plaintext_redirects(render(documents), found)
+    return found
+
+
 class FabricHostIsOnlyTheRuntimeRoutes(unittest.TestCase):
     def test_the_two_fabric_routes_pass(self) -> None:
         documents = [
@@ -346,6 +416,88 @@ class FabricHostIsOnlyTheRuntimeRoutes(unittest.TestCase):
         ]
         found = fabric_problems(documents)
         self.assertTrue(any("fabric.from-overlay.test" in item and "client-shell" in item for item in found), found)
+
+    def test_the_https_redirect_may_name_the_fabric_host(self) -> None:
+        documents = [
+            production_gateway(),
+            named_route("saas-fabric", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"),
+            named_route(
+                "saas-fabric-probes", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"
+            ),
+            redirect_route(),
+        ]
+        self.assertEqual(fabric_problems(documents), [])
+
+    def test_a_redirect_that_also_has_a_backend_fails(self) -> None:
+        documents = [production_gateway(), redirect_route(backend=True)]
+        found = fabric_problems(documents)
+        self.assertTrue(any("saas-fabric-https-redirect" in item for item in found), found)
+
+
+class FabricListenerAdmission(unittest.TestCase):
+    def test_selector_and_section_name_pass(self) -> None:
+        documents = [
+            production_gateway(),
+            named_route("saas-fabric", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"),
+            named_route(
+                "saas-fabric-probes", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"
+            ),
+        ]
+        self.assertEqual(listener_problems(documents), [])
+
+    def test_missing_namespace_selector_fails(self) -> None:
+        gateway = production_gateway()
+        gateway["spec"]["listeners"][1]["allowedRoutes"]["namespaces"] = {"from": "All"}
+        found = listener_problems([gateway])
+        self.assertTrue(any("not Selector" in item for item in found), found)
+
+    def test_missing_httproute_kind_fails(self) -> None:
+        gateway = production_gateway()
+        del gateway["spec"]["listeners"][1]["allowedRoutes"]["kinds"]
+        found = listener_problems([gateway])
+        self.assertTrue(any("kinds" in item for item in found), found)
+
+    def test_a_fabric_route_on_another_listener_fails(self) -> None:
+        documents = [
+            production_gateway(),
+            named_route("saas-fabric", section="http", host="fabric.fieldstate.nz", namespace="platform-system"),
+            named_route(
+                "saas-fabric-probes", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"
+            ),
+        ]
+        found = listener_problems(documents)
+        self.assertTrue(any("sectionName" in item and "saas-fabric" in item for item in found), found)
+
+
+class ProductionPlaintextRedirect(unittest.TestCase):
+    def _documents(self) -> list[dict]:
+        return [
+            production_gateway(),
+            named_route("saas-fabric", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"),
+            named_route(
+                "saas-fabric-probes", section="fabric", host="fabric.fieldstate.nz", namespace="platform-system"
+            ),
+            redirect_route(),
+        ]
+
+    def test_redirect_listener_passes(self) -> None:
+        self.assertEqual(redirect_problems(self._documents()), [])
+
+    def test_missing_port_80_listener_fails(self) -> None:
+        gateway = production_gateway()
+        gateway["spec"]["listeners"] = [
+            listener for listener in gateway["spec"]["listeners"] if listener["name"] != "fabric-http"
+        ]
+        found = redirect_problems([gateway, *self._documents()[1:]])
+        self.assertTrue(any("port 80" in item for item in found), found)
+
+    def test_a_backend_on_the_plaintext_listener_fails(self) -> None:
+        documents = self._documents()
+        documents.append(
+            named_route("extra", section="fabric-http", host="fabric.fieldstate.nz", namespace="platform-system")
+        )
+        found = redirect_problems(documents)
+        self.assertTrue(any("fabric-http" in item for item in found), found)
 
 
 if __name__ == "__main__":

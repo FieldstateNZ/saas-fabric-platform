@@ -63,8 +63,12 @@ Checks, in order of how much damage they prevent:
      the platform Gateway's Envoy proxy -- at zero replicas the check does
      not fire;
  24. only the Data API route and the probe route may attach to the fabric
-     listener or name its hostname. The listener admits every HTTPRoute in
-     `platform-system`, so any other route there would see the bearer.
+     listener or name its hostname, every fabric-hostname listener selects
+     `kubernetes.io/metadata.name: platform-system` and kind HTTPRoute, those
+     two routes name sectionName `fabric`, and production's port 80 listener
+     for that hostname only redirects to HTTPS. The listener admits every
+     HTTPRoute in `platform-system`, so any other route there would see the
+     bearer.
 """
 from __future__ import annotations
 
@@ -867,6 +871,70 @@ FABRIC_ROUTES = frozenset({
 FABRIC_HOSTS = frozenset({"fabric.lucentroot.internal", "fabric.fieldstate.nz"})
 
 
+def _fabric_picture(render: Path, environment: str, problems: list[str]) -> tuple[list[dict], list[tuple[Path, dict]], set[str]]:
+    """Listeners, HTTPRoutes, and the fabric hostnames this environment declares."""
+    listeners: list[dict] = []
+    routes: list[tuple[Path, dict]] = []
+    for path in sorted((render / environment).rglob("*.yaml")):
+        for document in load_all(path, problems):
+            kind = document.get("kind")
+            if kind == "Gateway":
+                listeners.extend((document.get("spec") or {}).get("listeners") or [])
+            elif kind == "HTTPRoute":
+                routes.append((path, document))
+    hosts = set(FABRIC_HOSTS)
+    for listener in listeners:
+        if listener.get("name") == FABRIC_LISTENER and listener.get("hostname"):
+            hosts.add(listener["hostname"])
+    for _, route in routes:
+        metadata = route.get("metadata") or {}
+        if (metadata.get("namespace"), metadata.get("name")) not in FABRIC_ROUTES:
+            continue
+        for hostname in (route.get("spec") or {}).get("hostnames") or []:
+            if hostname:
+                hosts.add(hostname)
+    return listeners, routes, hosts
+
+
+def _route_sections(route: dict) -> set[str]:
+    return {
+        parent.get("sectionName")
+        for parent in (route.get("spec") or {}).get("parentRefs") or []
+        if parent.get("sectionName")
+    }
+
+
+def _https_redirect_only(route: dict) -> bool:
+    """Every rule redirects to https and none of them has a backend."""
+    rules = (route.get("spec") or {}).get("rules") or []
+    if not rules:
+        return False
+    for rule in rules:
+        if rule.get("backendRefs"):
+            return False
+        redirects = [
+            item for item in rule.get("filters") or []
+            if item.get("type") == "RequestRedirect"
+            and str((item.get("requestRedirect") or {}).get("scheme") or "").lower() == "https"
+        ]
+        if len(redirects) != 1:
+            return False
+    return True
+
+
+def _redirect_listener_names(listeners: list[dict], hosts: set[str]) -> set[str]:
+    """HTTP :80 listeners for a fabric hostname, other than the serving `fabric` listener."""
+    names = set()
+    for listener in listeners:
+        if listener.get("name") == FABRIC_LISTENER:
+            continue
+        if listener.get("protocol") != "HTTP" or listener.get("port") != 80:
+            continue
+        if listener.get("hostname") in hosts:
+            names.add(listener.get("name"))
+    return names
+
+
 def check_fabric_host_is_only_the_runtime_routes(render: Path, problems: list[str]) -> None:
     """Only the Data API route and the probe route may use the fabric host.
 
@@ -875,33 +943,21 @@ def check_fabric_host_is_only_the_runtime_routes(render: Path, problems: list[st
     hostname from another listener, is attached to the edge that forwards
     the bearer. The hostnames are the ones the overlays set on the fabric
     listener and on these two routes, plus the hosts those overlays use today.
+
+    Production's plaintext listener is the exception that does not forward:
+    one HTTPRoute may name the fabric hostname when every rule redirects to
+    https and it attaches only to that port 80 listener.
     """
     for environment in ENVIRONMENTS:
-        routes: list[tuple[Path, dict]] = []
-        hosts = set(FABRIC_HOSTS)
-        for path in sorted((render / environment).rglob("*.yaml")):
-            for document in load_all(path, problems):
-                kind = document.get("kind")
-                if kind == "Gateway":
-                    for listener in (document.get("spec") or {}).get("listeners") or []:
-                        if listener.get("name") != FABRIC_LISTENER:
-                            continue
-                        hostname = listener.get("hostname")
-                        if hostname:
-                            hosts.add(hostname)
-                elif kind == "HTTPRoute":
-                    routes.append((path, document))
+        listeners, routes, hosts = _fabric_picture(render, environment, problems)
+        redirect_names = _redirect_listener_names(listeners, hosts)
 
         def allowed(route: dict) -> bool:
             metadata = route.get("metadata") or {}
-            return (metadata.get("namespace"), metadata.get("name")) in FABRIC_ROUTES
-
-        for _, route in routes:
-            if not allowed(route):
-                continue
-            for hostname in (route.get("spec") or {}).get("hostnames") or []:
-                if hostname:
-                    hosts.add(hostname)
+            if (metadata.get("namespace"), metadata.get("name")) in FABRIC_ROUTES:
+                return True
+            sections = _route_sections(route)
+            return bool(sections) and sections <= redirect_names and _https_redirect_only(route)
 
         for path, route in routes:
             if allowed(route):
@@ -909,13 +965,8 @@ def check_fabric_host_is_only_the_runtime_routes(render: Path, problems: list[st
             metadata = route.get("metadata") or {}
             name = metadata.get("name")
             spec = route.get("spec") or {}
-            sections = {
-                parent.get("sectionName")
-                for parent in spec.get("parentRefs") or []
-                if parent.get("sectionName")
-            }
             where = f"{environment}/{path.name}: HTTPRoute/{name}"
-            if FABRIC_LISTENER in sections:
+            if FABRIC_LISTENER in _route_sections(route):
                 fail(
                     problems,
                     f"{where} attaches to listener '{FABRIC_LISTENER}'; only"
@@ -928,6 +979,134 @@ def check_fabric_host_is_only_the_runtime_routes(render: Path, problems: list[st
                     f"{where} names fabric hostname {overlap[0]}; only"
                     " saas-fabric and saas-fabric-probes may",
                 )
+
+
+def _fabric_admission(listener: dict) -> str | None:
+    """Why this listener does not admit only HTTPRoute from platform-system."""
+    allowed = listener.get("allowedRoutes") or {}
+    namespaces = allowed.get("namespaces") or {}
+    if namespaces.get("from") != "Selector":
+        return "allowedRoutes.namespaces.from is not Selector"
+    labels = ((namespaces.get("selector") or {}).get("matchLabels") or {})
+    if labels.get("kubernetes.io/metadata.name") != "platform-system":
+        return "selector is not kubernetes.io/metadata.name: platform-system"
+    kinds = allowed.get("kinds") or []
+    described = sorted(
+        (
+            item.get("group") or "gateway.networking.k8s.io",
+            item.get("kind"),
+        )
+        for item in kinds
+        if isinstance(item, dict)
+    )
+    if described != [("gateway.networking.k8s.io", "HTTPRoute")]:
+        return f"allowedRoutes.kinds is {described or 'unset'}, want HTTPRoute"
+    return None
+
+
+def check_fabric_listeners_admit_only_platform_system(render: Path, problems: list[str]) -> None:
+    """The fabric listener's selector, its kinds, and the routes' sectionName.
+
+    `kubernetes.io/metadata.name: platform-system` is what stops every other
+    namespace. `kinds: HTTPRoute` is what stops a different route kind in
+    that namespace. The Data API route and the probe route name sectionName
+    `fabric`, so they cannot fall through onto the hostname-less listener.
+    """
+    for environment in ENVIRONMENTS:
+        listeners, routes, hosts = _fabric_picture(render, environment, problems)
+        serving = [listener for listener in listeners if listener.get("name") == FABRIC_LISTENER]
+        if len(serving) != 1:
+            fail(
+                problems,
+                f"{environment}: expected one Gateway listener named '{FABRIC_LISTENER}',"
+                f" found {len(serving)}",
+            )
+        guarded = list(serving)
+        guarded.extend(
+            listener for listener in listeners
+            if listener.get("name") in _redirect_listener_names(listeners, hosts)
+        )
+        for listener in guarded:
+            reason = _fabric_admission(listener)
+            if reason:
+                fail(
+                    problems,
+                    f"{environment}: listener '{listener.get('name')}' {reason}",
+                )
+        for path, route in routes:
+            metadata = route.get("metadata") or {}
+            if (metadata.get("namespace"), metadata.get("name")) not in FABRIC_ROUTES:
+                continue
+            sections = _route_sections(route)
+            if sections != {FABRIC_LISTENER}:
+                fail(
+                    problems,
+                    f"{environment}/{path.name}: HTTPRoute/{metadata.get('name')}"
+                    f" sectionName is {sorted(sections) or 'unset'}, want '{FABRIC_LISTENER}'",
+                )
+
+
+def check_production_fabric_plaintext_redirects(render: Path, problems: list[str]) -> None:
+    """Production's port 80 fabric hostname only redirects to HTTPS.
+
+    The hostname-less `http` listener would otherwise accept a route for
+    `fabric.fieldstate.nz` over plaintext. A second listener on port 80 with
+    that hostname is more specific, and the only route on it must redirect.
+    """
+    environment = "production"
+    directory = render / environment
+    if not directory.is_dir():
+        return
+    listeners, routes, hosts = _fabric_picture(render, environment, problems)
+    serving = next((listener for listener in listeners if listener.get("name") == FABRIC_LISTENER), None)
+    hostname = (serving or {}).get("hostname")
+    if serving is None or not hostname:
+        fail(problems, "production: fabric listener has no hostname to mirror on port 80")
+        return
+    if serving.get("protocol") != "HTTPS" or serving.get("port") != 443:
+        fail(
+            problems,
+            "production: listener 'fabric' must terminate HTTPS on 443;"
+            f" it is {serving.get('protocol')} {serving.get('port')}",
+        )
+    plaintext = [
+        listener for listener in listeners
+        if listener.get("protocol") == "HTTP"
+        and listener.get("port") == 80
+        and listener.get("hostname") == hostname
+    ]
+    if len(plaintext) != 1:
+        fail(
+            problems,
+            f"production: expected one HTTP listener on port 80 for {hostname},"
+            f" found {len(plaintext)}",
+        )
+        return
+    name = plaintext[0].get("name")
+    reason = _fabric_admission(plaintext[0])
+    if reason:
+        fail(problems, f"production: listener '{name}' {reason}")
+    attached = []
+    for path, route in routes:
+        if name in _route_sections(route):
+            attached.append((path, route))
+    redirects = [route for _, route in attached if _https_redirect_only(route)]
+    if len(redirects) != 1:
+        fail(
+            problems,
+            f"production: listener '{name}' needs exactly one HTTPS redirect"
+            f" and no other route, found {len(attached)} route(s) of which"
+            f" {len(redirects)} redirect",
+        )
+    for path, route in attached:
+        if _https_redirect_only(route):
+            continue
+        metadata = route.get("metadata") or {}
+        fail(
+            problems,
+            f"production/{path.name}: HTTPRoute/{metadata.get('name')} attaches"
+            f" to '{name}', which must only redirect to HTTPS",
+        )
 
 
 def check_control_plane_is_operator_only(render: Path, problems: list[str]) -> None:
@@ -4076,6 +4255,8 @@ def main() -> int:
     check_admin_off_the_product_plane(render, problems)
     check_routes_attach(render, problems)
     check_fabric_host_is_only_the_runtime_routes(render, problems)
+    check_fabric_listeners_admit_only_platform_system(render, problems)
+    check_production_fabric_plaintext_redirects(render, problems)
     check_control_plane_is_operator_only(render, problems)
     check_forwarded_proto_is_asserted_once(render, problems)
     check_argocd_runtime_configuration(render, problems)

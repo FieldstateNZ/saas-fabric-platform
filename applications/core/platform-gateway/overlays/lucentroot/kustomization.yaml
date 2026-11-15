@@ -3,17 +3,14 @@ kind: Kustomization
 
 # LucentRoot terminates plain HTTP only. There is no certificate authority
 # for *.lucentroot.internal. The fabric listener stays HTTP; only its
-# hostname differs from the base placeholder. listeners[2] is `fabric`
-# (http, operator, fabric).
+# hostname differs from the base placeholder. The openapi file makes
+# listeners merge by name, so this patch does not depend on list position.
 resources:
   - ../../base
   - operator-scheme.yaml
 
+openapi:
+  path: openapi.json
+
 patches:
-  - target:
-      kind: Gateway
-      name: platform
-    patch: |-
-      - op: replace
-        path: /spec/listeners/2/hostname
-        value: fabric.lucentroot.internal
+  - path: fabric-hostname.yaml

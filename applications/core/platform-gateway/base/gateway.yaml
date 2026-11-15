@@ -58,19 +58,24 @@ spec:
             matchLabels:
               fieldstate.nz/operator-gateway-access: "true"
 
-    # The fabric hostname, on the same port as `http`. A listener that sets a
-    # hostname is more specific than one that does not, so a request for this
-    # host is served only by routes attached here. `http` stays the catch-all
-    # for every other product and for client hostnames.
+    # The fabric hostname. A listener that sets a hostname is more specific
+    # than `http`, which sets none, so a request for this host is served only
+    # by routes attached here. `http` stays the catch-all for every other
+    # product and for client hostnames.
     #
     # The selector is the namespace's own name. The API server sets
     # `kubernetes.io/metadata.name` to that name and will not let another
     # namespace copy it, so a client namespace that holds `gateway-access`
     # can still attach to `http` and cannot attach a longer `/v1/data/...`
     # path on this hostname. That path would otherwise win on specificity and
-    # receive tenants' bearer tokens. The hostname below is the base
-    # placeholder; each environment overlay sets the real fabric host.
-    # listeners[2] in those overlays is this listener (http, operator, fabric).
+    # receive tenants' bearer tokens. `kinds` is HTTPRoute so a TCPRoute or
+    # GRPCRoute in the same namespace cannot attach here either.
+    #
+    # The hostname below is the base placeholder. LucentRoot's overlay sets
+    # the real host and leaves this listener on port 80. Production's overlay
+    # moves this listener to HTTPS on 443 and adds `fabric-http` on port 80
+    # for the same host; that second listener only redirects. Anyone who can
+    # create HTTPRoutes in platform-system can still attach to either listener.
     - name: fabric
       hostname: fabric.invalid
       protocol: HTTP
@@ -81,3 +86,5 @@ spec:
           selector:
             matchLabels:
               kubernetes.io/metadata.name: platform-system
+        kinds:
+          - kind: HTTPRoute
