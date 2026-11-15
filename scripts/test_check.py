@@ -1176,5 +1176,83 @@ class RuntimeConfigDocumentPaths(unittest.TestCase):
         self.assertIn("not readable", problems[0])
 
 
+def realm_hcl(lifespan: str | None, *, realm: str = "acme") -> str:
+    line = "" if lifespan is None else f"  access_token_lifespan = {lifespan}\n"
+    return (
+        'resource "keycloak_realm" "tenant" {\n'
+        f'  realm = "{realm}"\n'
+        f"{line}"
+        "}\n"
+    )
+
+
+class TenantRealmAccessTokenLifespan(unittest.TestCase):
+    """Client realms must not mint a token the data API edge will refuse.
+
+    PR #64 rejects exp - now over 3630s. 300s is Keycloak's default. 3600s
+    is the last value that still fits inside that window. The master realm
+    does not own session length, so it is not this check.
+    """
+
+    def problems(self, text: str) -> list[str]:
+        return check.realm_access_token_lifespan_problems(text, "tenant.tf")
+
+    def test_five_minutes_as_a_duration_passes(self) -> None:
+        self.assertEqual(self.problems(realm_hcl('"5m"')), [])
+
+    def test_three_hundred_seconds_passes(self) -> None:
+        self.assertEqual(self.problems(realm_hcl("300")), [])
+        self.assertEqual(self.problems(realm_hcl('"300s"')), [])
+
+    def test_one_hour_passes(self) -> None:
+        self.assertEqual(self.problems(realm_hcl('"1h"')), [])
+        self.assertEqual(self.problems(realm_hcl("3600")), [])
+        self.assertEqual(self.problems(realm_hcl('"3600s"')), [])
+
+    def test_one_second_over_an_hour_fails(self) -> None:
+        for value in ('"3601s"', "3601", '"1h1s"', '"61m"'):
+            problems = self.problems(realm_hcl(value))
+            self.assertEqual(len(problems), 1, (value, problems))
+            self.assertIn("longer than 3600s", problems[0])
+
+    def test_missing_lifespan_fails(self) -> None:
+        problems = self.problems(realm_hcl(None))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("does not set access_token_lifespan", problems[0])
+
+    def test_listing_the_argument_in_ignore_changes_is_not_setting_it(self) -> None:
+        text = (
+            'resource "keycloak_realm" "tenant" {\n'
+            '  realm = "acme"\n'
+            "  lifecycle {\n"
+            "    ignore_changes = [access_token_lifespan]\n"
+            "  }\n"
+            "}\n"
+        )
+        problems = self.problems(text)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("does not set", problems[0])
+
+    def test_the_master_realm_is_not_required_to_pin_it(self) -> None:
+        text = (
+            'resource "keycloak_realm" "master" {\n'
+            '  realm = "master"\n'
+            "  lifecycle {\n"
+            "    ignore_changes = [access_token_lifespan]\n"
+            "  }\n"
+            "}\n"
+        )
+        self.assertEqual(self.problems(text), [])
+
+    def test_an_unparseable_duration_fails(self) -> None:
+        problems = self.problems(realm_hcl('"5 minutes"'))
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_the_repository_modules_pass(self) -> None:
+        problems: list[str] = []
+        check.check_tenant_realm_access_token_lifespan(REPOSITORY, problems)
+        self.assertEqual(problems, [])
+
+
 if __name__ == "__main__":
     unittest.main()

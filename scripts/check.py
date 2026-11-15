@@ -2252,6 +2252,88 @@ def master_instance_grant_problems(module_text: str, where: str) -> list[str]:
     return problems
 
 
+# One hour. PR #64's data API edge refuses exp - now over 3630s (3600 plus
+# 30s of skew). A realm that mints a longer access token locks its users out.
+_MAX_ACCESS_TOKEN_LIFESPAN_SECONDS = 3600
+_DURATION_WITH_UNITS = re.compile(r"^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$")
+
+
+def access_token_lifespan_seconds(raw: str) -> int | None:
+    """Seconds in a Keycloak/provider lifespan, or None when it does not parse.
+
+    The keycloak provider stores this as a Go duration string (`5m`, `300s`,
+    `1m0s`). A bare integer is seconds, which is what the Admin API uses.
+    """
+    text = raw.strip()
+    if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+        text = text[1:-1]
+    if text.isdigit():
+        return int(text)
+    match = _DURATION_WITH_UNITS.fullmatch(text)
+    if match is None or match.group(0) == "":
+        return None
+    hours, minutes, seconds = (int(part) if part else 0 for part in match.groups())
+    if match.group(1) is None and match.group(2) is None and match.group(3) is None:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def realm_access_token_lifespan_problems(module_text: str, where: str) -> list[str]:
+    """A non-master keycloak_realm must pin access_token_lifespan to <= 1h.
+
+    `realm = "master"` is skipped. That resource lists the argument in
+    `ignore_changes` and does not own operator session length. Client realms
+    are the ones whose tokens cross the data API edge.
+    """
+    problems: list[str] = []
+    text = _hcl_without_comments(module_text)
+    for kind, name, body in _hcl_top_level_blocks(text, "resource"):
+        if kind != "keycloak_realm":
+            continue
+        realm = re.search(r'(?m)^\s*realm\s*=\s*"([^"]*)"', body)
+        if realm is not None and realm.group(1) == "master":
+            continue
+        label = realm.group(1) if realm is not None else name
+        match = re.search(
+            r'(?m)^\s*access_token_lifespan\s*=\s*("(?:[^"\\]|\\.)*"|[0-9]+)\s*$',
+            body,
+        )
+        if match is None:
+            problems.append(
+                f"{where}: keycloak_realm.{name} ({label}) does not set"
+                " access_token_lifespan. Pin it to \"300s\" (5 minutes)."
+                " A longer token is refused by the data API edge, which"
+                " rejects exp - now over 3630s (PR #64)"
+            )
+            continue
+        seconds = access_token_lifespan_seconds(match.group(1))
+        if seconds is None or seconds > _MAX_ACCESS_TOKEN_LIFESPAN_SECONDS:
+            problems.append(
+                f"{where}: keycloak_realm.{name} ({label}) access_token_lifespan"
+                f" {match.group(1)} is longer than {_MAX_ACCESS_TOKEN_LIFESPAN_SECONDS}s"
+                " or not a duration. The data API edge rejects exp - now over"
+                " 3630s (PR #64)"
+            )
+    return problems
+
+
+def terraform_files(root: Path) -> list[Path]:
+    skip = {".git", ".terraform", ".render"}
+    return sorted(
+        path
+        for path in root.rglob("*.tf")
+        if path.is_file() and not (set(path.parts) & skip)
+    )
+
+
+def check_tenant_realm_access_token_lifespan(root: Path, problems: list[str]) -> None:
+    """Every .tf file: a client realm's access token must not outlive the edge."""
+    for path in terraform_files(root):
+        where = str(path.relative_to(root))
+        for problem in realm_access_token_lifespan_problems(path.read_text(), where):
+            fail(problems, problem)
+
+
 def check_master_instance_lookups_precede_apply(root: Path, problems: list[str]) -> None:
     """Section 13, the convergence's own failure modes: a lookup fails the
     plan rather than the apply, and a roster edit never revokes a grant."""
@@ -3708,6 +3790,7 @@ def main() -> int:
     check_openbao_bootstraps_itself(render, problems)
     check_master_realm_bootstraps_itself(render, problems)
     check_master_instance_lookups_precede_apply(root, problems)
+    check_tenant_realm_access_token_lifespan(root, problems)
     check_seal_key_does_not_need_openbao(render, problems)
     check_collector_pipelines(render, problems)
     check_application_documentation(root, problems)
