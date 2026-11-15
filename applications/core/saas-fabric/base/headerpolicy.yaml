@@ -59,7 +59,9 @@ spec:
             local claim = string.sub(name, 1, 12) == "x-jwt-claim-"
             local auth_request = string.sub(name, 1, 15) == "x-auth-request-"
             local operator = string.sub(name, 1, 11) == "x-operator-"
-            if tenant or forwarded_user or forwarded_email or forwarded_groups or forwarded_username or claim or auth_request or operator then
+            local strip = tenant or forwarded_user or forwarded_email or forwarded_groups
+            strip = strip or forwarded_username or claim or auth_request or operator
+            if strip then
               table.insert(drop, key)
             end
           end
