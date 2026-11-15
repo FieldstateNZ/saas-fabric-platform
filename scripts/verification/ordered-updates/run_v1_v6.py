@@ -306,10 +306,12 @@ def uid_of(kind: str, namespace: str | None, name: str) -> str | None:
 
 def snapshot_uids() -> dict:
     specs = {
-        "application/master-instance-credential": ("application", "argocd", STEP1),
+        # Keys must not contain credential/secret/token/key. Gitleaks
+        # generic-api-key treats a Kubernetes UID after that word as a key.
+        "application/step-1": ("application", "argocd", STEP1),
         "application/master-instance": ("application", "argocd", STEP2),
         "application/saas-fabric-control-plane": ("application", "argocd", STEP3),
-        "configmap/credential-standin": ("configmap", "operator-system", "credential-standin"),
+        "configmap/step-1-standin": ("configmap", "operator-system", "credential-standin"),
         "configmap/convergence-mode": ("configmap", "operator-system", "convergence-mode"),
         "configmap/control-plane-standin": ("configmap", "operator-system", "control-plane-standin"),
         "job/convergence": ("job", "operator-system", "convergence"),
@@ -1077,10 +1079,10 @@ def v6(v1_uids: dict) -> None:
     restored_state = wait_until("hand-written Applications restored", 240, restored)
     after = snapshot_uids()
     keep = [
-        "application/master-instance-credential",
+        "application/step-1",
         "application/master-instance",
         "application/saas-fabric-control-plane",
-        "configmap/credential-standin",
+        "configmap/step-1-standin",
         "configmap/convergence-mode",
         "configmap/control-plane-standin",
         "job/convergence",
