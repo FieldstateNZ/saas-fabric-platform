@@ -203,12 +203,19 @@ A fresh Keycloak assigns the built-in administrator a new id. The roster
 still names the previous one, and the plan fails on that lookup before
 anything is written. The failure is the binding working: the new account
 does not inherit `fabric-operator` or master-realm `admin` from the old id.
-Recovery is three steps:
+Recovery is four steps:
 
 1. Read the new id with the same authorised `kcadm.sh` query above, and take
    the object whose username is exactly `admin`.
 2. Commit that id as the `operators` entry, in place of the old one.
-3. Sync this Application. The next run grants the two roles to the new id.
+3. If Keycloak's DB is NOT restored, set `adoptExisting` to `"false"` before
+   the first sync. Owner: Casey (cluster rebuild) to confirm restore status;
+   the change lands as its own PR. This overlay stays `"true"` until that
+   PR. On a fresh realm `import = true` looks up hand-made objects that are
+   not there and errors at apply, which can happen after `frontendUrl` has
+   already been written (cause 10 in
+   [docs/master-instance-convergence.md](../../../docs/master-instance-convergence.md)).
+4. Sync this Application. The next run grants the two roles to the new id.
 
 The old id is gone with the old realm, so the refresh drops the previous
 grant from state and the sync after the commit creates the grant for the

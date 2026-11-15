@@ -885,7 +885,7 @@ class MasterInstanceOperatorIdentity(unittest.TestCase):
             '  user_id  = data.keycloak_user.operator[each.key].id\n',
         )
         problems = self.problems(text)
-        self.assertTrue(any("user_id is not the" in p for p in problems), problems)
+        self.assertTrue(any("must reference" in p for p in problems), problems)
 
     def test_missing_id_lookup_fails(self) -> None:
         text = id_bound_module().replace(
@@ -909,6 +909,27 @@ class MasterInstanceOperatorIdentity(unittest.TestCase):
         )
         problems = self.problems(text)
         self.assertTrue(any("does not read" in p for p in problems), problems)
+
+    def test_empty_for_each_and_grant_by_each_value_fails(self) -> None:
+        """toset([]) reads no id, and user_id = each.value fails only at apply."""
+        text = id_bound_module().replace(
+            'data "keycloak_user_realm_roles" "operator" {\n'
+            '  for_each = var.operators\n'
+            '  realm_id = "master"\n'
+            '  user_id  = each.value\n'
+            '}\n',
+            'data "keycloak_user_realm_roles" "operator" {\n'
+            '  for_each = toset([])\n'
+            '  realm_id = "master"\n'
+            '  user_id  = each.value\n'
+            '}\n',
+        ).replace(
+            '  user_id  = data.keycloak_user_realm_roles.operator[each.key].user_id\n',
+            '  user_id  = each.value\n',
+        )
+        problems = self.problems(text)
+        self.assertTrue(any("for_each = var.operators" in p for p in problems), problems)
+        self.assertTrue(any("user_id = each.value skips the plan-time lookup" in p for p in problems), problems)
 
     def test_username_lookup_mentioned_only_in_a_comment_passes(self) -> None:
         text = id_bound_module().replace(
@@ -949,6 +970,18 @@ class MasterInstanceRoster(unittest.TestCase):
     def test_non_string_roster_fails(self) -> None:
         problems = self.problems(["a1b2c3d4-e5f6-7890-abcd-ef1234567890"])
         self.assertEqual(len(problems), 1, problems)
+        self.assertIn("JSON string", problems[0])
+
+    def test_yaml_flow_sequence_is_not_json(self) -> None:
+        """yaml.safe_load accepted this; TF_VAR decodes operators as JSON."""
+        problems = self.problems("[a1b2c3d4-e5f6-7890-abcd-ef1234567890]")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not JSON", problems[0])
+
+    def test_single_quoted_entries_are_not_json(self) -> None:
+        problems = self.problems("['a1b2c3d4-e5f6-7890-abcd-ef1234567890']")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("not JSON", problems[0])
 
 
 def runtime_config(config_toml: str, *, mounts: list[dict] | None = None, volumes: list[dict] | None = None) -> list[dict]:

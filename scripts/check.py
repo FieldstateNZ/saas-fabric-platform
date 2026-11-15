@@ -59,6 +59,7 @@ Checks, in order of how much damage they prevent:
 """
 from __future__ import annotations
 
+import json
 import posixpath
 import re
 import sys
@@ -2288,37 +2289,43 @@ def master_instance_operator_identity_problems(module_text: str, where: str) -> 
         if kind != "keycloak_user_realm_roles":
             continue
         saw_id_lookup = True
-        if re.search(r"(?m)^\s*user_id\s*=\s*each\.value\s*$", body):
+        reads_roster = re.search(r"(?m)^\s*for_each\s*=\s*var\.operators\s*$", body) is not None
+        reads_id = re.search(r"(?m)^\s*user_id\s*=\s*each\.value\s*$", body) is not None
+        if reads_roster and reads_id:
             id_reads.append(name)
         else:
             problems.append(
                 f"{where}: data.keycloak_user_realm_roles.{name} does not read"
-                " user_id = each.value. The plan-time lookup has to be the roster's"
-                " stable user id"
+                " the roster. It must set for_each = var.operators and"
+                " user_id = each.value. An empty for_each such as toset([])"
+                " reads no id, so a missing operator fails at apply instead of plan"
             )
     if not saw_id_lookup:
         problems.append(
             f"{where}: no data.keycloak_user_realm_roles reads each roster id"
-            " (user_id = each.value). A missing operator id must fail tofu plan"
-            " before anything is written"
+            " (for_each = var.operators, user_id = each.value). A missing"
+            " operator id must fail tofu plan before anything is written"
         )
-    allowed_user_id = re.compile(
-        r"(?m)^\s*user_id\s*=\s*(?:each\.value|data\.keycloak_user_realm_roles\.([A-Za-z_][\w-]*)\[each\.key\]\.user_id)\s*$"
+    # The grant must reference that lookup. user_id = each.value skips it:
+    # OpenTofu then learns the id is missing only when the provider creates
+    # the role mapping, which is apply time.
+    grant_user_id = re.compile(
+        r"(?m)^\s*user_id\s*=\s*data\.keycloak_user_realm_roles\.([A-Za-z_][\w-]*)\[each\.key\]\.user_id\s*$"
     )
     for kind, name, body in _hcl_top_level_blocks(text, "resource"):
         if kind != "keycloak_user_roles":
             continue
-        # The lookup's body is not this resource. A comment was already stripped.
-        match = allowed_user_id.search(_hcl_without_string_literals(body))
+        match = grant_user_id.search(_hcl_without_string_literals(body))
         if match is None:
             problems.append(
-                f"{where}: resource.keycloak_user_roles.{name} user_id is not the"
-                " roster's stable user id. It must be each.value or"
-                " data.keycloak_user_realm_roles.<name>[each.key].user_id"
+                f"{where}: resource.keycloak_user_roles.{name} user_id must"
+                " reference data.keycloak_user_realm_roles.<name>[each.key].user_id."
+                " user_id = each.value skips the plan-time lookup, so a missing"
+                " id fails at apply"
             )
             continue
         source = match.group(1)
-        if source is not None and source not in id_reads:
+        if source not in id_reads:
             problems.append(
                 f"{where}: resource.keycloak_user_roles.{name} takes user_id from"
                 f" data.keycloak_user_realm_roles.{source}, which does not read"
@@ -2332,8 +2339,8 @@ def master_instance_roster_entry_problems(raw: object, where: str) -> list[str]:
     if not isinstance(raw, str):
         return [f"{where}: operators must be a JSON string of Keycloak user ids"]
     try:
-        entries = yaml.safe_load(raw)
-    except yaml.YAMLError as error:
+        entries = json.loads(raw)
+    except json.JSONDecodeError as error:
         return [f"{where}: operators is not JSON: {error}"]
     if not isinstance(entries, list):
         return [f"{where}: operators must be a JSON list of Keycloak user ids"]
