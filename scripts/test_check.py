@@ -840,6 +840,117 @@ class MasterInstanceGrants(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
 
 
+def id_bound_module() -> str:
+    """The master-instance shape with the grant bound to a stable user id."""
+    text = master_instance_module()
+    text = text.replace(
+        'data "keycloak_user" "operator" {\n'
+        '  for_each = var.operators\n'
+        '  realm_id = "master"\n'
+        '  username = each.value\n'
+        '}\n',
+        'data "keycloak_user_realm_roles" "operator" {\n'
+        '  for_each = var.operators\n'
+        '  realm_id = "master"\n'
+        '  user_id  = each.value\n'
+        '}\n',
+    )
+    return text.replace(
+        '  user_id  = data.keycloak_user.operator[each.key].id\n',
+        '  user_id  = data.keycloak_user_realm_roles.operator[each.key].user_id\n',
+    )
+
+
+class MasterInstanceOperatorIdentity(unittest.TestCase):
+    """D01-6 option C / P2-SEC7: master admin follows a user id, not a username.
+    A deleted account re-created under the same name must not be granted."""
+
+    def problems(self, text: str) -> list[str]:
+        return check.master_instance_operator_identity_problems(text, "main.tf")
+
+    def test_id_binding_passes(self) -> None:
+        self.assertEqual(self.problems(id_bound_module()), [])
+
+    def test_the_module_in_this_repository_passes(self) -> None:
+        self.assertEqual(self.problems(MASTER_INSTANCE_MODULE.read_text()), [])
+
+    def test_username_lookup_fails(self) -> None:
+        """Failed before: the module resolved data.keycloak_user by username."""
+        problems = self.problems(master_instance_module())
+        self.assertTrue(any("data.keycloak_user.operator" in p for p in problems), problems)
+
+    def test_grant_following_the_username_lookup_fails(self) -> None:
+        text = id_bound_module().replace(
+            '  user_id  = data.keycloak_user_realm_roles.operator[each.key].user_id\n',
+            '  user_id  = data.keycloak_user.operator[each.key].id\n',
+        )
+        problems = self.problems(text)
+        self.assertTrue(any("user_id is not the" in p for p in problems), problems)
+
+    def test_missing_id_lookup_fails(self) -> None:
+        text = id_bound_module().replace(
+            'data "keycloak_user_realm_roles" "operator" {\n'
+            '  for_each = var.operators\n'
+            '  realm_id = "master"\n'
+            '  user_id  = each.value\n'
+            '}\n',
+            '',
+        ).replace(
+            '  user_id  = data.keycloak_user_realm_roles.operator[each.key].user_id\n',
+            '  user_id  = each.value\n',
+        )
+        problems = self.problems(text)
+        self.assertTrue(any("no data.keycloak_user_realm_roles" in p for p in problems), problems)
+
+    def test_id_lookup_that_does_not_read_the_roster_fails(self) -> None:
+        text = id_bound_module().replace(
+            '  user_id  = each.value\n',
+            '  user_id  = var.bootstrap_admin_username\n',
+        )
+        problems = self.problems(text)
+        self.assertTrue(any("does not read" in p for p in problems), problems)
+
+    def test_username_lookup_mentioned_only_in_a_comment_passes(self) -> None:
+        text = id_bound_module().replace(
+            'data "keycloak_user_realm_roles" "operator" {\n',
+            '# was data.keycloak_user.operator, username = each.value\n'
+            'data "keycloak_user_realm_roles" "operator" {\n',
+        )
+        self.assertEqual(self.problems(text), [])
+
+
+class MasterInstanceRoster(unittest.TestCase):
+    """The overlay feeds user ids. The username admin is not an entry."""
+
+    def problems(self, raw: object) -> list[str]:
+        return check.master_instance_roster_entry_problems(raw, "master-instance-config.yaml")
+
+    def test_empty_roster_passes(self) -> None:
+        self.assertEqual(self.problems("[]"), [])
+
+    def test_user_id_passes(self) -> None:
+        self.assertEqual(self.problems('["a1b2c3d4-e5f6-7890-abcd-ef1234567890"]'), [])
+
+    def test_the_lucentroot_roster_passes(self) -> None:
+        path = REPOSITORY / "applications/core/master-instance/overlays/lucentroot/master-instance-config.yaml"
+        document = yaml.safe_load(path.read_text())
+        self.assertEqual(self.problems(document["data"]["operators"]), [])
+
+    def test_username_admin_fails(self) -> None:
+        """The binding PR #45 proposed. A re-created admin would inherit the grant."""
+        problems = self.problems('["admin"]')
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("admin", problems[0])
+
+    def test_email_username_fails(self) -> None:
+        problems = self.problems('["brett@fieldstate.nz"]')
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_non_string_roster_fails(self) -> None:
+        problems = self.problems(["a1b2c3d4-e5f6-7890-abcd-ef1234567890"])
+        self.assertEqual(len(problems), 1, problems)
+
+
 def runtime_config(config_toml: str, *, mounts: list[dict] | None = None, volumes: list[dict] | None = None) -> list[dict]:
     """A ConfigMap and the Deployment that mounts it, shaped like saas-fabric's."""
     state = [

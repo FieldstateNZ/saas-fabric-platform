@@ -21,10 +21,19 @@ variable "gateway_secret" {
 variable "operators" {
   type        = set(string)
   description = <<-EOT
-    Keycloak usernames of the people who administer this environment, granted
-    fabric-operator and master-realm admin. keycloak_user resolves by username
-    only -- see main.tf's comment on data.keycloak_user.operator.
+    Stable Keycloak user ids of the people who administer this environment,
+    granted fabric-operator and master-realm admin. Each entry is the user's
+    id, never a username. D01-6 option C feeds in the id of the built-in
+    administrator Keycloak created at first start; this module does not create
+    that account. See main.tf's comment on data.keycloak_user_realm_roles.operator.
   EOT
+
+  validation {
+    condition = alltrue([
+      for id in var.operators : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))
+    ])
+    error_message = "operators must be Keycloak user ids (UUIDs). Pass the built-in administrator's id. A reused username is a new account and is not granted master-realm admin."
+  }
 }
 
 variable "adopt_existing" {

@@ -54,9 +54,9 @@ echo "${addresses:-  (nothing)}"
 # The plan is its own step, ahead of the apply, so a failure here can be
 # reported as what it is: nothing was written to the master realm. Every
 # lookup in main.tf is read at plan time (scripts/check.py holds them to
-# that), so an operator username the realm does not hold fails here, not
-# partway through the apply. Exit 0 is a re-run against state that already
-# matches main.tf: nothing is applied, and this plan is itself the proof.
+# that), so an operator id the realm does not hold fails here, not partway
+# through the apply. Exit 0 is a re-run against state that already matches
+# main.tf: nothing is applied, and this plan is itself the proof.
 #
 # The plan is saved and the apply executes exactly it: what was checked is
 # what is written, and if another run changed the state in between, OpenTofu
@@ -76,15 +76,14 @@ case "$planned" in
   2) ;;
   *)
     echo "master-instance: plan failed; nothing was applied to the master realm." >&2
-    echo "  'user with username ... not found': a name in master-instance-config's 'operators'" >&2
-    echo "  is not a user in the master realm. This module grants roles to existing accounts" >&2
-    echo "  and creates none (README, 'Who the operators are')." >&2
+    echo "  '404' on users/<id>/role-mappings: an id in master-instance-config's 'operators'" >&2
+    echo "  is not a user in the master realm. Roster entries are Keycloak user ids. This module" >&2
+    echo "  grants roles to those ids and creates no accounts (README, 'Who the operators are')." >&2
     echo "  'Resource instance cannot be destroyed' on keycloak_user_roles.operator: the plan would" >&2
-    echo "  revoke an operator's fabric-operator and admin roles -- a name was removed or renamed" >&2
-    echo "  in 'operators', or a different existing account now holds a declared username." >&2
-    echo "  Refused; restore it, or follow README, 'Who the operators are', to retire it." >&2
-    echo "  (An account deleted and re-created under the same name is not refused: its new" >&2
-    echo "  account is granted. README, 'Who the operators are'.)" >&2
+    echo "  revoke an operator's fabric-operator and admin roles -- an id was removed or replaced" >&2
+    echo "  in 'operators'. Refused; restore it, or follow README, 'Who the operators are', to retire it." >&2
+    echo "  An account deleted and re-created under the same username has a new id. The roster still" >&2
+    echo "  names the old id, so the new account is not granted (README, 'Who the operators are')." >&2
     echo "  '401' or 'invalid_grant': the mirrored keycloak-admin credential is not the one" >&2
     echo "  Keycloak holds (docs/master-instance-convergence.md, cause 9)." >&2
     echo "  A state lock in the error: README, 'A Job replaced mid-run'." >&2

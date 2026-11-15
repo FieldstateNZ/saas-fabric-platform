@@ -29,8 +29,9 @@ Checks, in order of how much damage they prevent:
      creating a client in Keycloak and writing its secret into OpenBao
      (ADR 0025, application repository) -- and every lookup that convergence
      makes is read at plan time, so a missing operator account fails it
-     before anything is written rather than after, and no roster edit can
-     plan a revocation of an operator's grants;
+     before anything is written rather than after, no roster edit can
+     plan a revocation of an operator's grants, and those grants bind to a
+     stable Keycloak user id rather than a username;
  14. every in-cluster service reference resolves to something this repository
      actually deploys;
  15. the telemetry pipelines only reference components that exist;
@@ -2048,6 +2049,13 @@ def check_master_realm_bootstraps_itself(render: Path, problems: list[str]) -> N
 
 MASTER_INSTANCE_MODULE = Path("applications/core/master-instance/base/module/main.tf")
 
+# Keycloak's own user id. A username such as "admin" must not match: after the
+# account is deleted, a new account with that name is a different id and must
+# not inherit master-realm admin (D01-6 option C, P2-SEC7).
+_OPERATOR_USER_ID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
 # A managed-resource reference: `<provider>_<type>.<name>`, not preceded by
 # `data.` (that is a lookup, not a resource) or by any other identifier
 # character. Every managed resource type carries its provider's prefix and an
@@ -2252,9 +2260,120 @@ def master_instance_grant_problems(module_text: str, where: str) -> list[str]:
     return problems
 
 
+def master_instance_operator_identity_problems(module_text: str, where: str) -> list[str]:
+    """Why a re-created account could inherit master-realm admin.
+
+    Provider 5.9.0's ``data.keycloak_user`` resolves a username to whatever id
+    currently holds it. After a delete and re-create, refresh of the old grant
+    404s and drops it from state, and a plan that followed the username then
+    creates ``fabric-operator`` and master-realm ``admin`` for the new id.
+    ``prevent_destroy`` never sees a destroy. The grant has to name the user
+    id itself, and a lookup has to read that id during plan so a missing id
+    fails before apply.
+    """
+    problems: list[str] = []
+    text = _hcl_without_comments(module_text)
+    data_blocks = _hcl_top_level_blocks(text, "data")
+    for kind, name, _body in data_blocks:
+        if kind == "keycloak_user":
+            problems.append(
+                f"{where}: data.keycloak_user.{name} resolves a username to an id."
+                " A deleted account re-created under that username would be granted"
+                " fabric-operator and master-realm admin. Bind the grant to the"
+                " stable user id (D01-6 option C)"
+            )
+    id_reads: list[str] = []
+    saw_id_lookup = False
+    for kind, name, body in data_blocks:
+        if kind != "keycloak_user_realm_roles":
+            continue
+        saw_id_lookup = True
+        if re.search(r"(?m)^\s*user_id\s*=\s*each\.value\s*$", body):
+            id_reads.append(name)
+        else:
+            problems.append(
+                f"{where}: data.keycloak_user_realm_roles.{name} does not read"
+                " user_id = each.value. The plan-time lookup has to be the roster's"
+                " stable user id"
+            )
+    if not saw_id_lookup:
+        problems.append(
+            f"{where}: no data.keycloak_user_realm_roles reads each roster id"
+            " (user_id = each.value). A missing operator id must fail tofu plan"
+            " before anything is written"
+        )
+    allowed_user_id = re.compile(
+        r"(?m)^\s*user_id\s*=\s*(?:each\.value|data\.keycloak_user_realm_roles\.([A-Za-z_][\w-]*)\[each\.key\]\.user_id)\s*$"
+    )
+    for kind, name, body in _hcl_top_level_blocks(text, "resource"):
+        if kind != "keycloak_user_roles":
+            continue
+        # The lookup's body is not this resource. A comment was already stripped.
+        match = allowed_user_id.search(_hcl_without_string_literals(body))
+        if match is None:
+            problems.append(
+                f"{where}: resource.keycloak_user_roles.{name} user_id is not the"
+                " roster's stable user id. It must be each.value or"
+                " data.keycloak_user_realm_roles.<name>[each.key].user_id"
+            )
+            continue
+        source = match.group(1)
+        if source is not None and source not in id_reads:
+            problems.append(
+                f"{where}: resource.keycloak_user_roles.{name} takes user_id from"
+                f" data.keycloak_user_realm_roles.{source}, which does not read"
+                " the roster id"
+            )
+    return problems
+
+
+def master_instance_roster_entry_problems(raw: object, where: str) -> list[str]:
+    """Roster entries are Keycloak user ids. Usernames are rejected."""
+    if not isinstance(raw, str):
+        return [f"{where}: operators must be a JSON string of Keycloak user ids"]
+    try:
+        entries = yaml.safe_load(raw)
+    except yaml.YAMLError as error:
+        return [f"{where}: operators is not JSON: {error}"]
+    if not isinstance(entries, list):
+        return [f"{where}: operators must be a JSON list of Keycloak user ids"]
+    problems: list[str] = []
+    for entry in entries:
+        if isinstance(entry, str) and _OPERATOR_USER_ID.fullmatch(entry):
+            continue
+        problems.append(
+            f"{where}: operator roster entry {entry!r} is not a Keycloak user id."
+            " The grant binds to that id, so a username is rejected: an account"
+            " deleted and re-created under the same name must not inherit"
+            " master-realm admin"
+        )
+    return problems
+
+
+def master_instance_roster_problems(root: Path) -> list[str]:
+    problems: list[str] = []
+    base = root / "applications" / "core" / "master-instance"
+    if not base.is_dir():
+        return problems
+    for path in sorted(base.rglob("master-instance-config.yaml")):
+        where = str(path.relative_to(root))
+        try:
+            document = yaml.safe_load(path.read_text()) or {}
+        except yaml.YAMLError as error:
+            problems.append(f"{where}: invalid YAML: {error}")
+            continue
+        if not isinstance(document, dict):
+            problems.append(f"{where}: operators must be a JSON string of Keycloak user ids")
+            continue
+        raw = (document.get("data") or {}).get("operators") if isinstance(document.get("data"), dict) else None
+        problems.extend(master_instance_roster_entry_problems(raw, where))
+    return problems
+
+
 def check_master_instance_lookups_precede_apply(root: Path, problems: list[str]) -> None:
     """Section 13, the convergence's own failure modes: a lookup fails the
-    plan rather than the apply, and a roster edit never revokes a grant."""
+    plan rather than the apply, a roster edit never revokes a grant, and a
+    grant binds to a stable user id rather than a username."""
     module = root / MASTER_INSTANCE_MODULE
     if not module.is_file():
         fail(problems, f"{MASTER_INSTANCE_MODULE}: missing -- the master-instance convergence has no module")
@@ -2263,6 +2382,10 @@ def check_master_instance_lookups_precede_apply(root: Path, problems: list[str])
     for problem in master_instance_lookup_problems(text, str(MASTER_INSTANCE_MODULE)):
         fail(problems, problem)
     for problem in master_instance_grant_problems(text, str(MASTER_INSTANCE_MODULE)):
+        fail(problems, problem)
+    for problem in master_instance_operator_identity_problems(text, str(MASTER_INSTANCE_MODULE)):
+        fail(problems, problem)
+    for problem in master_instance_roster_problems(root):
         fail(problems, problem)
 
 
