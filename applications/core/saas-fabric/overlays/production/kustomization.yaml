@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - ../../base
+  - https-redirect.yaml
 
 # Pinned to the same tag LucentRoot runs. What holds this at zero is the base's
 # replica count, and the reason is no longer the image — see ../../README.md.
@@ -11,14 +12,20 @@ images:
     newTag: 0.1.0
 
 patches:
-  # TLS terminates at the Gateway's https listener, so both runtime routes
-  # (the Data API and the probes) select that listener.
+  # Both runtime routes keep sectionName `fabric` from the base. Only the
+  # hostname is production's. The redirect route is not in this target: it
+  # stays on `fabric-http`.
   - target:
       kind: HTTPRoute
+      name: saas-fabric
     patch: |-
       - op: replace
         path: /spec/hostnames/0
         value: fabric.fieldstate.nz
+  - target:
+      kind: HTTPRoute
+      name: saas-fabric-probes
+    patch: |-
       - op: replace
-        path: /spec/parentRefs/0/sectionName
-        value: https
+        path: /spec/hostnames/0
+        value: fabric.fieldstate.nz

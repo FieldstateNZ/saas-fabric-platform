@@ -1,0 +1,42 @@
+{
+  "definitions": {
+    "io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta": {
+      "properties": {
+        "name": {"type": "string"},
+        "namespace": {"type": "string"}
+      },
+      "type": "object"
+    },
+    "v1.Gateway": {
+      "x-kubernetes-group-version-kind": [
+        {
+          "group": "gateway.networking.k8s.io",
+          "kind": "Gateway",
+          "version": "v1"
+        }
+      ],
+      "properties": {
+        "apiVersion": {"type": "string"},
+        "kind": {"type": "string"},
+        "metadata": {
+          "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta"
+        },
+        "spec": {
+          "properties": {
+            "listeners": {
+              "type": "array",
+              "x-kubernetes-patch-merge-key": "name",
+              "x-kubernetes-patch-strategy": "merge",
+              "items": {
+                "type": "object",
+                "x-kubernetes-preserve-unknown-fields": true
+              }
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  }
+}

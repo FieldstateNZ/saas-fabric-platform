@@ -180,6 +180,9 @@ application's ADR 0024 slice 5; until that is decided, no client-instance
 ## TLS
 
 TLS terminates at the platform `Gateway`, not here. The production overlay's
-route selects the Gateway's `https` listener by `sectionName`; the certificate
-is a single `platform-tls` secret on that listener. See
-[`../platform-gateway`](../platform-gateway/).
+Data API and probe routes select the Gateway's `fabric` listener by
+`sectionName`. That listener is HTTPS on 443 for `fabric.fieldstate.nz` and terminates TLS
+with `fabric-tls`, a certificate for that hostname only. It is not issued
+in this repository.
+Port 80 for the same hostname is `fabric-http`, and the only route on it
+redirects to HTTPS. See [`../platform-gateway`](../platform-gateway/).

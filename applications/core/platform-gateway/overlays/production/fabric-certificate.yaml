@@ -1,0 +1,20 @@
+# Certificate for the fabric listener only. It is a different Secret from
+# platform-tls so a client cannot reuse one connection for fabric.fieldstate.nz
+# and another hostname on the shared product listener. Envoy Gateway 1.9 does
+# not answer that reuse with 421.
+#
+# This manifest does not issue anything. cert-manager is not installed by this
+# repository, and ClusterIssuer platform-ca is not created here. Both are
+# deploy-time work. No DNS name is registered and no secret value is stored.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: fabric-tls
+  namespace: platform-system
+spec:
+  secretName: fabric-tls
+  dnsNames:
+    - fabric.fieldstate.nz
+  issuerRef:
+    kind: ClusterIssuer
+    name: platform-ca

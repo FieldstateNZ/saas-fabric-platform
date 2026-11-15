@@ -61,7 +61,17 @@ Checks, in order of how much damage they prevent:
      `exp` on every route that forwards to the runtime, and a NetworkPolicy
      that selects that Deployment's own labels and admits ingress only from
      the platform Gateway's Envoy proxy -- at zero replicas the check does
-     not fire.
+     not fire;
+ 24. only the Data API route and the probe route may attach to the fabric
+     listener or name its hostname, every fabric-hostname listener selects
+     `kubernetes.io/metadata.name: platform-system` and kind HTTPRoute, those
+     two routes name sectionName `fabric`, and production's port 80 listener
+     for that hostname only redirects to HTTPS. The listener admits every
+     HTTPRoute in `platform-system`, so any other route there would see the
+     bearer;
+ 25. every Envoy Lua `envoy_on_request` runs its body in `pcall` and answers
+     401 when that call fails, so a script error is not forwarded. `lua_fault`
+     stays false in Git.
 """
 from __future__ import annotations
 
@@ -849,6 +859,285 @@ def check_routes_attach(render: Path, problems: list[str]) -> None:
                         f"{where} is in namespace {namespace}, which no Application"
                         f" labels {' or '.join(needed)}; the route cannot attach",
                     )
+
+
+# The Data API route and the probe route. The fabric listener admits every
+# HTTPRoute in platform-system, so the name is what keeps a second route off
+# the bearer. Hosts the overlays set today are the floor; a fabric listener
+# or either of these two routes may declare another, and that hostname is
+# refused on every other HTTPRoute as well.
+FABRIC_LISTENER = "fabric"
+FABRIC_ROUTES = frozenset({
+    ("platform-system", "saas-fabric"),
+    ("platform-system", "saas-fabric-probes"),
+})
+FABRIC_HOSTS = frozenset({"fabric.lucentroot.internal", "fabric.fieldstate.nz"})
+
+
+def _fabric_picture(render: Path, environment: str, problems: list[str]) -> tuple[list[dict], list[tuple[Path, dict]], set[str]]:
+    """Listeners, HTTPRoutes, and the fabric hostnames this environment declares."""
+    listeners: list[dict] = []
+    routes: list[tuple[Path, dict]] = []
+    for path in sorted((render / environment).rglob("*.yaml")):
+        for document in load_all(path, problems):
+            kind = document.get("kind")
+            if kind == "Gateway":
+                listeners.extend((document.get("spec") or {}).get("listeners") or [])
+            elif kind == "HTTPRoute":
+                routes.append((path, document))
+    hosts = set(FABRIC_HOSTS)
+    for listener in listeners:
+        if listener.get("name") == FABRIC_LISTENER and listener.get("hostname"):
+            hosts.add(listener["hostname"])
+    for _, route in routes:
+        metadata = route.get("metadata") or {}
+        if (metadata.get("namespace"), metadata.get("name")) not in FABRIC_ROUTES:
+            continue
+        for hostname in (route.get("spec") or {}).get("hostnames") or []:
+            if hostname:
+                hosts.add(hostname)
+    return listeners, routes, hosts
+
+
+def _route_sections(route: dict) -> set[str]:
+    return {
+        parent.get("sectionName")
+        for parent in (route.get("spec") or {}).get("parentRefs") or []
+        if parent.get("sectionName")
+    }
+
+
+def _https_redirect_only(route: dict) -> bool:
+    """Every rule redirects to https and none of them has a backend."""
+    rules = (route.get("spec") or {}).get("rules") or []
+    if not rules:
+        return False
+    for rule in rules:
+        if rule.get("backendRefs"):
+            return False
+        redirects = [
+            item for item in rule.get("filters") or []
+            if item.get("type") == "RequestRedirect"
+            and str((item.get("requestRedirect") or {}).get("scheme") or "").lower() == "https"
+        ]
+        if len(redirects) != 1:
+            return False
+    return True
+
+
+def _redirect_listener_names(listeners: list[dict], hosts: set[str]) -> set[str]:
+    """HTTP :80 listeners for a fabric hostname, other than the serving `fabric` listener."""
+    names = set()
+    for listener in listeners:
+        if listener.get("name") == FABRIC_LISTENER:
+            continue
+        if listener.get("protocol") != "HTTP" or listener.get("port") != 80:
+            continue
+        if listener.get("hostname") in hosts:
+            names.add(listener.get("name"))
+    return names
+
+
+def check_fabric_host_is_only_the_runtime_routes(render: Path, problems: list[str]) -> None:
+    """Only the Data API route and the probe route may use the fabric host.
+
+    `allowedRoutes` on the fabric listener selects the whole platform-system
+    namespace. A second HTTPRoute there, or one that names the fabric
+    hostname from another listener, is attached to the edge that forwards
+    the bearer. The hostnames are the ones the overlays set on the fabric
+    listener and on these two routes, plus the hosts those overlays use today.
+
+    Production's plaintext listener is the exception that does not forward:
+    one HTTPRoute may name the fabric hostname when every rule redirects to
+    https and it attaches only to that port 80 listener.
+    """
+    for environment in ENVIRONMENTS:
+        listeners, routes, hosts = _fabric_picture(render, environment, problems)
+        redirect_names = _redirect_listener_names(listeners, hosts)
+
+        def allowed(route: dict) -> bool:
+            metadata = route.get("metadata") or {}
+            if (metadata.get("namespace"), metadata.get("name")) in FABRIC_ROUTES:
+                return True
+            sections = _route_sections(route)
+            return bool(sections) and sections <= redirect_names and _https_redirect_only(route)
+
+        for path, route in routes:
+            if allowed(route):
+                continue
+            metadata = route.get("metadata") or {}
+            name = metadata.get("name")
+            spec = route.get("spec") or {}
+            where = f"{environment}/{path.name}: HTTPRoute/{name}"
+            if FABRIC_LISTENER in _route_sections(route):
+                fail(
+                    problems,
+                    f"{where} attaches to listener '{FABRIC_LISTENER}'; only"
+                    " saas-fabric and saas-fabric-probes may",
+                )
+            overlap = sorted(set(spec.get("hostnames") or []) & hosts)
+            if overlap:
+                fail(
+                    problems,
+                    f"{where} names fabric hostname {overlap[0]}; only"
+                    " saas-fabric and saas-fabric-probes may",
+                )
+
+
+def _fabric_admission(listener: dict) -> str | None:
+    """Why this listener does not admit only HTTPRoute from platform-system."""
+    allowed = listener.get("allowedRoutes") or {}
+    namespaces = allowed.get("namespaces") or {}
+    if namespaces.get("from") != "Selector":
+        return "allowedRoutes.namespaces.from is not Selector"
+    labels = ((namespaces.get("selector") or {}).get("matchLabels") or {})
+    if labels.get("kubernetes.io/metadata.name") != "platform-system":
+        return "selector is not kubernetes.io/metadata.name: platform-system"
+    kinds = allowed.get("kinds") or []
+    described = sorted(
+        (
+            item.get("group") or "gateway.networking.k8s.io",
+            item.get("kind"),
+        )
+        for item in kinds
+        if isinstance(item, dict)
+    )
+    if described != [("gateway.networking.k8s.io", "HTTPRoute")]:
+        return f"allowedRoutes.kinds is {described or 'unset'}, want HTTPRoute"
+    return None
+
+
+def check_fabric_listeners_admit_only_platform_system(render: Path, problems: list[str]) -> None:
+    """The fabric listener's selector, its kinds, and the routes' sectionName.
+
+    `kubernetes.io/metadata.name: platform-system` is what stops every other
+    namespace. `kinds: HTTPRoute` is what stops a different route kind in
+    that namespace. The Data API route and the probe route name sectionName
+    `fabric`, so they cannot fall through onto the hostname-less listener.
+    """
+    for environment in ENVIRONMENTS:
+        listeners, routes, hosts = _fabric_picture(render, environment, problems)
+        serving = [listener for listener in listeners if listener.get("name") == FABRIC_LISTENER]
+        if len(serving) != 1:
+            fail(
+                problems,
+                f"{environment}: expected one Gateway listener named '{FABRIC_LISTENER}',"
+                f" found {len(serving)}",
+            )
+        guarded = list(serving)
+        guarded.extend(
+            listener for listener in listeners
+            if listener.get("name") in _redirect_listener_names(listeners, hosts)
+        )
+        for listener in guarded:
+            reason = _fabric_admission(listener)
+            if reason:
+                fail(
+                    problems,
+                    f"{environment}: listener '{listener.get('name')}' {reason}",
+                )
+        # A hostname-less product listener owns every host on its port that a
+        # more specific listener does not. Each such port needs the fabric host.
+        for listener in listeners:
+            if listener.get("hostname"):
+                continue
+            if listener.get("protocol") not in ("HTTP", "HTTPS"):
+                continue
+            labels = (
+                ((listener.get("allowedRoutes") or {}).get("namespaces") or {})
+                .get("selector", {})
+                .get("matchLabels")
+                or {}
+            )
+            if labels.get("fieldstate.nz/gateway-access") != "true":
+                continue
+            protocol, port = listener.get("protocol"), listener.get("port")
+            covered = [
+                other for other in listeners
+                if other.get("protocol") == protocol
+                and other.get("port") == port
+                and other.get("hostname") in hosts
+            ]
+            if not covered:
+                fail(
+                    problems,
+                    f"{environment}: {protocol} listener '{listener.get('name')}' on port {port}"
+                    " has no hostname, and no listener on that port carries the fabric hostname",
+                )
+        for path, route in routes:
+            metadata = route.get("metadata") or {}
+            if (metadata.get("namespace"), metadata.get("name")) not in FABRIC_ROUTES:
+                continue
+            sections = _route_sections(route)
+            if sections != {FABRIC_LISTENER}:
+                fail(
+                    problems,
+                    f"{environment}/{path.name}: HTTPRoute/{metadata.get('name')}"
+                    f" sectionName is {sorted(sections) or 'unset'}, want '{FABRIC_LISTENER}'",
+                )
+
+
+def check_production_fabric_plaintext_redirects(render: Path, problems: list[str]) -> None:
+    """Production's port 80 fabric hostname only redirects to HTTPS.
+
+    The hostname-less `http` listener would otherwise accept a route for
+    `fabric.fieldstate.nz` over plaintext. A second listener on port 80 with
+    that hostname is more specific, and the only route on it must redirect.
+    """
+    environment = "production"
+    directory = render / environment
+    if not directory.is_dir():
+        return
+    listeners, routes, hosts = _fabric_picture(render, environment, problems)
+    serving = next((listener for listener in listeners if listener.get("name") == FABRIC_LISTENER), None)
+    hostname = (serving or {}).get("hostname")
+    if serving is None or not hostname:
+        fail(problems, "production: fabric listener has no hostname to mirror on port 80")
+        return
+    if serving.get("protocol") != "HTTPS" or serving.get("port") != 443:
+        fail(
+            problems,
+            "production: listener 'fabric' must terminate HTTPS on 443;"
+            f" it is {serving.get('protocol')} {serving.get('port')}",
+        )
+    plaintext = [
+        listener for listener in listeners
+        if listener.get("protocol") == "HTTP"
+        and listener.get("port") == 80
+        and listener.get("hostname") == hostname
+    ]
+    if len(plaintext) != 1:
+        fail(
+            problems,
+            f"production: expected one HTTP listener on port 80 for {hostname},"
+            f" found {len(plaintext)}",
+        )
+        return
+    name = plaintext[0].get("name")
+    reason = _fabric_admission(plaintext[0])
+    if reason:
+        fail(problems, f"production: listener '{name}' {reason}")
+    attached = []
+    for path, route in routes:
+        if name in _route_sections(route):
+            attached.append((path, route))
+    redirects = [route for _, route in attached if _https_redirect_only(route)]
+    if len(redirects) != 1:
+        fail(
+            problems,
+            f"production: listener '{name}' needs exactly one HTTPS redirect"
+            f" and no other route, found {len(attached)} route(s) of which"
+            f" {len(redirects)} redirect",
+        )
+    for path, route in attached:
+        if _https_redirect_only(route):
+            continue
+        metadata = route.get("metadata") or {}
+        fail(
+            problems,
+            f"production/{path.name}: HTTPRoute/{metadata.get('name')} attaches"
+            f" to '{name}', which must only redirect to HTTPS",
+        )
 
 
 def check_control_plane_is_operator_only(render: Path, problems: list[str]) -> None:
@@ -3814,6 +4103,149 @@ def _lua_targets(policies: list[dict], route: dict, marker: str) -> bool:
     return any(marker in _lua_text(policy) and _policy_targets(policy, route) for policy in policies)
 
 
+def check_lua_handlers_fail_closed(render: Path, problems: list[str]) -> None:
+    """A Lua error must not be forwarded.
+
+    Envoy continues the request when a handler errors. Each `envoy_on_request`
+    has to run its body in pcall and answer 401 from that failure. `lua_fault`
+    is the kind test's hook and stays false in Git.
+    """
+    for environment in ENVIRONMENTS:
+        directory = render / environment
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "EnvoyExtensionPolicy":
+                    continue
+                name = (document.get("metadata") or {}).get("name")
+                for index, entry in enumerate((document.get("spec") or {}).get("lua") or []):
+                    if not isinstance(entry, dict) or not isinstance(entry.get("inline"), str):
+                        continue
+                    code = "\n".join(line.split("--", 1)[0] for line in entry["inline"].splitlines())
+                    if "function envoy_on_request" not in code:
+                        continue
+                    where = f"{environment}/{path.name}: EnvoyExtensionPolicy/{name} lua[{index}]"
+                    if "pcall(function()" not in code:
+                        fail(
+                            problems,
+                            f"{where} envoy_on_request is not inside pcall;"
+                            " a Lua error would be forwarded",
+                        )
+                    if '":status"] = "401"' not in code:
+                        fail(problems, f"{where} does not answer 401 when Lua errors")
+                    if "lua_fault" in code and "local lua_fault = false" not in code:
+                        fail(problems, f"{where} enables lua_fault; that hook stays off in Git")
+
+
+# Names that would put fabric.fieldstate.nz on the shared product certificate.
+# A single-label wildcard is what a certificate SAN uses, so *.fieldstate.nz
+# covers the fabric host and an exact SAN does too.
+PLATFORM_TLS_SECRET = "platform-tls"
+FABRIC_CERT_NAMES = frozenset({"fabric.fieldstate.nz", "*.fieldstate.nz"})
+
+
+def _certificate_names(spec: dict) -> list[str]:
+    names = []
+    common = spec.get("commonName")
+    if isinstance(common, str):
+        names.append(common)
+    for item in spec.get("dnsNames") or []:
+        if isinstance(item, str):
+            names.append(item)
+    return names
+
+
+def check_platform_tls_does_not_cover_fabric(render: Path, problems: list[str]) -> None:
+    """platform-tls must not be issued for the fabric hostname.
+
+    The fabric listener has its own certificate. A SAN of fabric.fieldstate.nz
+    or *.fieldstate.nz on the shared secret would let a client coalesce those
+    names again.
+    """
+    for environment in ENVIRONMENTS:
+        directory = render / environment
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "Certificate":
+                    continue
+                spec = document.get("spec") or {}
+                if spec.get("secretName") != PLATFORM_TLS_SECRET:
+                    continue
+                covered = [
+                    name for name in _certificate_names(spec)
+                    if name.lower().rstrip(".") in FABRIC_CERT_NAMES
+                ]
+                if covered:
+                    metadata = document.get("metadata") or {}
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: Certificate/{metadata.get('name')}"
+                        f" writes {PLATFORM_TLS_SECRET} with {covered[0]}, which covers"
+                        " fabric.fieldstate.nz",
+                    )
+                # The fabric listener's certificate must not be the secret any
+                # other port-443 listener terminates. A shared name is how a
+                # client would coalesce the two hosts.
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "Gateway":
+                    continue
+                listeners = (document.get("spec") or {}).get("listeners") or []
+                fabric_certs: set[str] = set()
+                other_certs: set[str] = set()
+                for listener in listeners:
+                    if listener.get("port") != 443:
+                        continue
+                    names = {
+                        ref.get("name")
+                        for ref in (listener.get("tls") or {}).get("certificateRefs") or []
+                        if isinstance(ref, dict) and ref.get("name")
+                    }
+                    hostname = str(listener.get("hostname") or "").lower().rstrip(".")
+                    if listener.get("name") == FABRIC_LISTENER or hostname in FABRIC_CERT_NAMES:
+                        fabric_certs |= names
+                    else:
+                        other_certs |= names
+                shared = sorted(fabric_certs & other_certs)
+                if shared:
+                    metadata = document.get("metadata") or {}
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: Gateway/{metadata.get('name')}"
+                        f" uses {shared[0]} on the fabric listener and on another"
+                        " port-443 listener",
+                    )
+
+
+def check_downstream_http2_stays_off(render: Path, problems: list[str]) -> None:
+    """Do not enable downstream HTTP/2 on the platform Gateway.
+
+    Envoy Gateway 1.9 does not return 421 when one connection is reused for
+    another host. With HTTP/2 on, that connection would be accepted by the
+    hostname-less `https` listener, where a foreign catch-all could see the
+    bearer. HTTP/2 stays off until that is closed.
+    """
+    for environment in ENVIRONMENTS:
+        directory = render / environment
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "ClientTrafficPolicy":
+                    continue
+                if not (document.get("spec") or {}).get("http2"):
+                    continue
+                metadata = document.get("metadata") or {}
+                fail(
+                    problems,
+                    f"{environment}/{path.name}: ClientTrafficPolicy/{metadata.get('name')}"
+                    " sets http2; downstream HTTP/2 stays off on this Gateway",
+                )
+
+
 def _gateway_network_policy(documents: list[dict], namespace: str, deployment: dict) -> bool:
     """The runtime's own labels, and ingress only from the platform Gateway proxy.
 
@@ -3989,6 +4421,9 @@ def main() -> int:
     check_runtime_config_document_paths(render, problems)
     check_runtime_document_contract(render, problems)
     check_data_api_edge_when_scaled(render, problems)
+    check_lua_handlers_fail_closed(render, problems)
+    check_platform_tls_does_not_cover_fabric(render, problems)
+    check_downstream_http2_stays_off(render, problems)
     check_applications_match_their_project(render, problems)
     check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)
@@ -3996,6 +4431,9 @@ def main() -> int:
     check_exposure_planes(render, problems)
     check_admin_off_the_product_plane(render, problems)
     check_routes_attach(render, problems)
+    check_fabric_host_is_only_the_runtime_routes(render, problems)
+    check_fabric_listeners_admit_only_platform_system(render, problems)
+    check_production_fabric_plaintext_redirects(render, problems)
     check_control_plane_is_operator_only(render, problems)
     check_forwarded_proto_is_asserted_once(render, problems)
     check_argocd_runtime_configuration(render, problems)

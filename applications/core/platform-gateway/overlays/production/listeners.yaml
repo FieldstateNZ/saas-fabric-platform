@@ -1,0 +1,50 @@
+# Listeners merged by name. `fabric` is the base listener: production moves
+# it to HTTPS on 443 and leaves its allowedRoutes in place. `fabric-http` is
+# the same hostname on port 80, so a gateway-access namespace cannot claim
+# that host on the hostname-less `http` listener. Its only route redirects.
+# `https` stays the catch-all for every other product hostname.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: platform
+spec:
+  listeners:
+    - name: fabric
+      protocol: HTTPS
+      port: 443
+      hostname: fabric.fieldstate.nz
+      tls:
+        mode: Terminate
+        certificateRefs:
+          # Not platform-tls. A shared certificate would let a client reuse one
+          # connection for this host and another. Envoy Gateway 1.9 does not
+          # answer that reuse with 421. Issuance of this secret is deploy-time.
+          - kind: Secret
+            name: fabric-tls
+    - name: fabric-http
+      protocol: HTTP
+      port: 80
+      hostname: fabric.fieldstate.nz
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-system
+        kinds:
+          - kind: HTTPRoute
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          # Injected externally; see ../../README.md.
+          - kind: Secret
+            name: platform-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              fieldstate.nz/gateway-access: "true"

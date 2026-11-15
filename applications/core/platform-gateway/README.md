@@ -71,12 +71,29 @@ and ADR 0019's D01-5 amendment in the application repository.
 
 | Environment | Listeners |
 |---|---|
-| LucentRoot | `http` on 80 |
-| Production | `http` on 80, `https` on 443 with TLS termination |
+| LucentRoot | `http` on 80 (no hostname); `fabric` on 80 for `fabric.lucentroot.internal` |
+| Production | `http` on 80 (no hostname); `fabric-http` on 80 for `fabric.fieldstate.nz`, redirect to HTTPS only; `https` on 443 (no hostname); `fabric` on 443 for `fabric.fieldstate.nz` |
+
+`http` and `https` are the product edge for every hostname except the fabric
+host. A listener that sets the fabric hostname is more specific than those,
+on that port only. Production therefore has `fabric-http` on port 80 as well
+as `fabric` on 443. Without `fabric-http`, the hostname-less `http` listener
+would still accept a route for `fabric.fieldstate.nz` over plaintext.
+`fabric-http` admits routes only from `platform-system`, and its only route
+redirects to HTTPS. It does not forward the bearer. `fabric` is the listener
+the Data API and probe routes attach to.
+
+Every fabric-hostname listener selects
+`kubernetes.io/metadata.name: platform-system` and kind `HTTPRoute`. A
+namespace that holds `gateway-access` can still attach to `http` or `https`
+for any other host. Anyone who can create HTTPRoutes in `platform-system`
+can still attach to the fabric listener. The exit is a dedicated fabric
+namespace plus a ReferenceGrant, which is a later change.
 
 LucentRoot has no HTTPS listener because there is no certificate authority for
-`*.lucentroot.internal`. Routes select their listener by `sectionName`, which is
-the one place an environment's routing differs.
+`*.lucentroot.internal`. Routes select their listener by `sectionName`. The
+fabric routes name `fabric` in both environments; production's overlay is what
+makes that listener HTTPS.
 
 ## The operator listener asserts its own scheme
 
@@ -157,12 +174,26 @@ Production only:
 ```yaml
 certificateRefs:
   - kind: Secret
-    name: platform-tls   # namespace: platform-system
+    name: platform-tls   # namespace: platform-system; every product host except fabric
+  - kind: Secret
+    name: fabric-tls     # namespace: platform-system; fabric.fieldstate.nz only
 ```
 
-One certificate on the listener, rather than one per service. It is injected
-externally and never committed. Automated issuance is a known gap — see
+`platform-tls` is the catch-all product listener. It must not cover
+`fabric.fieldstate.nz`: no SAN for that name, and no `*.fieldstate.nz`
+wildcard. The fabric listener's certificate reference is not the secret any
+other port-443 listener uses. `fabric-tls` is only the
+fabric hostname. They are separate because Envoy Gateway 1.9 does not return
+421 when a connection opened for one host on a shared certificate is reused
+for the other, so the names must not share a certificate. `fabric-tls` is
+declared by a cert-manager `Certificate` in the production overlay and is not
+issued here: cert-manager is not installed, and `ClusterIssuer` `platform-ca`
+is created at deploy time. No secret value is committed. Automated issuance
+is otherwise still a known gap — see
 [docs/architecture.md](../../../docs/architecture.md#known-gaps).
+Downstream HTTP/2 stays off: a coalesced connection would be accepted by the
+hostname-less `https` listener, and this Envoy Gateway does not answer that
+with 421.
 
 ## Dependencies
 

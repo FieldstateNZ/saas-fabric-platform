@@ -17,6 +17,11 @@
 #
 # Client routes are never defined here, and none of them may forward to
 # `/v1/data`. See ADR 0019 as amended under D01-5 (saas-fabric #108).
+#
+# Both routes name the Gateway's `fabric` listener. That listener is this
+# hostname only, and only the platform-system namespace may attach to it.
+# A route in another namespace for this host is not attached, including one
+# with a longer `/v1/data/...` path.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -28,7 +33,7 @@ spec:
   parentRefs:
     - name: platform
       namespace: platform-system
-      sectionName: http
+      sectionName: fabric
   hostnames:
     - fabric.invalid
   rules:
@@ -50,7 +55,7 @@ spec:
   parentRefs:
     - name: platform
       namespace: platform-system
-      sectionName: http
+      sectionName: fabric
   hostnames:
     - fabric.invalid
   rules:

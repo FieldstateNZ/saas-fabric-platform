@@ -11,17 +11,21 @@
 # routes when it carries fieldstate.nz/gateway-access: "true"; client
 # namespaces receive that label when OpenTofu creates them.
 #
-# # Two listeners, two audiences, two labels
+# # Listeners
 #
 # `http` is the product edge: what a client's users reach. `operator` is the
 # operator plane, reachable only through the Tailscale proxy in front of it.
+# `fabric` is not a third audience. It is the product edge for the fabric
+# hostname only, split off `http` so another namespace cannot claim that host.
 #
-# They are separate listeners on separate ports with *separate attach labels*
-# on purpose. The control plane must not become reachable from the product
-# edge, and this is what makes that structural rather than careful: a namespace
-# carrying `gateway-access` cannot attach to the operator listener, and one
-# carrying `operator-gateway-access` cannot attach to the product one. Neither
-# label implies the other, and nothing in this repository grants both.
+# `http` and `operator` are separate listeners on separate ports with
+# *separate attach labels* on purpose. The control plane must not become
+# reachable from the product edge, and this is what makes that structural
+# rather than careful: a namespace carrying `gateway-access` cannot attach to
+# the operator listener, and one carrying `operator-gateway-access` cannot
+# attach to the product one. Neither label implies the other, and nothing in
+# this repository grants both. `fabric` shares `http`'s port and is distinct
+# by hostname.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -53,3 +57,34 @@ spec:
           selector:
             matchLabels:
               fieldstate.nz/operator-gateway-access: "true"
+
+    # The fabric hostname. A listener that sets a hostname is more specific
+    # than `http`, which sets none, so a request for this host is served only
+    # by routes attached here. `http` stays the catch-all for every other
+    # product and for client hostnames.
+    #
+    # The selector is the namespace's own name. The API server sets
+    # `kubernetes.io/metadata.name` to that name and will not let another
+    # namespace copy it, so a client namespace that holds `gateway-access`
+    # can still attach to `http` and cannot attach a longer `/v1/data/...`
+    # path on this hostname. That path would otherwise win on specificity and
+    # receive tenants' bearer tokens. `kinds` is HTTPRoute so a TCPRoute or
+    # GRPCRoute in the same namespace cannot attach here either.
+    #
+    # The hostname below is the base placeholder. LucentRoot's overlay sets
+    # the real host and leaves this listener on port 80. Production's overlay
+    # moves this listener to HTTPS on 443 and adds `fabric-http` on port 80
+    # for the same host; that second listener only redirects. Anyone who can
+    # create HTTPRoutes in platform-system can still attach to either listener.
+    - name: fabric
+      hostname: fabric.invalid
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-system
+        kinds:
+          - kind: HTTPRoute
