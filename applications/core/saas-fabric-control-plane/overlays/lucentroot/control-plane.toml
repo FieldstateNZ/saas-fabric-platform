@@ -151,7 +151,7 @@ client_id = "saas-fabric"
 # start without it, and refused by 0.3.0-preview.10 and earlier, which do not
 # know the key. So it lands in the same commit that advances an environment
 # past 0.3.0-preview.10, never on its own: a change here rolls the Deployment.
-audience = "saas-fabric"
+audience = "saas-fabric-data-api"
 
 # No credential. The platform presents the operator's own bearer, so there is
 # nothing here for a deployment to deliver and nothing to rotate.

@@ -13,10 +13,10 @@ images:
     newTag: 0.3.0-preview.15
     digest: sha256:d05887f1bb8724204a4c6e28d4101195e31ad3d706ef1d5903d6cd728aea1d2b
 
+# Both runtime HTTPRoutes (the Data API and the probes) share this hostname.
 patches:
   - target:
       kind: HTTPRoute
-      name: saas-fabric
     patch: |-
       - op: replace
         path: /spec/hostnames/0

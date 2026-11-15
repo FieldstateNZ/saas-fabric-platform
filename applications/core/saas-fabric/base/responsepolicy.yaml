@@ -1,0 +1,62 @@
+# Attempt to meet G8/G13 and G12's generic body on the Data API route.
+#
+# BackendTrafficPolicy responseOverride can match Envoy-generated replies
+# (source: Local), which is the class jwt_authn and a direct 500 use.
+# Whether that match actually sees those replies is recorded by the kind
+# test. A local 500 is rewritten to 503 with Retry-After and a body that
+# does not describe the credential. Local 401 and 403 keep their status and
+# gain a body that does not name the failed check, plus the Bearer challenge.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: saas-fabric-data-responses
+spec:
+  targetSelectors:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      matchLabels:
+        fieldstate.nz/data-api: tenant
+  responseOverride:
+    - match:
+        statusCodes:
+          - type: Value
+            value: 500
+      response:
+        statusCode: 503
+        contentType: text/plain
+        body:
+          type: Inline
+          inline: unavailable
+        header:
+          set:
+            - name: Retry-After
+              value: "30"
+      source: Local
+    - match:
+        statusCodes:
+          - type: Value
+            value: 401
+      response:
+        contentType: text/plain
+        body:
+          type: Inline
+          inline: unauthorized
+        header:
+          set:
+            - name: WWW-Authenticate
+              value: Bearer error="invalid_token"
+      source: Local
+    - match:
+        statusCodes:
+          - type: Value
+            value: 403
+      response:
+        contentType: text/plain
+        body:
+          type: Inline
+          inline: unauthorized
+        header:
+          set:
+            - name: WWW-Authenticate
+              value: Bearer error="invalid_token"
+      source: Local

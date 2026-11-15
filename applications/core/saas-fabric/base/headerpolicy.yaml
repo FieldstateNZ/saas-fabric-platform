@@ -1,0 +1,345 @@
+# ADR 0019 G9, G9a and G10, on the Data API route and on the probe route.
+#
+# G9 strips caller identity headers before the request is forwarded. The
+# claim-projection and auth-request names are prefixes, not a fixed list.
+# X-Tenant-Id is the tenant-selection header the runtime refuses.
+# x-forwarded-user, x-forwarded-email, x-forwarded-groups and
+# x-forwarded-preferred-username are named on their own: the rest of
+# x-forwarded-* is hop metadata and stays. x-operator- is the operator-plane
+# family. ADR 0009's trusted-header posture takes its header name from
+# configuration and does not publish one spelling; a header in that family
+# must not be presentable on the product edge.
+#
+# The probe route is included so a caller who reaches /health or /ready
+# through the gateway cannot plant those headers either. The JWT policy does
+# not select that route.
+#
+# G9a is the absence of claimToHeaders on the SecurityPolicy. This filter does
+# not add a header. G10 is what it does not touch: Authorization is forwarded
+# as received.
+#
+# The second script runs after jwt_authn. Envoy Gateway 1.9 orders Lua after
+# jwt_authn (translator order 13, jwt_authn order 10), so it sees a token the
+# filter has already verified. It answers 401 with the Bearer
+# error="invalid_token" challenge, and a body that does not name the check,
+# when any of these fail:
+#   exp is one root-level JSON integer, not expired by more than 30s, and
+#   exp - now is at most 3630s (one hour plus that skew);
+#   nbf, if present, is one root-level integer and nbf - 30 <= now;
+#   iat, if present, is one root-level integer and iat <= now + 30;
+#   the header alg is one root-level string in the allow-list below.
+# A nested exp, nbf, or iat is not that claim: it counts, and the token is
+# rejected. Floats and exponent notation are not accepted. A key spelled
+# with a backslash escape is rejected too.
+# The allow-list is the algorithms the registered issuers' JWKS keys declare.
+# The only alg on those keys, and the only entry in the application's example
+# IssuerRegistration.algorithms, is RS256. No EC algorithm is configured.
+# fabric-identity's private RS256/384/512 list is not this list.
+# Enabling Lua is an Envoy Gateway chart change
+# (config.envoyGateway.extensionApis.enableLua); it is off by default.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: saas-fabric-data-headers
+spec:
+  targetSelectors:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      matchLabels:
+        fieldstate.nz/strip-identity: edge
+  lua:
+    - type: Inline
+      inline: |
+        function envoy_on_request(handle)
+          local headers = handle:headers()
+          local drop = {}
+          for key, _ in pairs(headers) do
+            local name = string.lower(key)
+            local tenant = name == "x-tenant-id"
+            local forwarded_user = name == "x-forwarded-user"
+            local forwarded_email = name == "x-forwarded-email"
+            local forwarded_groups = name == "x-forwarded-groups"
+            local forwarded_username = name == "x-forwarded-preferred-username"
+            local claim = string.sub(name, 1, 12) == "x-jwt-claim-"
+            local auth_request = string.sub(name, 1, 15) == "x-auth-request-"
+            local operator = string.sub(name, 1, 11) == "x-operator-"
+            local strip = tenant or forwarded_user or forwarded_email or forwarded_groups
+            strip = strip or forwarded_username or claim or auth_request or operator
+            if strip then
+              table.insert(drop, key)
+            end
+          end
+          for _, key in ipairs(drop) do
+            headers:remove(key)
+          end
+        end
+    - type: Inline
+      inline: |
+        local allowed_algs = { RS256 = true }
+        local skew_seconds = 30
+        -- One hour of access-token lifetime plus the 30s skew. The
+        -- architect sets the final value; Silas may change it.
+        local MAX_TOKEN_LIFETIME = 3630
+
+        function b64url_decode(data)
+          local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+          local map = {}
+          for i = 1, #alphabet do
+            map[string.sub(alphabet, i, i)] = i - 1
+          end
+          local buffer = 0
+          local bits = 0
+          local out = {}
+          for i = 1, #data do
+            local value = map[string.sub(data, i, i)]
+            if value == nil then
+              return nil
+            end
+            buffer = buffer * 64 + value
+            bits = bits + 6
+            if bits >= 8 then
+              bits = bits - 8
+              local byte = math.floor(buffer / (2 ^ bits))
+              buffer = buffer % (2 ^ bits)
+              table.insert(out, string.char(byte))
+            end
+          end
+          return table.concat(out)
+        end
+
+        function reject(handle)
+          handle:respond(
+            {[":status"] = "401", ["www-authenticate"] = 'Bearer error="invalid_token"'},
+            ""
+          )
+        end
+
+        function skip_ws(document, index)
+          while index <= #document do
+            local char = string.sub(document, index, index)
+            if char ~= " " and char ~= "\n" and char ~= "\r" and char ~= "\t" then
+              break
+            end
+            index = index + 1
+          end
+          return index
+        end
+
+        function read_string(document, index)
+          local cursor = index + 1
+          local saw_escape = false
+          while cursor <= #document do
+            local item = string.sub(document, cursor, cursor)
+            if item == '\\' then
+              saw_escape = true
+              cursor = cursor + 2
+            elseif item == '"' then
+              return cursor, saw_escape
+            else
+              cursor = cursor + 1
+            end
+          end
+          return nil, saw_escape
+        end
+
+        function read_value(document, index)
+          index = skip_ws(document, index)
+          local char = string.sub(document, index, index)
+          if char == '"' then
+            local closing = read_string(document, index)
+            if closing == nil then
+              return nil, nil
+            end
+            return closing + 1, string.sub(document, index, closing)
+          end
+          if char == '{' or char == '[' then
+            local depth = 0
+            local cursor = index
+            while cursor <= #document do
+              local item = string.sub(document, cursor, cursor)
+              if item == '"' then
+                local closing = read_string(document, cursor)
+                if closing == nil then
+                  return nil, nil
+                end
+                cursor = closing + 1
+              elseif item == '{' or item == '[' then
+                depth = depth + 1
+                cursor = cursor + 1
+              elseif item == '}' or item == ']' then
+                depth = depth - 1
+                cursor = cursor + 1
+                if depth == 0 then
+                  return cursor, string.sub(document, index, cursor - 1)
+                end
+              else
+                cursor = cursor + 1
+              end
+            end
+            return nil, nil
+          end
+          local cursor = index
+          while cursor <= #document do
+            local item = string.sub(document, cursor, cursor)
+            if item == ',' or item == '}' or item == ']' then
+              break
+            end
+            cursor = cursor + 1
+          end
+          local raw = string.match(string.sub(document, index, cursor - 1), '^%s*(.-)%s*$')
+          return cursor, raw
+        end
+
+        -- Counts `name` and, when it sits on the root object, the raw JSON
+        -- value of that occurrence. Nested keys count but are not the value.
+        -- A backslash in any key is recorded so an escaped spelling cannot
+        -- impersonate exp, nbf, iat, or alg.
+        function root_key(document, name)
+          local total = 0
+          local top = 0
+          local raw = nil
+          local escaped = false
+          local depth = 0
+          local index = 1
+          while index <= #document do
+            local char = string.sub(document, index, index)
+            if char == '"' then
+              local closing, saw_escape = read_string(document, index)
+              if closing == nil then
+                return 0, 0, nil, true
+              end
+              local literal = string.sub(document, index + 1, closing - 1)
+              local after = skip_ws(document, closing + 1)
+              if string.sub(document, after, after) == ':' then
+                if saw_escape then
+                  escaped = true
+                end
+                if literal == name then
+                  total = total + 1
+                  if depth == 1 then
+                    top = top + 1
+                    local _, value = read_value(document, after + 1)
+                    raw = value
+                  end
+                end
+              end
+              index = closing + 1
+            elseif char == '{' or char == '[' then
+              depth = depth + 1
+              index = index + 1
+            elseif char == '}' or char == ']' then
+              depth = depth - 1
+              index = index + 1
+            else
+              index = index + 1
+            end
+          end
+          return total, top, raw, escaped
+        end
+
+        function integer_seconds(text)
+          if type(text) ~= "string" or string.match(text, "^%-?%d+$") == nil then
+            return nil
+          end
+          local ok, value = pcall(tonumber, text)
+          if not ok or type(value) ~= "number" then
+            return nil
+          end
+          if value ~= value or value == math.huge or value == -math.huge then
+            return nil
+          end
+          return value
+        end
+
+        function plain_string(text)
+          if type(text) ~= "string" or string.find(text, "\\", 1, true) then
+            return nil
+          end
+          return string.match(text, '^"(.*)"$')
+        end
+
+        function over_lifetime(exp, now)
+          local ok, gap = pcall(function()
+            return exp - now
+          end)
+          if not ok or type(gap) ~= "number" or gap ~= gap then
+            return true
+          end
+          return gap > MAX_TOKEN_LIFETIME
+        end
+
+        function envoy_on_request(handle)
+          local headers = handle:headers()
+          local auth = headers:get("authorization")
+          if auth == nil then
+            return
+          end
+          local token = string.match(auth, "^[Bb]earer%s+(.+)$")
+          if token == nil then
+            return
+          end
+          local header_b64, payload_b64 = string.match(token, "^([^%.]+)%.([^%.]+)%.")
+          if header_b64 == nil or payload_b64 == nil then
+            return
+          end
+          local header_json = b64url_decode(header_b64)
+          local payload = b64url_decode(payload_b64)
+          if header_json == nil or payload == nil then
+            reject(handle)
+            return
+          end
+          local _, _, _, header_escaped = root_key(header_json, "alg")
+          local _, _, _, payload_escaped = root_key(payload, "exp")
+          if header_escaped or payload_escaped then
+            reject(handle)
+            return
+          end
+          local alg_total, alg_top, alg_raw = root_key(header_json, "alg")
+          if alg_total ~= 1 or alg_top ~= 1 then
+            reject(handle)
+            return
+          end
+          local alg = plain_string(alg_raw)
+          if alg == nil or allowed_algs[alg] ~= true then
+            reject(handle)
+            return
+          end
+          local exp_total, exp_top, exp_raw = root_key(payload, "exp")
+          if exp_total ~= 1 or exp_top ~= 1 then
+            reject(handle)
+            return
+          end
+          local exp = integer_seconds(exp_raw)
+          if exp == nil then
+            reject(handle)
+            return
+          end
+          local now = os.time()
+          if now > exp + skew_seconds or over_lifetime(exp, now) then
+            reject(handle)
+            return
+          end
+          local nbf_total, nbf_top, nbf_raw = root_key(payload, "nbf")
+          if nbf_total > 1 or nbf_top ~= nbf_total then
+            reject(handle)
+            return
+          end
+          if nbf_total == 1 then
+            local nbf = integer_seconds(nbf_raw)
+            if nbf == nil or now < nbf - skew_seconds then
+              reject(handle)
+              return
+            end
+          end
+          local iat_total, iat_top, iat_raw = root_key(payload, "iat")
+          if iat_total > 1 or iat_top ~= iat_total then
+            reject(handle)
+            return
+          end
+          if iat_total == 1 then
+            local iat = integer_seconds(iat_raw)
+            if iat == nil or iat > now + skew_seconds then
+              reject(handle)
+            end
+          end
+        end

@@ -1,0 +1,46 @@
+# JWT on every Data API route (ADR 0019 §1, checklist G1–G4).
+#
+# The selector, not a single route name, is the attachment. Any HTTPRoute in
+# this namespace labelled `fieldstate.nz/data-api: tenant` takes this policy,
+# including one whose path is not `/v1/data`. The probe route does not carry
+# that label, so `/health` and `/ready` stay outside the JWT policy.
+#
+# One provider per registered issuer. Each names that issuer exactly and the
+# JWKS URL the gateway can reach, which is not the public issuer (G2, G4).
+# Membership is all the edge decides; the runtime binds the issuer to a
+# tenant. `extractFrom` is only the Authorization bearer. Nothing is copied
+# into a header (G9a). Audience is the deployment string the control plane
+# writes onto clients (`saas-fabric-data-api`, the ADR 0019 example).
+#
+# No tenant issuer is in Git. The publisher has not written
+# issuer-registry.json, and this CRD rejects an empty provider list, so the
+# list holds one sentinel that admits no tenant. Replace it with one provider
+# per registry issuer before any replica is raised. The kind test does that
+# replacement with two pinned issuers and does not change this file's shape.
+#
+# Envoy Gateway 1.9 cannot set clock skew, require `exp`, or name an algorithm
+# allow-list on this CRD. Those checks are the Lua script on the header
+# policy, which runs after jwt_authn and caps leeway at 30s. A local 500 and
+# the local rejection bodies are the response policy's concern.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: saas-fabric-data
+spec:
+  targetSelectors:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      matchLabels:
+        fieldstate.nz/data-api: tenant
+  jwt:
+    providers:
+      - name: unregistered
+        issuer: https://issuer-registry.invalid/realms/unregistered
+        audiences:
+          - saas-fabric-data-api
+        remoteJWKS:
+          uri: https://issuer-registry.invalid/jwks
+        extractFrom:
+          headers:
+            - name: Authorization
+              valuePrefix: "Bearer "

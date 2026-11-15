@@ -54,7 +54,14 @@ Checks, in order of how much damage they prevent:
      is created, and what holds on an update is exactly what is recorded
      here -- so adopting an update-ordering mechanism, or the controller
      setting it needs, cannot happen without this record and
-     docs/ordered-updates.md changing with it (platform #44).
+     docs/ordered-updates.md changing with it (platform #44);
+ 23. a runtime Deployment above zero replicas has a JWT SecurityPolicy on
+     every route that forwards to its Data API, and on neither `/health`
+     nor `/ready`, a Lua policy that strips identity headers and checks
+     `exp` on every route that forwards to the runtime, and a NetworkPolicy
+     that selects that Deployment's own labels and admits ingress only from
+     the platform Gateway's Envoy proxy -- at zero replicas the check does
+     not fire.
 """
 from __future__ import annotations
 
@@ -3676,6 +3683,296 @@ def check_runtime_document_contract(render: Path, problems: list[str]) -> None:
         problems.extend(runtime_contract.static_replica_problems(contract, documents, where))
 
 
+# The label the Data API SecurityPolicy selects. A route that forwards to the
+# runtime on anything other than a probe path must carry it. The probe route
+# must not, or the policy would challenge `/health` and `/ready`.
+DATA_API_LABEL = "fieldstate.nz/data-api"
+DATA_API_LABEL_VALUE = "tenant"
+
+
+def check_data_api_edge_when_scaled(render: Path, problems: list[str]) -> None:
+    """Above zero runtime replicas, the JWT policy has to cover the Data API.
+
+    Zero replicas is the held state and is always accepted: nothing is
+    serving, so a missing policy is not yet an exposure. Above zero, every
+    HTTPRoute that forwards to the runtime Service and is not exclusively a
+    probe route must be selected by a SecurityPolicy that sets `jwt`, and no
+    selected route may also match `/health` or `/ready`. A PathPrefix `/`
+    matches both probes, so a policy left on the old catch-all fails here.
+    """
+    contract = runtime_contract.load_contract()
+    service = contract["runtime"]["deployment"]
+    for environment in ENVIRONMENTS:
+        documents = [
+            document
+            for path in sorted((render / environment / "applications").glob("*.yaml"))
+            for document in load_all(path, problems)
+        ]
+        found = [
+            document for document in documents
+            if document.get("kind") == "Deployment"
+            and (document.get("metadata") or {}).get("name") == service
+        ]
+        if len(found) != 1:
+            continue
+        replicas = runtime_contract.replicas_of(contract, documents)
+        where = f"{environment}: runtime"
+        if replicas is None:
+            fail(
+                problems,
+                f"{where}: runtime replica count is not a literal non-negative integer"
+                f" -- {runtime_contract.UNSUPPORTED}",
+            )
+            continue
+        if replicas == 0:
+            continue
+        problems.extend(_data_api_edge_problems(where, documents, found[0], service, replicas))
+
+
+def _data_api_edge_problems(where: str, documents: list[dict], deployment: dict, service: str, replicas: int) -> list[str]:
+    """Violations of the scaled Data API edge. `where` names the environment."""
+    problems: list[str] = []
+    namespace = (deployment.get("metadata") or {}).get("namespace") or ""
+    probes = _probe_paths(deployment)
+    if set(probes) < {"/health", "/ready"}:
+        fail(problems, f"{where}: replicas {replicas} but the runtime probes are {probes or 'unset'}, not /health and /ready")
+        return problems
+    routes = [
+        document for document in documents
+        if document.get("kind") == "HTTPRoute" and _forwards_to(document, namespace, service)
+    ]
+    policies = [
+        document for document in documents
+        if document.get("kind") == "SecurityPolicy" and isinstance((document.get("spec") or {}).get("jwt"), dict)
+    ]
+    data_routes = [route for route in routes if not _probe_only(route, probes)]
+    if not data_routes:
+        fail(problems, f"{where}: replicas {replicas} but no HTTPRoute forwards to the Data API")
+        return problems
+    for route in data_routes:
+        name = route["metadata"]["name"]
+        targeted = [policy for policy in policies if _policy_targets(policy, route)]
+        if not targeted:
+            fail(
+                problems,
+                f"{where}: replicas {replicas} but HTTPRoute/{name} forwards to the Data API"
+                " with no JWT SecurityPolicy targeting it",
+            )
+        for probe in probes:
+            if _covers(route, probe):
+                fail(
+                    problems,
+                    f"{where}: replicas {replicas} and HTTPRoute/{name} matches {probe}"
+                    " as well as the Data API, so a JWT policy on it would challenge the probe",
+                )
+    for probe in probes:
+        open_routes = [
+            route for route in routes
+            if _covers(route, probe) and not any(_policy_targets(policy, route) for policy in policies)
+        ]
+        if not open_routes:
+            fail(
+                problems,
+                f"{where}: replicas {replicas} but {probe} has no route to the runtime that the JWT"
+                " policy leaves alone",
+            )
+    if not _gateway_network_policy(documents, namespace, deployment):
+        fail(
+            problems,
+            f"{where}: replicas {replicas} but no NetworkPolicy selects the runtime Deployment's"
+            " labels and limits ingress to the platform Gateway's Envoy proxy",
+        )
+    extensions = [document for document in documents if document.get("kind") == "EnvoyExtensionPolicy"]
+    for route in routes:
+        name = route["metadata"]["name"]
+        if not _lua_targets(extensions, route, "x-tenant-id"):
+            fail(
+                problems,
+                f"{where}: replicas {replicas} but HTTPRoute/{name} forwards to the runtime"
+                " with no Lua policy stripping identity headers",
+            )
+        if not _lua_targets(extensions, route, 'root_key(payload, "exp")'):
+            fail(
+                problems,
+                f"{where}: replicas {replicas} but HTTPRoute/{name} forwards to the runtime"
+                " with no post-jwt Lua check of exp",
+            )
+    return problems
+
+
+def _lua_text(policy: dict) -> str:
+    """Lua source with `--` comments removed, so a comment cannot satisfy the gate."""
+    parts = []
+    for entry in (policy.get("spec") or {}).get("lua") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("inline"), str):
+            code = "\n".join(line.split("--", 1)[0] for line in entry["inline"].splitlines())
+            parts.append(code)
+    return "\n".join(parts)
+
+
+def _lua_targets(policies: list[dict], route: dict, marker: str) -> bool:
+    return any(marker in _lua_text(policy) and _policy_targets(policy, route) for policy in policies)
+
+
+def _gateway_network_policy(documents: list[dict], namespace: str, deployment: dict) -> bool:
+    """The runtime's own labels, and ingress only from the platform Gateway proxy.
+
+    A policy that merely exists, selects a test label, or also admits any
+    other pod does not pass. Every ingress source has to name the proxy in
+    platform-system. An empty `from` admits the world.
+    """
+    selector = ((deployment.get("spec") or {}).get("selector") or {}).get("matchLabels") or {}
+    if not isinstance(selector, dict) or not selector:
+        return False
+    required_proxy = {
+        "app.kubernetes.io/component": "proxy",
+        "app.kubernetes.io/managed-by": "envoy-gateway",
+        "gateway.envoyproxy.io/owning-gateway-name": "platform",
+    }
+    for document in documents:
+        if document.get("kind") != "NetworkPolicy":
+            continue
+        meta = document.get("metadata") or {}
+        if meta.get("namespace") not in (namespace, None, ""):
+            continue
+        spec = document.get("spec") or {}
+        pod_selector = spec.get("podSelector") or {}
+        if pod_selector.get("matchExpressions"):
+            continue
+        if (pod_selector.get("matchLabels") or {}) != selector:
+            continue
+        if "Ingress" not in (spec.get("policyTypes") or []):
+            continue
+        rules = spec.get("ingress") or []
+        if not rules:
+            continue
+        limited = True
+        for rule in rules:
+            sources = rule.get("from") or []
+            if not sources:
+                limited = False
+                break
+            for source in sources:
+                if "ipBlock" in source:
+                    limited = False
+                    break
+                namespace_labels = ((source.get("namespaceSelector") or {}).get("matchLabels") or {})
+                if namespace_labels.get("kubernetes.io/metadata.name") != "platform-system":
+                    limited = False
+                    break
+                peer = source.get("podSelector") or {}
+                if peer.get("matchExpressions"):
+                    limited = False
+                    break
+                peer_labels = peer.get("matchLabels") or {}
+                if any(peer_labels.get(key) != value for key, value in required_proxy.items()):
+                    limited = False
+                    break
+            if not limited:
+                break
+        if limited:
+            return True
+    return False
+
+
+def _probe_paths(deployment: dict) -> list[str]:
+    pod = ((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}
+    paths = []
+    for container in pod.get("containers") or []:
+        for key in ("livenessProbe", "readinessProbe"):
+            path = (((container.get(key) or {}).get("httpGet") or {}).get("path"))
+            if isinstance(path, str):
+                paths.append(path)
+    return paths
+
+
+def _forwards_to(route: dict, namespace: str, service: str) -> bool:
+    route_namespace = (route.get("metadata") or {}).get("namespace") or namespace
+    for rule in (route.get("spec") or {}).get("rules") or []:
+        for backend in rule.get("backendRefs") or []:
+            group = backend.get("group", "")
+            kind = backend.get("kind", "Service")
+            if group not in ("", None) or kind != "Service":
+                continue
+            if (backend.get("namespace") or route_namespace, backend.get("name")) == (namespace, service):
+                return True
+    return False
+
+
+def _matches(route: dict) -> list[dict]:
+    found = []
+    for rule in (route.get("spec") or {}).get("rules") or []:
+        matches = rule.get("matches")
+        found.extend(matches if matches else [{}])
+    return found or [{}]
+
+
+def _probe_only(route: dict, probes: list[str]) -> bool:
+    matches = _matches(route)
+    if not matches:
+        return False
+    return all(_match_kind(match) == "Exact" and _match_value(match) in probes for match in matches)
+
+
+def _covers(route: dict, probe: str) -> bool:
+    return any(_match_covers(match, probe) for match in _matches(route))
+
+
+def _match_kind(match: dict) -> str:
+    return ((match or {}).get("path") or {}).get("type") or "PathPrefix"
+
+
+def _match_value(match: dict) -> str:
+    value = ((match or {}).get("path") or {}).get("value")
+    return value if isinstance(value, str) else "/"
+
+
+def _match_covers(match: dict, probe: str) -> bool:
+    kind, value = _match_kind(match), _match_value(match)
+    if kind == "Exact":
+        return value == probe
+    if kind == "PathPrefix":
+        if value == "/":
+            return True
+        prefix = value if value.endswith("/") else value + "/"
+        return probe == value or probe.startswith(prefix)
+    return True
+
+
+def _policy_targets(policy: dict, route: dict) -> bool:
+    spec = policy.get("spec") or {}
+    name = (route.get("metadata") or {}).get("name")
+    labels = (route.get("metadata") or {}).get("labels") or {}
+    same_namespace = (policy.get("metadata") or {}).get("namespace") == (route.get("metadata") or {}).get("namespace")
+    refs = list(spec.get("targetRefs") or [])
+    if spec.get("targetRef"):
+        refs.append(spec["targetRef"])
+    if same_namespace:
+        for ref in refs:
+            if ref.get("kind") in (None, "HTTPRoute") and ref.get("name") == name:
+                return True
+    for selector in spec.get("targetSelectors") or []:
+        # matchExpressions is not interpreted. Ignoring the selector fails
+        # closed: a policy that uses only that form does not count as covering.
+        if selector.get("matchExpressions"):
+            continue
+        if selector.get("kind") not in (None, "HTTPRoute"):
+            continue
+        if not _selector_sees_namespace(selector, policy, route):
+            continue
+        wanted = selector.get("matchLabels") or {}
+        if wanted and all(labels.get(key) == value for key, value in wanted.items()):
+            return True
+    return False
+
+
+def _selector_sees_namespace(selector: dict, policy: dict, route: dict) -> bool:
+    scope = ((selector.get("namespaces") or {}).get("from")) or "Same"
+    if scope == "All":
+        return True
+    return (policy.get("metadata") or {}).get("namespace") == (route.get("metadata") or {}).get("namespace")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     render = Path(sys.argv[1]) if len(sys.argv) > 1 else root / ".render"
@@ -3691,6 +3988,7 @@ def main() -> int:
     check_no_runtime_publication_configmaps(render, problems)
     check_runtime_config_document_paths(render, problems)
     check_runtime_document_contract(render, problems)
+    check_data_api_edge_when_scaled(render, problems)
     check_applications_match_their_project(render, problems)
     check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)
