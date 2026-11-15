@@ -1312,6 +1312,11 @@ def race_refresh_skew() -> dict:
     return detail
 
 
+def automated_restored(view: dict) -> bool:
+    auto = (view.get("syncPolicy") or {}).get("automated") or {}
+    return auto.get("enabled") is True and auto.get("prune") is True and auto.get("selfHeal") is True
+
+
 def v6(v1_uids: dict) -> None:
     before = snapshot_uids()
     finalizers = {}
@@ -1391,17 +1396,15 @@ def v6(v1_uids: dict) -> None:
             views = {name: app_view(name) for name in APPS}
         except RuntimeError:
             return {"ok": False, "reason": "an Application is missing"}
-        ok = all(
-            ((view["syncPolicy"] or {}).get("automated") or {}).get("prune")
-            and ((view["syncPolicy"] or {}).get("automated") or {}).get("selfHeal")
-            for view in views.values()
-        )
+        ok = all(automated_restored(view) for view in views.values())
         return {"ok": ok, "views": views}
 
     try:
         restored_state = wait_until("hand-written Applications restored", 180, restored)
+        policy_ok = True
     except RuntimeError:
         restored_state = {"views": {}}
+        policy_ok = False
     after = snapshot_uids()
     state_vs_v1 = changed_uids(
         v1_uids,
@@ -1409,6 +1412,7 @@ def v6(v1_uids: dict) -> None:
         ["namespace/master-instance-state", "secret/tfstate-default-master-instance"],
     )
     orphan_preserved = not deleted_uids and not state_vs_v1 and none_carry_resources_finalizer
+    v6_ok = orphan_preserved and policy_ok
     detail = {
         "method": "kubectl delete applicationset --cascade=orphan",
         "ownerReferencesClearedByHand": False,
@@ -1417,6 +1421,7 @@ def v6(v1_uids: dict) -> None:
         "uidChangesAtOrphanDelete": deleted_uids,
         "stateChangedSinceV1": state_vs_v1,
         "orphanPreservedResources": orphan_preserved,
+        "automatedEnabledTrue": policy_ok,
         "uidsBefore": before,
         "uidsAfterOrphanDelete": after_delete,
         "uidsAfterRestore": after,
@@ -1426,13 +1431,24 @@ def v6(v1_uids: dict) -> None:
         },
     }
     save_json("v6-orphan.json", detail)
-    record("V6-orphan", orphan_preserved, {"preserved": orphan_preserved, "finalizerAbsent": none_carry_resources_finalizer})
-    log(f"V6 orphan preserved={orphan_preserved} resourcesFinalizerAbsent={none_carry_resources_finalizer}")
+    record(
+        "V6-orphan",
+        v6_ok,
+        {"preserved": orphan_preserved, "finalizerAbsent": none_carry_resources_finalizer, "automatedEnabledTrue": policy_ok},
+    )
+    log(f"V6 orphan preserved={orphan_preserved} resourcesFinalizerAbsent={none_carry_resources_finalizer} enabledTrue={policy_ok}")
+    if not policy_ok:
+        detail["oq5"] = "not resolved"
+        detail["autosyncApplied"] = False
+        save_json("v6-orphan.json", detail)
+        record("OQ5", False, {"resolved": False, "reason": "automated.enabled was not true on every restored Application"})
+        return detail
     set_yaml_field(WORK / "workloads/saas-fabric-control-plane/configmap.yaml", "marker", "post-rollback")
     commit_all("post-rollback autosync")
+    refresh(STEP3)
     autosynced = False
     initiated = None
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         if marker() == "post-rollback":
             view = app_view(STEP3)
@@ -1440,10 +1456,13 @@ def v6(v1_uids: dict) -> None:
             autosynced = bool((initiated or {}).get("automated")) and (initiated or {}).get("username") != "applicationset-controller"
             break
         time.sleep(2)
-    detail["autosyncApplied"] = marker() == "post-rollback"
+    applied = marker() == "post-rollback"
+    detail["autosyncApplied"] = applied
     detail["autosyncInitiatedBy"] = initiated
     detail["autosyncWasNotApplicationSet"] = autosynced
+    detail["oq5"] = "resolved" if applied and autosynced else "not resolved"
     save_json("v6-orphan.json", detail)
+    record("OQ5", applied and autosynced, {"resolved": applied and autosynced, "autosyncApplied": applied, "initiatedBy": initiated})
     return detail
 
 
@@ -1534,8 +1553,18 @@ def main() -> int:
     try:
         if args.only == "v6":
             begin_run("v6")
-            assert_loopback()
-            v6(snapshot_uids())
+            run(["kind", "delete", "cluster", "--name", CLUSTER], check=False)
+            prepare_git()
+            create_cluster()
+            load_images()
+            install_git_daemon()
+            install_argocd()
+            assert_git_reachable()
+            apply_project_and_root()
+            baseline = wait_initial()
+            save_json("baseline-uids.json", baseline["uids"])
+            v1_uids = v1(baseline)
+            v6(v1_uids)
             success = all(item["result"] == "pass" for item in RESULTS)
         elif args.only == "architect":
             global PRESERVE_PRIOR_RESULTS

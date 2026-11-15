@@ -22,6 +22,9 @@ spec:
     namespace: operator-system
   syncPolicy:
     automated:
+      # Explicit. Omitting this leaves whatever the ApplicationSet last wrote,
+      # including the Q3 probe's enabled: false.
+      enabled: true
       prune: true
       selfHeal: true
     syncOptions:

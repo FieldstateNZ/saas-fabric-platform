@@ -25,6 +25,7 @@ Runs are kept. Later runs do not delete earlier ones.
 | `runs/20261115T042405Z-full/` | full, aborted | Stopped before V1 wrote UIDs. |
 | `runs/20261115T042618Z-full/` | full, aborted | Stopped during V2 while the hook check raced Job status. |
 | `runs/20261115T043012Z-full/` | `full` | The repeated series. `run.json` records mode `full` and `scriptCommit` `c5e8a7f`. The process was the working tree on top of that commit (UID fingerprints, hook status wait). |
+| `runs/20261115T051131Z-v6/` | `v6` | OQ5. Restore sets `automated.enabled: true`. Auto-sync fired after the orphan restore. |
 
 ## Repeated series (`20261115T043012Z-full`)
 

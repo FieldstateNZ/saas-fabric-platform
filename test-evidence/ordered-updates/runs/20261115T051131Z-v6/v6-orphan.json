@@ -1,0 +1,109 @@
+{
+  "automated": {
+    "master-instance": {
+      "automated": {
+        "enabled": true,
+        "prune": true,
+        "selfHeal": true
+      },
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "master-instance-credential": {
+      "automated": {
+        "enabled": true,
+        "prune": true,
+        "selfHeal": true
+      },
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "saas-fabric-control-plane": {
+      "automated": {
+        "enabled": true,
+        "prune": true,
+        "selfHeal": true
+      },
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    }
+  },
+  "automatedEnabledTrue": true,
+  "autosyncApplied": true,
+  "autosyncInitiatedBy": {
+    "automated": true
+  },
+  "autosyncWasNotApplicationSet": true,
+  "finalizers": {
+    "master-instance": [],
+    "master-instance-credential": [],
+    "saas-fabric-control-plane": []
+  },
+  "method": "kubectl delete applicationset --cascade=orphan",
+  "noneCarryResourcesFinalizer": true,
+  "oq5": "resolved",
+  "orphanPreservedResources": true,
+  "ownerReferencesClearedByHand": false,
+  "stateChangedSinceV1": {},
+  "uidChangesAtOrphanDelete": {},
+  "uidsAfterOrphanDelete": {
+    "application/master-instance": "uid:9f510eac4df2",
+    "application/saas-fabric-control-plane": "uid:64748ab67cee",
+    "application/step-1": "uid:f6fbfa728d4d",
+    "configmap/control-plane-standin": "uid:2c30d3d7c04a",
+    "configmap/convergence-mode": "uid:89ec3fd46273",
+    "configmap/step-1-standin": "uid:18da32c04164",
+    "job/convergence": "uid:0dc740381b13",
+    "namespace/master-instance-state": "uid:5b57850272af",
+    "secret/tfstate-default-master-instance": "uid:b23f20126469"
+  },
+  "uidsAfterRestore": {
+    "application/master-instance": "uid:6e7b1c0d3ac4",
+    "application/saas-fabric-control-plane": "uid:e12123c1e398",
+    "application/step-1": "uid:2f4ec7ede921",
+    "configmap/control-plane-standin": "uid:2c30d3d7c04a",
+    "configmap/convergence-mode": "uid:89ec3fd46273",
+    "configmap/step-1-standin": "uid:18da32c04164",
+    "job/convergence": "uid:0dc740381b13",
+    "namespace/master-instance-state": "uid:5b57850272af",
+    "secret/tfstate-default-master-instance": "uid:b23f20126469"
+  },
+  "uidsBefore": {
+    "application/master-instance": "uid:9f510eac4df2",
+    "application/saas-fabric-control-plane": "uid:64748ab67cee",
+    "application/step-1": "uid:f6fbfa728d4d",
+    "configmap/control-plane-standin": "uid:2c30d3d7c04a",
+    "configmap/convergence-mode": "uid:89ec3fd46273",
+    "configmap/step-1-standin": "uid:18da32c04164",
+    "job/convergence": "uid:0dc740381b13",
+    "namespace/master-instance-state": "uid:5b57850272af",
+    "secret/tfstate-default-master-instance": "uid:b23f20126469"
+  }
+}

@@ -1,0 +1,27 @@
+source: FieldstateNZ/lucentroot-gitops versions.env
+ARGOCD_CHART_VERSION=10.11.6
+ARGOCD_APP_VERSION=v3.5.6
+helm chart appVersion confirmed: v3.5.6
+install: helm upgrade --install argocd argo/argo-cd --version 10.11.6
+kind kube-proxy: nftables (this VM rejects kube-proxy iptables statistic rules)
+note: lucentroot-gitops sets applicationSet.replicas=0; this run sets 1
+note: saas-fabric-hosting is not a repository this account can see
+note: FieldstateNZ/infrastructure pins chart 10.1.3, which
+      docs/migrating-lucentroot.md says not to carry across
+
+argocd: v3.5.6+c2b1e30
+  BuildDate: 2026-10-20T19:01:52Z
+  GitCommit: c2b1e3017e2cec86b122172e861dcd026453ae44
+  GitTreeState: clean
+  GoVersion: go1.26.10
+  Compiler: gc
+  Platform: linux/amd64
+
+argocd: v3.5.6
+  BuildDate: 2026-10-20T18:33:20Z
+  GitCommit: c2b1e3017e2cec86b122172e861dcd026453ae44
+  GitTreeState: clean
+  GitTag: v3.5.6
+  GoVersion: go1.26.10
+  Compiler: gc
+  Platform: linux/amd64

@@ -277,7 +277,7 @@ assessment, or moving the control plane into wave 30, fails CI
 | R2 | **`Prune=false` does not protect against Application deletion.** The namespace and `tfstate-default-master-instance` now carry `Delete=false` in Git (O5). That annotation is not on the cluster until this change is synced | The manifests in this draft. Merging them is a LucentRoot sync (O5) |
 | R3 | The gateway client secret (`master-instance-credential`, `refreshInterval: "0"`) would be regenerated if deleted, and would no longer match Keycloak until `master-instance` reconverges | R1's ordering. With RollingSync in place, step 2 then reconverges before step 3, which is the point |
 | R4 | **A Degraded step blocks indefinitely**, including unrelated control-plane fixes | Intended. Recovery is a fix to the failed step, which still syncs (`test_a_fix_to_the_failed_step_still_syncs`). Any break-glass manual sync of a later step is a gated act (E8) |
-| R5 | **Rollback is not "turn the flag off".** Without progressive syncs, the generated Applications have no automated sync, and nothing syncs them (`test_without_progressive_syncs_nothing_syncs_the_generated_applications`) | Rollback means returning the three Applications to the root, protected as in R1, and then removing the flag. It is its own gated change |
+| R5 | **Rollback is not "turn the flag off".** Without progressive syncs, the generated Applications have no automated sync, and nothing syncs them (`test_without_progressive_syncs_nothing_syncs_the_generated_applications`) | Rollback means returning the three Applications to the root, protected as in R1, and then removing the flag. It is its own gated change. After a `--cascade=orphan` restore, set `automated.enabled: true` explicitly and verify it, because orphaned Applications keep whatever the ApplicationSet last wrote |
 | R6 | Instance-wide flag (E1) changes other teams' ApplicationSets | P2, P3 |
 | R7 | Root creation order loses its wait on the chain (E7) | Accept for `operator-access`, which depends on the gateway and not on the chain, or step it within the set. Decide at adoption |
 | R8 | The model is not the controller. Every "upstream docs" row above may differ on P1's version | Section 7 |
@@ -375,8 +375,14 @@ On that controller, with stand-in workloads. v3.5.6 here is the
   fixture template). Resource fingerprints were unchanged, including
   `master-instance-state` and `tfstate-default-master-instance`. Restoring
   the hand-written Applications put `automated.prune` and `selfHeal` back
-  on all three. A following commit did not apply within 120 seconds, so an
-  auto-sync operation was not observed in that window.
+  on all three. The control-plane Application kept `automated.enabled: false`
+  from the Q3 probe, because the restore manifest omitted `enabled`, and a
+  following commit did not apply within 120 seconds.
+- OQ5, rerun as mode `v6` in `runs/20261115T051131Z-v6/`. The restore
+  manifests set `automated.enabled: true`. All three restored Applications
+  reported `enabled`, `prune`, and `selfHeal` true. The post-restore commit
+  applied, and the operation was an automated sync rather than one started
+  by the ApplicationSet controller. OQ5 is resolved.
 - With `applicationsetcontroller.enable.progressive.syncs` removed, a commit
   did not move the live marker (`flag-off.json`). The flag was changed only
   on the throwaway cluster.
