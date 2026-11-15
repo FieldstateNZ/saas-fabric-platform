@@ -57,9 +57,11 @@ Checks, in order of how much damage they prevent:
      docs/ordered-updates.md changing with it (platform #44);
  23. a runtime Deployment above zero replicas has a JWT SecurityPolicy on
      every route that forwards to its Data API, and on neither `/health`
-     nor `/ready`, and a NetworkPolicy that selects that Deployment's own
-     labels and admits ingress only from the platform Gateway's Envoy proxy
-     -- at zero replicas the check does not fire.
+     nor `/ready`, a Lua policy that strips identity headers and checks
+     `exp` on every route that forwards to the runtime, and a NetworkPolicy
+     that selects that Deployment's own labels and admits ingress only from
+     the platform Gateway's Envoy proxy -- at zero replicas the check does
+     not fire.
 """
 from __future__ import annotations
 
@@ -3780,7 +3782,34 @@ def _data_api_edge_problems(where: str, documents: list[dict], deployment: dict,
             f"{where}: replicas {replicas} but no NetworkPolicy selects the runtime Deployment's"
             " labels and limits ingress to the platform Gateway's Envoy proxy",
         )
+    extensions = [document for document in documents if document.get("kind") == "EnvoyExtensionPolicy"]
+    for route in routes:
+        name = route["metadata"]["name"]
+        if not _lua_targets(extensions, route, "x-tenant-id"):
+            fail(
+                problems,
+                f"{where}: replicas {replicas} but HTTPRoute/{name} forwards to the runtime"
+                " with no Lua policy stripping identity headers",
+            )
+        if not _lua_targets(extensions, route, 'key_counts(payload, "exp")'):
+            fail(
+                problems,
+                f"{where}: replicas {replicas} but HTTPRoute/{name} forwards to the runtime"
+                " with no post-jwt Lua check of exp",
+            )
     return problems
+
+
+def _lua_text(policy: dict) -> str:
+    parts = []
+    for entry in (policy.get("spec") or {}).get("lua") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("inline"), str):
+            parts.append(entry["inline"])
+    return "\n".join(parts)
+
+
+def _lua_targets(policies: list[dict], route: dict, marker: str) -> bool:
+    return any(marker in _lua_text(policy) and _policy_targets(policy, route) for policy in policies)
 
 
 def _gateway_network_policy(documents: list[dict], namespace: str, deployment: dict) -> bool:

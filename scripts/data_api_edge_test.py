@@ -110,6 +110,15 @@ def mint(header: dict, payload: dict, key: Path | None = None, secret: bytes | N
     return signing + "." + b64u(signature)
 
 
+def sign_json(header_json: str, payload_json: str, key: Path, digest: str = "sha256") -> str:
+    """Sign already-encoded JSON so a test can repeat a key or nest one."""
+    signing = ".".join(b64u(part.encode()) for part in (header_json, payload_json))
+    signature = subprocess.check_output(
+        ["openssl", "dgst", f"-{digest}", "-sign", str(key)], input=signing.encode()
+    )
+    return signing + "." + b64u(signature)
+
+
 def kube(*args: str, input_text: str | None = None) -> str:
     return subprocess.check_output(["kubectl", *args], input=input_text, text=True)
 
@@ -298,7 +307,8 @@ def stand_in_manifests(jwks_alpha: list[dict], jwks_beta: list[dict]) -> list[di
                     "count": Handler.count,
                     "headers": {key: value for key, value in self.headers.items()},
                 }).encode()
-                self.send_response(200)
+                status = 500 if self.path.split("?", 1)[0].endswith("/boom") else 200
+                self.send_response(status)
                 self.send_header("content-type", "application/json")
                 self.end_headers()
                 self.wfile.write(body)
@@ -468,13 +478,17 @@ def unreachable_route(extract: dict) -> list[dict]:
 
 
 def wait_one_pod(name: str) -> None:
-    """A terminating pod still in Endpoints would split the stand-in counter."""
+    """One process owns the stand-in counter. A terminating pod still accepts pooled connections."""
     deadline = time.time() + 120
     while time.time() < deadline:
         pods = json.loads(kube("get", "pods", "-n", NAMESPACE, "-l", f"app={name}", "-o", "json"))["items"]
-        live = [pod for pod in pods if not pod["metadata"].get("deletionTimestamp")]
+        terminating = [pod["metadata"]["name"] for pod in pods if pod["metadata"].get("deletionTimestamp")]
+        if terminating:
+            kube("delete", "pod", "-n", NAMESPACE, "--force", "--grace-period=0", *terminating)
+            time.sleep(1)
+            continue
         ready = [
-            pod for pod in live
+            pod for pod in pods
             if all(container.get("ready") for container in pod.get("status", {}).get("containerStatuses") or [])
         ]
         endpoints = json.loads(kube("get", "endpoints", "-n", NAMESPACE, name, "-o", "json"))
@@ -483,10 +497,29 @@ def wait_one_pod(name: str) -> None:
             for subset in endpoints.get("subsets") or []
             for address in subset.get("addresses") or []
         ]
-        if len(live) == 1 and len(ready) == 1 and len(addresses) == 1:
+        if len(pods) == 1 and len(ready) == 1 and len(addresses) == 1:
             return
         time.sleep(1)
     raise SystemExit(f"{name} did not settle to one ready endpoint")
+
+
+def recycle_proxy() -> None:
+    """Drop Envoy's upstream pool so it cannot keep talking to a deleted stand-in."""
+    kube("delete", "pod", "-n", EG_NAMESPACE, "-l", "app.kubernetes.io/component=proxy", "--wait=true")
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        pods = json.loads(
+            kube("get", "pods", "-n", EG_NAMESPACE, "-l", "app.kubernetes.io/component=proxy", "-o", "json")
+        )["items"]
+        live = [pod for pod in pods if not pod["metadata"].get("deletionTimestamp")]
+        ready = [
+            pod for pod in live
+            if all(container.get("ready") for container in pod.get("status", {}).get("containerStatuses") or [])
+        ]
+        if len(live) == 1 and len(ready) == 1:
+            return
+        time.sleep(2)
+    raise SystemExit("envoy proxy did not return after the pool was dropped")
 
 
 def wait_ready() -> None:
@@ -687,6 +720,7 @@ def main() -> int:
     wait_ready()
     wait_one_pod("data-api-stand-in")
     wait_one_pod("data-api-jwks")
+    recycle_proxy()
     forward = port_forward()
     try:
         now = int(time.time())
@@ -724,6 +758,55 @@ def main() -> int:
             "missing-bearer": (None, 401),
             "missing-iss": (mint({"alg": "RS256", "kid": "alpha"}, claims(now, ISSUER_ALPHA, iss=None), alpha), 401),
             "missing-exp": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, exp=None), alpha), 401),
+            "nested-exp": (lambda: sign_json(
+                json.dumps({"alg": "RS256", "kid": "alpha", "typ": "JWT"}, separators=(",", ":")),
+                json.dumps({
+                    "x": {"exp": 9999999999},
+                    "iss": ISSUER_ALPHA,
+                    "aud": AUDIENCE,
+                    "nbf": int(time.time()) - 10,
+                    "sub": "user",
+                }, separators=(",", ":")),
+                alpha,
+            ), 401),
+            "nested-exp-spoof": (lambda: sign_json(
+                json.dumps({"alg": "RS256", "kid": "alpha", "typ": "JWT"}, separators=(",", ":")),
+                json.dumps({
+                    "x": {"exp": 9999999999},
+                    "iss": ISSUER_ALPHA,
+                    "aud": AUDIENCE,
+                    "exp": int(time.time()) - 45,
+                    "nbf": int(time.time()) - 10,
+                    "sub": "user",
+                }, separators=(",", ":")),
+                alpha,
+            ), 401),
+            "duplicate-alg": (lambda: sign_json(
+                '{"alg":"RS256","kid":"alpha","alg":"RS256"}',
+                json.dumps(claims(int(time.time()), ISSUER_ALPHA), separators=(",", ":")),
+                alpha,
+            ), 401),
+            "nbf-string": (lambda: sign_json(
+                json.dumps({"alg": "RS256", "kid": "alpha", "typ": "JWT"}, separators=(",", ":")),
+                json.dumps({
+                    "iss": ISSUER_ALPHA,
+                    "aud": AUDIENCE,
+                    "exp": int(time.time()) + 600,
+                    "nbf": "not-a-time",
+                    "sub": "user",
+                }, separators=(",", ":")),
+                alpha,
+            ), 401),
+            "exp-string": (lambda: sign_json(
+                json.dumps({"alg": "RS256", "kid": "alpha", "typ": "JWT"}, separators=(",", ":")),
+                json.dumps({
+                    "iss": ISSUER_ALPHA,
+                    "aud": AUDIENCE,
+                    "exp": "not-a-time",
+                    "sub": "user",
+                }, separators=(",", ":")),
+                alpha,
+            ), 401),
             "nbf-within-15s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 15), alpha), 200),
             "nbf-31s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 31), alpha), 401),
             "nbf-beyond-120s": (lambda: mint({"alg": "RS256", "kid": "alpha"}, claims(int(time.time()), ISSUER_ALPHA, nbf=int(time.time()) + 120), alpha), 401),
@@ -734,6 +817,7 @@ def main() -> int:
         zero_forward = {
             "wrong-audience", "missing-exp", "expired-31s", "expired-45s", "nbf-31s",
             "disallowed-alg", "cross-issuer-key", "cross-issuer-kid",
+            "nested-exp", "nested-exp-spoof", "duplicate-alg", "nbf-string", "exp-string",
         }
         must_forward = {"valid-alpha", "valid-beta", "expired-20s", "nbf-within-15s"}
         for name, (token, required) in cases.items():
@@ -787,6 +871,21 @@ def main() -> int:
             results["nbf-beyond-120s"][0],
             "401 required",
         )
+        tested("nested exp, no top-level exp", results["nested-exp"][0], "401 required; one root exp")
+        tested("nested exp spoofing an expired exp", results["nested-exp-spoof"][0], "401 required; exp occurs twice")
+        tested("duplicate alg", results["duplicate-alg"][0], "401 required; alg occurs twice")
+        tested("nbf is a string", results["nbf-string"][0], "401 required; non-numeric nbf fails closed")
+        tested("exp is a string", results["exp-string"][0], "401 required; non-numeric exp fails closed")
+        boom_before = stand_in_count()
+        boom_status, boom_headers, boom_body = request("/v1/data/boom", valid)
+        boom_forwarded = stand_in_count() - boom_before - 1
+        tested("upstream 500 from the stand-in", boom_status, f"forwarded {boom_forwarded}; body={boom_body[:80]!r}")
+        if boom_status != 500 or boom_forwarded != 1 or boom_body == "unavailable":
+            raise SystemExit(
+                f"upstream 500 was rewritten or not forwarded: status={boom_status} "
+                f"forwarded={boom_forwarded} body={boom_body[:160]!r} "
+                f"retry-after={boom_headers.get('retry-after')!r}"
+            )
         tested("disallowed alg RS384", results["disallowed-alg"][0], "401 required; allow-list is RS256")
         tested("iss=beta signed with alpha key", results["cross-issuer-key"][0], "401 required")
         tested("iss=alpha kid=beta", results["cross-issuer-kid"][0], "401 required")

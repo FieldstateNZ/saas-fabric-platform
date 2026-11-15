@@ -89,6 +89,24 @@ def network_policy(selector: dict | None = None, peer: dict | None = None, names
     }
 
 
+def extension(names: list[str]) -> dict:
+    return {
+        "apiVersion": "gateway.envoyproxy.io/v1alpha1",
+        "kind": "EnvoyExtensionPolicy",
+        "metadata": {"name": "saas-fabric-data-headers", "namespace": "platform-system"},
+        "spec": {
+            "targetRefs": [
+                {"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": name}
+                for name in names
+            ],
+            "lua": [
+                {"type": "Inline", "inline": "x-tenant-id"},
+                {"type": "Inline", "inline": 'key_counts(payload, "exp")'},
+            ],
+        },
+    }
+
+
 def policy(labels: dict | None = None, names: list[str] | None = None) -> dict:
     spec: dict = {"jwt": {"providers": [{"name": "alpha"}]}}
     if names is not None:
@@ -142,6 +160,7 @@ class DataApiEdgeGate(unittest.TestCase):
             route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
             policy(),
             network_policy(),
+            extension(["saas-fabric", "saas-fabric-probes"]),
         ]
         self.assertEqual(problems_of(documents), [])
 
@@ -208,8 +227,22 @@ class DataApiEdgeGate(unittest.TestCase):
             route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
             policy(names=["saas-fabric"]),
             network_policy(),
+            extension(["saas-fabric", "saas-fabric-probes"]),
         ]
         self.assertEqual(problems_of(documents), [])
+
+    def test_missing_lua_on_a_forwarding_route_fails(self) -> None:
+        documents = [
+            deployment(1),
+            route("saas-fabric", "/v1/data", label="tenant"),
+            route("saas-fabric-probes", "/health", "Exact", extra=["/ready"]),
+            policy(),
+            network_policy(),
+            extension(["saas-fabric"]),
+        ]
+        found = problems_of(documents)
+        self.assertTrue(any("saas-fabric-probes" in item and "identity headers" in item for item in found), found)
+        self.assertTrue(any("saas-fabric-probes" in item and "exp" in item for item in found), found)
 
 
 if __name__ == "__main__":

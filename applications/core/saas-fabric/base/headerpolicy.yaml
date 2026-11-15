@@ -107,6 +107,52 @@ spec:
           )
         end
 
+        -- How many times `name` is a key, and how many of those are on the
+        -- root object. A first string.match would treat a nested "exp" as the
+        -- claim. exp and alg must occur once, at the root. nbf at most once.
+        function key_counts(document, name)
+          local total = 0
+          local top = 0
+          local depth = 0
+          local i = 1
+          local last = #document
+          while i <= last do
+            local char = string.sub(document, i, i)
+            if char == '"' then
+              local j = i + 1
+              while j <= last do
+                local item = string.sub(document, j, j)
+                if item == '\\' then
+                  j = j + 2
+                elseif item == '"' then
+                  break
+                else
+                  j = j + 1
+                end
+              end
+              local literal = string.sub(document, i + 1, j - 1)
+              local rest = string.sub(document, j + 1)
+              local is_key = literal == name and string.match(rest, '^%s*:')
+              if is_key then
+                total = total + 1
+                if depth == 1 then
+                  top = top + 1
+                end
+              end
+              i = j + 1
+            elseif char == '{' or char == '[' then
+              depth = depth + 1
+              i = i + 1
+            elseif char == '}' or char == ']' then
+              depth = depth - 1
+              i = i + 1
+            else
+              i = i + 1
+            end
+          end
+          return total, top
+        end
+
         function envoy_on_request(handle)
           local headers = handle:headers()
           local auth = headers:get("authorization")
@@ -127,24 +173,43 @@ spec:
             reject(handle)
             return
           end
+          local alg_total, alg_top = key_counts(header_json, "alg")
+          if alg_total ~= 1 or alg_top ~= 1 then
+            reject(handle)
+            return
+          end
           local alg = string.match(header_json, '"alg"%s*:%s*"([^"]+)"')
           if alg == nil or allowed_algs[alg] ~= true then
             reject(handle)
             return
           end
-          local exp = string.match(payload, '"exp"%s*:%s*(%-?%d+)')
+          local exp_total, exp_top = key_counts(payload, "exp")
+          if exp_total ~= 1 or exp_top ~= 1 then
+            reject(handle)
+            return
+          end
+          local exp_text = string.match(payload, '"exp"%s*:%s*(%-?%d+)%s*[,}]')
+          local exp = tonumber(exp_text)
           if exp == nil then
             reject(handle)
             return
           end
-          local now = os.time(os.date("!*t"))
-          exp = tonumber(exp)
+          local now = os.time()
           if now > exp + skew_seconds then
             reject(handle)
             return
           end
-          local nbf = string.match(payload, '"nbf"%s*:%s*(%-?%d+)')
-          if nbf ~= nil and now < tonumber(nbf) - skew_seconds then
+          local nbf_total, nbf_top = key_counts(payload, "nbf")
+          if nbf_total > 1 or nbf_top ~= nbf_total then
+            reject(handle)
+            return
+          end
+          local nbf_text = string.match(payload, '"nbf"%s*:%s*(%-?%d+)%s*[,}]')
+          if nbf_total == 1 and nbf_text == nil then
+            reject(handle)
+            return
+          end
+          if nbf_text ~= nil and now < tonumber(nbf_text) - skew_seconds then
             reject(handle)
           end
         end
