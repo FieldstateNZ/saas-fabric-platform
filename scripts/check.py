@@ -4186,6 +4186,64 @@ def check_platform_tls_does_not_cover_fabric(render: Path, problems: list[str]) 
                         f" writes {PLATFORM_TLS_SECRET} with {covered[0]}, which covers"
                         " fabric.fieldstate.nz",
                     )
+                # The fabric listener's certificate must not be the secret any
+                # other port-443 listener terminates. A shared name is how a
+                # client would coalesce the two hosts.
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "Gateway":
+                    continue
+                listeners = (document.get("spec") or {}).get("listeners") or []
+                fabric_certs: set[str] = set()
+                other_certs: set[str] = set()
+                for listener in listeners:
+                    if listener.get("port") != 443:
+                        continue
+                    names = {
+                        ref.get("name")
+                        for ref in (listener.get("tls") or {}).get("certificateRefs") or []
+                        if isinstance(ref, dict) and ref.get("name")
+                    }
+                    hostname = str(listener.get("hostname") or "").lower().rstrip(".")
+                    if listener.get("name") == FABRIC_LISTENER or hostname in FABRIC_CERT_NAMES:
+                        fabric_certs |= names
+                    else:
+                        other_certs |= names
+                shared = sorted(fabric_certs & other_certs)
+                if shared:
+                    metadata = document.get("metadata") or {}
+                    fail(
+                        problems,
+                        f"{environment}/{path.name}: Gateway/{metadata.get('name')}"
+                        f" uses {shared[0]} on the fabric listener and on another"
+                        " port-443 listener",
+                    )
+
+
+def check_downstream_http2_stays_off(render: Path, problems: list[str]) -> None:
+    """Do not enable downstream HTTP/2 on the platform Gateway.
+
+    Envoy Gateway 1.9 does not return 421 when one connection is reused for
+    another host. With HTTP/2 on, that connection would be accepted by the
+    hostname-less `https` listener, where a foreign catch-all could see the
+    bearer. HTTP/2 stays off until that is closed.
+    """
+    for environment in ENVIRONMENTS:
+        directory = render / environment
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*.yaml")):
+            for document in load_all(path, problems):
+                if document.get("kind") != "ClientTrafficPolicy":
+                    continue
+                if not (document.get("spec") or {}).get("http2"):
+                    continue
+                metadata = document.get("metadata") or {}
+                fail(
+                    problems,
+                    f"{environment}/{path.name}: ClientTrafficPolicy/{metadata.get('name')}"
+                    " sets http2; downstream HTTP/2 stays off on this Gateway",
+                )
 
 
 def _gateway_network_policy(documents: list[dict], namespace: str, deployment: dict) -> bool:
@@ -4365,6 +4423,7 @@ def main() -> int:
     check_data_api_edge_when_scaled(render, problems)
     check_lua_handlers_fail_closed(render, problems)
     check_platform_tls_does_not_cover_fabric(render, problems)
+    check_downstream_http2_stays_off(render, problems)
     check_applications_match_their_project(render, problems)
     check_namespaced_resources_stay_in_project_destinations(render, problems)
     check_no_client_resources(render, problems)

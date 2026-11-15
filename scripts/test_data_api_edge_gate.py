@@ -412,12 +412,40 @@ class PlatformTlsDoesNotCoverFabric(unittest.TestCase):
             check.check_platform_tls_does_not_cover_fabric(render([certificate("platform-tls", [name])]), found)
             self.assertTrue(any(name in item for item in found), found)
 
+    def test_the_same_secret_on_two_443_listeners_fails(self) -> None:
+        gateway = production_gateway()
+        shared = {"mode": "Terminate", "certificateRefs": [{"kind": "Secret", "name": "shared"}]}
+        for listener in gateway["spec"]["listeners"]:
+            if listener["name"] == "fabric":
+                listener["tls"] = shared
+        gateway["spec"]["listeners"].append({
+            "name": "https",
+            "protocol": "HTTPS",
+            "port": 443,
+            "tls": shared,
+            "allowedRoutes": {"namespaces": {"from": "All"}},
+        })
+        found: list[str] = []
+        check.check_platform_tls_does_not_cover_fabric(render([gateway]), found)
+        self.assertTrue(any("shared" in item for item in found), found)
+
     def test_another_name_on_platform_tls_passes(self) -> None:
         found: list[str] = []
         check.check_platform_tls_does_not_cover_fabric(
             render([certificate("platform-tls", ["auth.fieldstate.nz"])]), found
         )
         self.assertEqual(found, [])
+
+    def test_downstream_http2_fails(self) -> None:
+        policy = {
+            "apiVersion": "gateway.envoyproxy.io/v1alpha1",
+            "kind": "ClientTrafficPolicy",
+            "metadata": {"name": "enable-h2", "namespace": "platform-system"},
+            "spec": {"http2": {"maxConcurrentStreams": 100}},
+        }
+        found: list[str] = []
+        check.check_downstream_http2_stays_off(render([policy]), found)
+        self.assertTrue(any("http2" in item for item in found), found)
 
 
 class LuaHandlersFailClosed(unittest.TestCase):

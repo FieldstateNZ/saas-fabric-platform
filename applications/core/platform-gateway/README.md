@@ -181,7 +181,8 @@ certificateRefs:
 
 `platform-tls` is the catch-all product listener. It must not cover
 `fabric.fieldstate.nz`: no SAN for that name, and no `*.fieldstate.nz`
-wildcard. `fabric-tls` is only the
+wildcard. The fabric listener's certificate reference is not the secret any
+other port-443 listener uses. `fabric-tls` is only the
 fabric hostname. They are separate because Envoy Gateway 1.9 does not return
 421 when a connection opened for one host on a shared certificate is reused
 for the other, so the names must not share a certificate. `fabric-tls` is
@@ -190,6 +191,9 @@ issued here: cert-manager is not installed, and `ClusterIssuer` `platform-ca`
 is created at deploy time. No secret value is committed. Automated issuance
 is otherwise still a known gap — see
 [docs/architecture.md](../../../docs/architecture.md#known-gaps).
+Downstream HTTP/2 stays off: a coalesced connection would be accepted by the
+hostname-less `https` listener, and this Envoy Gateway does not answer that
+with 421.
 
 ## Dependencies
 
