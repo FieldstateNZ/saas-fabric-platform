@@ -2049,6 +2049,7 @@ def check_master_realm_bootstraps_itself(render: Path, problems: list[str]) -> N
 
 
 MASTER_INSTANCE_MODULE = Path("applications/core/master-instance/base/module/main.tf")
+MASTER_INSTANCE_MODULE_DIR = Path("applications/core/master-instance/base/module")
 
 # Keycloak's own user id. A username such as "admin" must not match: after the
 # account is deleted, a new account with that name is a different id and must
@@ -2301,11 +2302,21 @@ def master_instance_operator_identity_problems(module_text: str, where: str) -> 
                 " reads no id, so a missing operator fails at apply instead of plan"
             )
     if not saw_id_lookup:
-        problems.append(
-            f"{where}: no data.keycloak_user_realm_roles reads each roster id"
-            " (for_each = var.operators, user_id = each.value). A missing"
-            " operator id must fail tofu plan before anything is written"
-        )
+        # A file with no grant and no lookup is not this check's subject
+        # (variables.tf, for example). A grant without a roster lookup in the
+        # same file is: Terraform data sources do not cross module boundaries,
+        # so a child module has to carry its own plan-time read.
+        grants = [
+            name
+            for kind, name, _body in _hcl_top_level_blocks(text, "resource")
+            if kind == "keycloak_user_roles"
+        ]
+        if grants:
+            problems.append(
+                f"{where}: no data.keycloak_user_realm_roles reads each roster id"
+                " (for_each = var.operators, user_id = each.value). A missing"
+                " operator id must fail tofu plan before anything is written"
+            )
     # The grant must reference that lookup. user_id = each.value skips it:
     # OpenTofu then learns the id is missing only when the provider creates
     # the role mapping, which is apply time.
@@ -2377,21 +2388,41 @@ def master_instance_roster_problems(root: Path) -> list[str]:
     return problems
 
 
+def master_instance_module_files(root: Path) -> list[Path]:
+    """Every .tf file in the master-instance module, including child modules.
+
+    A lookup or grant that lives only under a nested module would otherwise
+    miss the plan-time and stable-id checks, which read main.tf alone.
+    """
+    directory = root / MASTER_INSTANCE_MODULE_DIR
+    if not directory.is_dir():
+        return []
+    return sorted(path for path in directory.rglob("*.tf") if path.is_file())
+
+
 def check_master_instance_lookups_precede_apply(root: Path, problems: list[str]) -> None:
     """Section 13, the convergence's own failure modes: a lookup fails the
     plan rather than the apply, a roster edit never revokes a grant, and a
-    grant binds to a stable user id rather than a username."""
-    module = root / MASTER_INSTANCE_MODULE
-    if not module.is_file():
-        fail(problems, f"{MASTER_INSTANCE_MODULE}: missing -- the master-instance convergence has no module")
+    grant binds to a stable user id rather than a username.
+
+    The three module checks run on every .tf file under the module directory,
+    including child modules, not only main.tf.
+    """
+    files = master_instance_module_files(root)
+    if not files:
+        fail(problems, f"{MASTER_INSTANCE_MODULE_DIR}: missing -- the master-instance convergence has no module")
         return
-    text = module.read_text()
-    for problem in master_instance_lookup_problems(text, str(MASTER_INSTANCE_MODULE)):
-        fail(problems, problem)
-    for problem in master_instance_grant_problems(text, str(MASTER_INSTANCE_MODULE)):
-        fail(problems, problem)
-    for problem in master_instance_operator_identity_problems(text, str(MASTER_INSTANCE_MODULE)):
-        fail(problems, problem)
+    if root / MASTER_INSTANCE_MODULE not in files:
+        fail(problems, f"{MASTER_INSTANCE_MODULE}: missing -- the master-instance convergence has no module")
+    for path in files:
+        where = str(path.relative_to(root))
+        text = path.read_text()
+        for problem in master_instance_lookup_problems(text, where):
+            fail(problems, problem)
+        for problem in master_instance_grant_problems(text, where):
+            fail(problems, problem)
+        for problem in master_instance_operator_identity_problems(text, where):
+            fail(problems, problem)
     for problem in master_instance_roster_problems(root):
         fail(problems, problem)
 

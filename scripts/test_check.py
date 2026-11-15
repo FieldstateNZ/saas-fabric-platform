@@ -874,6 +874,11 @@ class MasterInstanceOperatorIdentity(unittest.TestCase):
     def test_the_module_in_this_repository_passes(self) -> None:
         self.assertEqual(self.problems(MASTER_INSTANCE_MODULE.read_text()), [])
 
+    def test_every_tf_file_in_the_repository_module_passes(self) -> None:
+        problems: list[str] = []
+        check.check_master_instance_lookups_precede_apply(REPOSITORY, problems)
+        self.assertEqual(problems, [])
+
     def test_username_lookup_fails(self) -> None:
         """Failed before: the module resolved data.keycloak_user by username."""
         problems = self.problems(master_instance_module())
@@ -930,6 +935,35 @@ class MasterInstanceOperatorIdentity(unittest.TestCase):
         problems = self.problems(text)
         self.assertTrue(any("for_each = var.operators" in p for p in problems), problems)
         self.assertTrue(any("user_id = each.value skips the plan-time lookup" in p for p in problems), problems)
+
+    def test_a_child_module_file_is_scanned(self) -> None:
+        """A username lookup under a nested module used to be invisible."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            module = root / check.MASTER_INSTANCE_MODULE_DIR
+            module.mkdir(parents=True)
+            (module / "main.tf").write_text(id_bound_module())
+            (module / "variables.tf").write_text('variable "operators" {\n  type = set(string)\n}\n')
+            child = module / "nested" / "extra.tf"
+            child.parent.mkdir()
+            child.write_text(master_instance_module())
+            problems: list[str] = []
+            check.check_master_instance_lookups_precede_apply(root, problems)
+        self.assertTrue(
+            any("nested/extra.tf" in problem and "data.keycloak_user.operator" in problem for problem in problems),
+            problems,
+        )
+
+    def test_variables_file_without_a_grant_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            module = root / check.MASTER_INSTANCE_MODULE_DIR
+            module.mkdir(parents=True)
+            (module / "main.tf").write_text(id_bound_module())
+            (module / "variables.tf").write_text('variable "operators" {\n  type = set(string)\n}\n')
+            problems: list[str] = []
+            check.check_master_instance_lookups_precede_apply(root, problems)
+        self.assertEqual(problems, [])
 
     def test_username_lookup_mentioned_only_in_a_comment_passes(self) -> None:
         text = id_bound_module().replace(

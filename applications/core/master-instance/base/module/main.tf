@@ -153,8 +153,9 @@ resource "keycloak_realm" "master" {
 # time when that resource has changes pending, which on this module is every
 # run that imports the realm or converges `frontendUrl`; a lookup that fails
 # there fails after the resources ahead of it were already written. See
-# data.keycloak_user.operator below, and `check_master_instance_lookups_precede_apply`
-# in scripts/check.py, which holds every lookup here to this.
+# data.keycloak_user_realm_roles.operator below, and
+# `check_master_instance_lookups_precede_apply` in scripts/check.py, which
+# holds every lookup in this module's .tf files to this.
 data "keycloak_role" "admin" {
   realm_id = "master"
   name     = "admin"
