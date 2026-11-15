@@ -1,0 +1,20 @@
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/baseline-uids.json:generic-api-key:3
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/baseline-uids.json:generic-api-key:7
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/v1-migration.json:generic-api-key:96
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/v1-migration.json:generic-api-key:100
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/results.json:generic-api-key:98
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/results.json:generic-api-key:102
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/v6-rollback.json:generic-api-key:62
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/v6-rollback.json:generic-api-key:66
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/v6-rollback.json:generic-api-key:73
+# k8s resource UID in V1–V6 evidence, not a credential
+9b6e7de8206be8c6f9067af33ce552889579d5b9:test-evidence/ordered-updates/v6-rollback.json:generic-api-key:77
