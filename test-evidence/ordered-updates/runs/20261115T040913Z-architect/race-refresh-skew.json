@@ -1,0 +1,60 @@
+{
+  "explanation": "Step 3 was hard-refreshed and step 2 was not. The RollingSync gate treats an Application as Healthy from its own last compare, so a refreshed step 3 can sync the new commit while step 2 still reports Healthy and Synced at the previous commit.",
+  "ownedByApplicationSet": true,
+  "owners": {
+    "master-instance": [
+      "operator-sign-in"
+    ],
+    "master-instance-credential": [
+      "operator-sign-in"
+    ],
+    "saas-fabric-control-plane": [
+      "operator-sign-in"
+    ]
+  },
+  "reproduced": true,
+  "samples": [
+    {
+      "marker": "race-a",
+      "step2": {
+        "health": "Healthy",
+        "opPhase": "Succeeded",
+        "opRevision": "988fef80e1fe50bef46081fac6fab94638cfa2c3",
+        "opStarted": "2026-11-15T04:09:46Z",
+        "revision": "988fef80e1fe50bef46081fac6fab94638cfa2c3",
+        "sync": "Synced"
+      },
+      "step3": {
+        "health": "Healthy",
+        "opPhase": "Succeeded",
+        "opRevision": "988fef80e1fe50bef46081fac6fab94638cfa2c3",
+        "opStarted": "2026-11-15T04:10:00Z",
+        "revision": "988fef80e1fe50bef46081fac6fab94638cfa2c3",
+        "sync": "Synced"
+      },
+      "t": "2026-11-15T04:10:01Z"
+    },
+    {
+      "marker": "race-b",
+      "step2": {
+        "health": "Healthy",
+        "opPhase": "Succeeded",
+        "opRevision": "988fef80e1fe50bef46081fac6fab94638cfa2c3",
+        "opStarted": "2026-11-15T04:09:46Z",
+        "revision": "988fef80e1fe50bef46081fac6fab94638cfa2c3",
+        "sync": "Synced"
+      },
+      "step3": {
+        "health": "Healthy",
+        "opPhase": "Running",
+        "opRevision": null,
+        "opStarted": "2026-11-15T04:10:01Z",
+        "revision": "4fb95e73d95aa9dbbbe329731eb9bd3e87ee6200",
+        "sync": "Synced"
+      },
+      "t": "2026-11-15T04:10:01Z"
+    }
+  ],
+  "shaA": "988fef80e1fe50bef46081fac6fab94638cfa2c3",
+  "shaB": "4fb95e73d95aa9dbbbe329731eb9bd3e87ee6200"
+}

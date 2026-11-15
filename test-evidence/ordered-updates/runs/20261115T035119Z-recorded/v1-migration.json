@@ -25,7 +25,7 @@
         "controller": true,
         "kind": "ApplicationSet",
         "name": "operator-sign-in",
-        "uid": "ea543de9-0ffa-47a8-9849-5f36981fa8a0"
+        "uid": "uid:ed843d929e4e"
       }
     ],
     "master-instance-credential": [
@@ -35,7 +35,7 @@
         "controller": true,
         "kind": "ApplicationSet",
         "name": "operator-sign-in",
-        "uid": "ea543de9-0ffa-47a8-9849-5f36981fa8a0"
+        "uid": "uid:ed843d929e4e"
       }
     ],
     "saas-fabric-control-plane": [
@@ -45,7 +45,7 @@
         "controller": true,
         "kind": "ApplicationSet",
         "name": "operator-sign-in",
-        "uid": "ea543de9-0ffa-47a8-9849-5f36981fa8a0"
+        "uid": "uid:ed843d929e4e"
       }
     ]
   },
@@ -92,14 +92,14 @@
   },
   "uidChanges": {},
   "uids": {
-    "application/master-instance": "0e2c59a3-5e10-444d-8543-5614162bcf47",
-    "application/step-1": "62dfc3d8-27e2-4d53-9325-a0aea80865dc",
-    "application/saas-fabric-control-plane": "30a07724-1fb7-4360-ba50-dcb1e2199fd3",
-    "configmap/control-plane-standin": "8e28f7b1-da14-4aa3-8658-d3f63f48370c",
-    "configmap/convergence-mode": "9ba2c4ed-f512-4cf4-8981-828adf7f2989",
-    "configmap/step-1-standin": "4e023546-dcba-4b0a-9a1d-358b8b289956",
-    "job/convergence": "9274bd88-5125-458b-b57d-ec83262c08f6",
-    "namespace/master-instance-state": "c97fc803-267e-48b2-b939-8ebfbc2117ec",
-    "secret/tfstate-default-master-instance": "3648147f-ae92-4b98-b474-7e18c7c27e84"
+    "application/master-instance": "uid:3f4e5368e875",
+    "application/step-1": "uid:00b70efe6fa7",
+    "application/saas-fabric-control-plane": "uid:de68942721b4",
+    "configmap/control-plane-standin": "uid:6b0ff5164e12",
+    "configmap/convergence-mode": "uid:f45e9a924afc",
+    "configmap/step-1-standin": "uid:e4d6700b3d05",
+    "job/convergence": "uid:31c028114085",
+    "namespace/master-instance-state": "uid:f3930699e51b",
+    "secret/tfstate-default-master-instance": "uid:a51b0a35c485"
   }
 }

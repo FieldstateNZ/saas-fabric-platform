@@ -1,0 +1,85 @@
+{
+  "applicationSet": {
+    "applicationStatus": [
+      {
+        "application": "master-instance",
+        "lastTransitionTime": "2026-11-15T04:57:33Z",
+        "message": "Application resource became Healthy, updating status from Progressing to Healthy",
+        "status": "Healthy",
+        "step": "2",
+        "targetRevisions": [
+          "dd638f7792f1c6c5ef35989068508c032a558b6c"
+        ]
+      },
+      {
+        "application": "master-instance-credential",
+        "lastTransitionTime": "2026-11-15T04:57:33Z",
+        "message": "Application resource has synced, updating status to Healthy",
+        "status": "Healthy",
+        "step": "1",
+        "targetRevisions": [
+          "dd638f7792f1c6c5ef35989068508c032a558b6c"
+        ]
+      },
+      {
+        "application": "saas-fabric-control-plane",
+        "lastTransitionTime": "2026-11-15T04:57:38Z",
+        "message": "Application resource became Healthy, updating status from Progressing to Healthy",
+        "status": "Healthy",
+        "step": "3",
+        "targetRevisions": [
+          "dd638f7792f1c6c5ef35989068508c032a558b6c"
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-11-15T04:31:44Z",
+        "message": "All applications have been generated successfully",
+        "reason": "ApplicationSetUpToDate",
+        "status": "False",
+        "type": "ErrorOccurred"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T04:31:44Z",
+        "message": "Successfully generated parameters for all Applications",
+        "reason": "ParametersGenerated",
+        "status": "True",
+        "type": "ParametersGenerated"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T04:31:44Z",
+        "message": "All applications have been generated successfully",
+        "reason": "ApplicationSetUpToDate",
+        "status": "True",
+        "type": "ResourcesUpToDate"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T04:57:38Z",
+        "message": "ApplicationSet Rollout has completed",
+        "reason": "ApplicationSetRolloutComplete",
+        "status": "False",
+        "type": "RolloutProgressing"
+      }
+    ]
+  },
+  "finalMarker": "v3-b",
+  "sawUnready": true,
+  "sha": "dd638f7792f1c6c5ef35989068508c032a558b6c",
+  "stateUidChanges": {},
+  "step2": {
+    "health": "Healthy",
+    "opFinished": "2026-11-15T04:57:22Z",
+    "opStarted": "2026-11-15T04:57:19Z",
+    "revision": "dd638f7792f1c6c5ef35989068508c032a558b6c",
+    "sync": "Synced"
+  },
+  "step3": {
+    "health": "Healthy",
+    "opFinished": null,
+    "opStarted": "2026-11-15T04:57:38Z",
+    "revision": "dd638f7792f1c6c5ef35989068508c032a558b6c",
+    "sync": "Synced"
+  },
+  "violation": null
+}

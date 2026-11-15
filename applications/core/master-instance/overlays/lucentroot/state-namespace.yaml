@@ -28,11 +28,13 @@
 # `fieldstate.nz/system: saas-fabric` stays, as plain inventory: it says
 # whose namespace this is without asserting membership in anything.
 #
-# `Prune=false`: removing this Application, or dropping this manifest from
-# Git, must not delete this Namespace and take
-# `tfstate-default-master-instance` down with it -- pruning a Namespace
-# deletes everything inside it. See this Application's README, "Resources
-# unsafe to prune".
+# `Prune=false,Delete=false`: removing this Application, dropping this
+# manifest from Git, or deleting the Application must not delete this
+# Namespace and take `tfstate-default-master-instance` down with it.
+# Pruning or deleting a Namespace deletes everything inside it. `Prune=false`
+# alone does not survive Application deletion (ordered-updates.md R2). O5
+# adds `Delete=false`. See this Application's README, "Resources unsafe to
+# prune".
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -41,4 +43,4 @@ metadata:
     fieldstate.nz/system: saas-fabric
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
-    argocd.argoproj.io/sync-options: Prune=false
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false

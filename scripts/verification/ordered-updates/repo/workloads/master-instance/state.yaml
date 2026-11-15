@@ -1,6 +1,5 @@
-# Stand-in for master-instance-state. The live namespace has Prune=false and
-# not Delete=false (ordered-updates.md R2). This stand-in carries both so V6
-# can show the Secret surviving Application deletion.
+# Stand-in for master-instance-state. The live namespace and the tfstate
+# Secret carry Prune=false,Delete=false (O5). This stand-in does too.
 apiVersion: v1
 kind: Namespace
 metadata:

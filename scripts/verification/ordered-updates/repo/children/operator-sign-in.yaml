@@ -1,6 +1,13 @@
-# Same RollingSync shape as scripts/fixtures/rolling-sync/applicationset.yaml,
-# pointed at the stand-in workloads. The verification script copies this into
-# the throwaway git repo. No environment lists it.
+# Stand-in for the RollingSync candidate. Not applied by any environment.
+#
+# Differences from scripts/fixtures/rolling-sync/applicationset.yaml, on purpose:
+# project is default, because the real saas-fabric-platform AppProject does
+# not allow this throwaway git URL. Retries are 2/5s/30s rather than the
+# fixture's 5/10s/5m and 10/15s/10m, so a failed Job reaches Degraded inside
+# the test window. managedNamespaceMetadata and SkipDryRunOnMissingResource
+# are omitted; the stand-in has no CRD dry-run. Step 3 carries
+# automated.enabled=false with prune=true as the Q3 probe. Steps 1 and 2
+# omit automated so prune stays off.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -45,7 +52,14 @@ spec:
           - name: saas-fabric-control-plane
             step: "3"
             path: workloads/saas-fabric-control-plane
+            # Q3 probe: enabled false, so this should NOT copy prune. The
+            # stateful steps above omit automated entirely, which keeps prune
+            # off. selfHeal true here is inert while enabled is false.
             syncPolicy:
+              automated:
+                enabled: false
+                prune: true
+                selfHeal: true
               syncOptions:
                 - CreateNamespace=true
               retry:
@@ -76,6 +90,7 @@ spec:
   syncPolicy:
     preserveResourcesOnDeletion: true
     applicationsSync: create-update
+  # No resources-finalizer. See the fixture.
   template:
     metadata:
       name: "{{.name}}"
@@ -84,8 +99,6 @@ spec:
         fieldstate.nz/source: kustomize
         fieldstate.nz/class: core
         fieldstate.nz/rollout-step: "{{.step}}"
-      finalizers:
-        - resources-finalizer.argocd.argoproj.io
     spec:
       project: default
       revisionHistoryLimit: 20

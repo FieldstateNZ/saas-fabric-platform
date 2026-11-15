@@ -17,4 +17,5 @@ resources:
   - keycloak-admin-mirror.yaml
   - master-instance-config.yaml
   - state-namespace.yaml
+  - state-secret.yaml
   - state-rbac.yaml

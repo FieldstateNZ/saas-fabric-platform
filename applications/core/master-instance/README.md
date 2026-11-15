@@ -478,11 +478,14 @@ is idempotent, not destructive.
 
 `master-instance-state` (the `Namespace`, per
 [`overlays/lucentroot/state-namespace.yaml`](overlays/lucentroot/state-namespace.yaml))
-carries `Prune=false` for exactly this reason: removing this Application, or
-dropping that manifest from Git, must not take `tfstate-default-master-instance`
-with it. A pruned Namespace deletes everything inside it, state Secret
-included — which is a worse version of the state loss described above, with
-no Git history to recreate the manifest from.
+and the state Secret
+([`overlays/lucentroot/state-secret.yaml`](overlays/lucentroot/state-secret.yaml))
+carry `Prune=false,Delete=false`. Removing this Application, dropping either
+manifest from Git, or deleting the Application must not take
+`tfstate-default-master-instance` with it. A pruned or deleted Namespace
+deletes everything inside it, state Secret included. The Secret manifest
+carries no `data`; the body stays the kubernetes backend's, and
+`ignoreDifferences` on `/data` keeps a sync from treating that body as drift.
 
 ### The image
 

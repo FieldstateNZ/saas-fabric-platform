@@ -1,0 +1,39 @@
+# PreSync gate: step 3 must not sync unless step 2's convergence Job has
+# completed. This is the ordering check that a one-second poll cannot make.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ordering-gate
+  namespace: operator-system
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: ordering-gate
+      containers:
+        - name: gate
+          image: quay.io/argoproj/argocd:v3.5.6
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              cacert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              body=$( {
+                printf '%s\r\n' \
+                  "GET /apis/batch/v1/namespaces/operator-system/jobs/convergence HTTP/1.1"
+                printf '%s\r\n' "Host: kubernetes.default.svc"
+                printf 'Authorization: Bearer %s\r\n' "$token"
+                printf '%s\r\n\r\n' "Connection: close"
+              } | openssl s_client \
+                -connect kubernetes.default.svc:443 \
+                -servername kubernetes.default.svc \
+                -CAfile "$cacert" -quiet 2>/dev/null || true)
+              printf '%s\n' "$body" | grep -q '"succeeded":1' \
+                || { echo "step 2 convergence Job is not complete"; exit 1; }
+              echo "step 2 convergence Job is complete"

@@ -44,6 +44,11 @@ spec:
         elements:
           - name: master-instance-credential
             step: "1"
+            # No `automated`, so no `automated.prune`. The controller copies
+            # prune into the sync it starts only when automated sync is
+            # enabled on the generated spec. Leaving it off keeps prune off.
+            # A prune of this Application can delete the gateway client
+            # secret (ordered-updates.md R3).
             syncPolicy:
               syncOptions:
                 - CreateNamespace=true
@@ -65,6 +70,10 @@ spec:
           # (applications/core/master-instance/base/job.yaml).
           - name: master-instance
             step: "2"
+            # No `automated.prune`, for the same reason as the credential.
+            # Prune of this Application is how `master-instance-state` and
+            # `tfstate-default-master-instance` would be lost if their
+            # Prune=false,Delete=false annotations were missed.
             syncPolicy:
               syncOptions:
                 - CreateNamespace=true
@@ -127,6 +136,10 @@ spec:
     # deliberate act.
     applicationsSync: create-update
 
+  # No resources-finalizer on generated Applications. preserveResourcesOnDeletion
+  # only keeps workloads when that finalizer is absent. Deleting the
+  # ApplicationSet is still kubectl --cascade=orphan: a background delete
+  # removes the Application objects via ownerReferences.
   template:
     metadata:
       name: "{{.name}}"
@@ -135,8 +148,6 @@ spec:
         fieldstate.nz/source: kustomize
         fieldstate.nz/class: core
         fieldstate.nz/rollout-step: "{{.step}}"
-      finalizers:
-        - resources-finalizer.argocd.argoproj.io
     spec:
       project: saas-fabric-platform
 
@@ -148,6 +159,15 @@ spec:
       destination:
         server: https://kubernetes.default.svc
         namespace: operator-system
+      # The state Secret's body is OpenTofu's. Adoption must not drop this
+      # ignore, or a later sync treats the body as drift.
+      ignoreDifferences:
+        - group: ""
+          kind: Secret
+          name: tfstate-default-master-instance
+          namespace: master-instance-state
+          jsonPointers:
+            - /data
 
   # Each Application's syncPolicy, whole from its element: a list is replaced,
   # not merged. No `automated` block, here or in any element -- under

@@ -144,7 +144,7 @@
         "controller": true,
         "kind": "ApplicationSet",
         "name": "operator-sign-in",
-        "uid": "18da18c0-8c09-44aa-9cd5-c9034f78192c"
+        "uid": "uid:16506217022b"
       }
     ],
     "prune": null,
@@ -174,7 +174,7 @@
         "CreateNamespace=true"
       ]
     },
-    "uid": "9901276a-2c74-469c-ac94-f62217d7d7e4"
+    "uid": "uid:b11289b8402e"
   },
   "beforeOperationStarted": "2026-11-15T03:54:24Z",
   "samples": [

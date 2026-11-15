@@ -1,0 +1,603 @@
+{
+  "applicationSet": {
+    "applicationStatus": [
+      {
+        "application": "master-instance",
+        "lastTransitionTime": "2026-11-15T04:52:59Z",
+        "message": "Application resource has synced, updating status to Progressing",
+        "status": "Progressing",
+        "step": "2",
+        "targetRevisions": [
+          "79822fb1afdd64d5f9786c7781a118ff81857628"
+        ]
+      },
+      {
+        "application": "master-instance-credential",
+        "lastTransitionTime": "2026-11-15T04:52:59Z",
+        "message": "Application resource has synced, updating status to Healthy",
+        "status": "Healthy",
+        "step": "1",
+        "targetRevisions": [
+          "79822fb1afdd64d5f9786c7781a118ff81857628"
+        ]
+      },
+      {
+        "application": "saas-fabric-control-plane",
+        "lastTransitionTime": "2026-11-15T04:52:45Z",
+        "message": "Application has pending changes, setting status to Waiting",
+        "status": "Waiting",
+        "step": "3",
+        "targetRevisions": [
+          "79822fb1afdd64d5f9786c7781a118ff81857628"
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-11-15T04:31:44Z",
+        "message": "All applications have been generated successfully",
+        "reason": "ApplicationSetUpToDate",
+        "status": "False",
+        "type": "ErrorOccurred"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T04:31:44Z",
+        "message": "Successfully generated parameters for all Applications",
+        "reason": "ParametersGenerated",
+        "status": "True",
+        "type": "ParametersGenerated"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T04:31:44Z",
+        "message": "All applications have been generated successfully",
+        "reason": "ApplicationSetUpToDate",
+        "status": "True",
+        "type": "ResourcesUpToDate"
+      },
+      {
+        "lastTransitionTime": "2026-11-15T04:52:37Z",
+        "message": "ApplicationSet is performing rollout of step 2",
+        "reason": "ApplicationSetModified",
+        "status": "True",
+        "type": "RolloutProgressing"
+      }
+    ]
+  },
+  "blocked": [
+    {
+      "afterOperationStarted": "2026-11-15T04:52:31Z",
+      "appsetStep2Statuses": [
+        "Progressing"
+      ],
+      "beforeOperationStarted": "2026-11-15T04:52:31Z",
+      "held": true,
+      "liveMarker": "s5-10",
+      "marker": "v3-a",
+      "samples": [
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:10.091681Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:10.823510Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:11.552617Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:12.299629Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:13.034771Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:13.753333Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:14.494346Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "79822fb1afdd64d5f9786c7781a118ff81857628",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:54:15.239539Z"
+        }
+      ],
+      "sha": "79822fb1afdd64d5f9786c7781a118ff81857628",
+      "step2LeftDegraded": false,
+      "step2Revisions": [
+        "79822fb1afdd64d5f9786c7781a118ff81857628",
+        "d346d68cdf5eb05586db77792f44190509835d5e"
+      ]
+    },
+    {
+      "afterOperationStarted": "2026-11-15T04:52:31Z",
+      "appsetStep2Statuses": [
+        "Progressing"
+      ],
+      "beforeOperationStarted": "2026-11-15T04:52:31Z",
+      "held": true,
+      "liveMarker": "s5-10",
+      "marker": "v3-b",
+      "samples": [
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:40.434718Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:41.158335Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:41.873286Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:42.584277Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:43.296877Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:44.005970Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:44.723444Z"
+        },
+        {
+          "appsetStep2": {
+            "lastTransitionTime": "2026-11-15T04:52:59Z",
+            "status": "Progressing"
+          },
+          "marker": "s5-10",
+          "step2": {
+            "health": "Degraded",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "Synced"
+          },
+          "step3": {
+            "health": "Healthy",
+            "opPhase": "Succeeded",
+            "opStarted": "2026-11-15T04:52:31Z",
+            "revision": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+            "sync": "OutOfSync"
+          },
+          "t": "2026-11-15T04:55:45.459604Z"
+        }
+      ],
+      "sha": "0200ee3eff8aebe2edd44794aca0044b078c506e",
+      "step2LeftDegraded": false,
+      "step2Revisions": [
+        "0200ee3eff8aebe2edd44794aca0044b078c506e",
+        "79822fb1afdd64d5f9786c7781a118ff81857628"
+      ]
+    }
+  ],
+  "conditionNamesStep2": true,
+  "step2": {
+    "health": "Degraded",
+    "history": [
+      {
+        "deployStartedAt": "2026-11-15T04:48:36Z",
+        "deployedAt": "2026-11-15T04:48:39Z",
+        "id": 78,
+        "revision": "cb7b5c34bdb935b381b6fc2422967bf07abecd8a"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:48:39Z",
+        "deployedAt": "2026-11-15T04:48:41Z",
+        "id": 79,
+        "revision": "cb7b5c34bdb935b381b6fc2422967bf07abecd8a"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:48:59Z",
+        "deployedAt": "2026-11-15T04:49:01Z",
+        "id": 80,
+        "revision": "0738f1393dfdfba55d44771bea84cef3c8d14846"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:49:01Z",
+        "deployedAt": "2026-11-15T04:49:03Z",
+        "id": 81,
+        "revision": "0738f1393dfdfba55d44771bea84cef3c8d14846"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:49:21Z",
+        "deployedAt": "2026-11-15T04:49:24Z",
+        "id": 82,
+        "revision": "b21a07da7198bc48dfbbd92f3244443f37e81248"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:49:24Z",
+        "deployedAt": "2026-11-15T04:49:26Z",
+        "id": 83,
+        "revision": "b21a07da7198bc48dfbbd92f3244443f37e81248"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:49:43Z",
+        "deployedAt": "2026-11-15T04:49:45Z",
+        "id": 84,
+        "revision": "2c323607f1b81e83fc7b3f004a048b187ae2a321"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:49:45Z",
+        "deployedAt": "2026-11-15T04:49:48Z",
+        "id": 85,
+        "revision": "2c323607f1b81e83fc7b3f004a048b187ae2a321"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:50:09Z",
+        "deployedAt": "2026-11-15T04:50:11Z",
+        "id": 86,
+        "revision": "ca67c0537c4c77b33c918c115345d4135de76ed0"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:50:34Z",
+        "deployedAt": "2026-11-15T04:50:36Z",
+        "id": 87,
+        "revision": "d98f3695f664e21d8ee5dfe64adba5e41ba657f6"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:50:36Z",
+        "deployedAt": "2026-11-15T04:50:39Z",
+        "id": 88,
+        "revision": "d98f3695f664e21d8ee5dfe64adba5e41ba657f6"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:51:00Z",
+        "deployedAt": "2026-11-15T04:51:03Z",
+        "id": 89,
+        "revision": "2fd6b664557e2cddb5e4b7af8960d27ac3a13741"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:51:03Z",
+        "deployedAt": "2026-11-15T04:51:05Z",
+        "id": 90,
+        "revision": "2fd6b664557e2cddb5e4b7af8960d27ac3a13741"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:51:28Z",
+        "deployedAt": "2026-11-15T04:51:30Z",
+        "id": 91,
+        "revision": "94d9c0ad59b0b187c9dea37466110c84aa08b68c"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:51:47Z",
+        "deployedAt": "2026-11-15T04:51:50Z",
+        "id": 92,
+        "revision": "2adf7a4e00c02c725f00ad36e3f15fc8874f808e"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:51:50Z",
+        "deployedAt": "2026-11-15T04:51:52Z",
+        "id": 93,
+        "revision": "2adf7a4e00c02c725f00ad36e3f15fc8874f808e"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:52:09Z",
+        "deployedAt": "2026-11-15T04:52:11Z",
+        "id": 94,
+        "revision": "48a810b3d73b1bca0e0e2446a346b0053b66e2af"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:52:12Z",
+        "deployedAt": "2026-11-15T04:52:14Z",
+        "id": 95,
+        "revision": "48a810b3d73b1bca0e0e2446a346b0053b66e2af"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:52:37Z",
+        "deployedAt": "2026-11-15T04:52:39Z",
+        "id": 96,
+        "revision": "d346d68cdf5eb05586db77792f44190509835d5e"
+      },
+      {
+        "deployStartedAt": "2026-11-15T04:52:39Z",
+        "deployedAt": "2026-11-15T04:52:41Z",
+        "id": 97,
+        "revision": "d346d68cdf5eb05586db77792f44190509835d5e"
+      }
+    ],
+    "initiatedBy": {
+      "automated": true,
+      "username": "applicationset-controller"
+    },
+    "labels": {
+      "fieldstate.nz/class": "core",
+      "fieldstate.nz/rollout-step": "2",
+      "fieldstate.nz/source": "kustomize"
+    },
+    "name": "master-instance",
+    "opFinished": "2026-11-15T04:52:41Z",
+    "opPhase": "Succeeded",
+    "opRevision": "d346d68cdf5eb05586db77792f44190509835d5e",
+    "opStarted": "2026-11-15T04:52:39Z",
+    "owners": [
+      {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "ApplicationSet",
+        "name": "operator-sign-in",
+        "uid": "uid:5854b190bd3b"
+      }
+    ],
+    "prune": null,
+    "retry": {
+      "backoff": {
+        "duration": "5s",
+        "factor": 2,
+        "maxDuration": "30s"
+      },
+      "limit": 2
+    },
+    "revision": "d346d68cdf5eb05586db77792f44190509835d5e",
+    "sync": "Synced",
+    "syncOptions": [
+      "CreateNamespace=true"
+    ],
+    "syncPolicy": {
+      "retry": {
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "30s"
+        },
+        "limit": 2
+      },
+      "syncOptions": [
+        "CreateNamespace=true"
+      ]
+    },
+    "uid": "uid:93b7376b5b41"
+  },
+  "step3Waiting": true
+}

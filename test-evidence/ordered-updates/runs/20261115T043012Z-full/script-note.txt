@@ -1,0 +1,6 @@
+mode: full
+scriptCommit recorded in run.json: c5e8a7f
+The process ran the working tree on top of that commit. That tree added UID
+fingerprints (uid: plus 12 hex characters of sha256) and a short wait for the
+PreSync Job status. Those changes are in the commit that adds this directory.
+No raw Kubernetes UID is in this directory.
